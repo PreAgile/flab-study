@@ -1,0 +1,31 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python (gen_excalidraw.py 부속)
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Java build artifacts (학습 시 생긴 것)
+*.class
+target/
+build/
+out/
+.gradle/
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.swp
+*~
