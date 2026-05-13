@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 1260 651" width="1260" height="651" font-family="-apple-system,BlinkMacSystemFont,&apos;Apple SD Gothic Neo&apos;,&apos;Pretendard&apos;,&apos;Noto Sans KR&apos;,&apos;Malgun Gothic&apos;,&apos;Helvetica Neue&apos;,Helvetica,Arial,sans-serif">
+<defs>
+<marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+</marker>
+</defs>
+<rect x="20" y="0" width="1260" height="651" fill="#ffffff"/>
+<rect x="50" y="110" width="100" height="75" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="170" y="110" width="130" height="75" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="320" y="110" width="200" height="75" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="540" y="110" width="540" height="75" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<rect x="50" y="205" width="100" height="75" rx="8" ry="8" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+<rect x="170" y="205" width="130" height="75" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="320" y="205" width="200" height="75" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="540" y="205" width="540" height="75" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<rect x="50" y="300" width="100" height="75" rx="8" ry="8" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+<rect x="170" y="300" width="130" height="75" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="320" y="300" width="200" height="75" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="540" y="300" width="540" height="75" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<rect x="50" y="395" width="100" height="75" rx="8" ry="8" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+<rect x="170" y="395" width="130" height="75" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="320" y="395" width="200" height="75" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="540" y="395" width="540" height="75" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<rect x="50" y="490" width="100" height="75" rx="8" ry="8" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+<rect x="170" y="490" width="130" height="75" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="320" y="490" width="200" height="75" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="540" y="490" width="540" height="75" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<path d="M 1100,185 L 1100,205" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1100,280 L 1100,300" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1100,375 L 1100,395" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1100,470 L 1100,490" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<text x="50" y="54" text-anchor="start" font-size="24" fill="#1e1e1e">Tiered Compilation (5단)</text>
+<text x="50" y="75" text-anchor="start" font-size="13" fill="#666">L0 → L3 → L4 (대부분 메서드의 승격 경로)</text>
+<text x="100" y="154" text-anchor="middle" font-size="18" fill="#1e1e1e">Level 0</text>
+<text x="235" y="154" text-anchor="middle" font-size="18" fill="#1e1e1e">Interpreter</text>
+<text x="420" y="153" text-anchor="middle" font-size="14" fill="#1e1e1e">no profiling</text>
+<text x="810" y="153" text-anchor="middle" font-size="14" fill="#1e1e1e">모든 메서드의 출발점</text>
+<text x="100" y="249" text-anchor="middle" font-size="18" fill="#1e1e1e">Level 1</text>
+<text x="235" y="249" text-anchor="middle" font-size="18" fill="#1e1e1e">C1</text>
+<text x="420" y="248" text-anchor="middle" font-size="14" fill="#1e1e1e">no profiling</text>
+<text x="810" y="248" text-anchor="middle" font-size="14" fill="#1e1e1e">Trivial 메서드 (getter/setter) — 끝</text>
+<text x="100" y="344" text-anchor="middle" font-size="18" fill="#1e1e1e">Level 2</text>
+<text x="235" y="344" text-anchor="middle" font-size="18" fill="#1e1e1e">C1</text>
+<text x="420" y="343" text-anchor="middle" font-size="14" fill="#1e1e1e">with counters</text>
+<text x="810" y="343" text-anchor="middle" font-size="14" fill="#1e1e1e">C2 큐 막힐 때 우회용</text>
+<text x="100" y="439" text-anchor="middle" font-size="18" fill="#1e1e1e">Level 3</text>
+<text x="235" y="439" text-anchor="middle" font-size="18" fill="#1e1e1e">C1</text>
+<text x="420" y="438" text-anchor="middle" font-size="14" fill="#1e1e1e">FULL profiling</text>
+<text x="810" y="438" text-anchor="middle" font-size="14" fill="#1e1e1e">★ 메서드 인자 타입·분기 빈도·null 빈도 수집</text>
+<text x="100" y="534" text-anchor="middle" font-size="18" fill="#1e1e1e">Level 4</text>
+<text x="235" y="534" text-anchor="middle" font-size="18" fill="#1e1e1e">C2</text>
+<text x="420" y="533" text-anchor="middle" font-size="14" fill="#1e1e1e">with profile data</text>
+<text x="810" y="533" text-anchor="middle" font-size="14" fill="#1e1e1e">★ Peak: inline + EA + vectorization</text>
+<text x="1130" y="127" text-anchor="start" font-size="12" fill="#666">카운터</text>
+<text x="1130" y="142" text-anchor="start" font-size="12" fill="#666">임계치</text>
+<text x="1130" y="198" text-anchor="start" font-size="11" fill="#444">L0→L3</text>
+<text x="1130" y="212" text-anchor="start" font-size="11" fill="#444">~2000회</text>
+<text x="1130" y="293" text-anchor="start" font-size="11" fill="#444">L0→L1</text>
+<text x="1130" y="307" text-anchor="start" font-size="11" fill="#444">trivial 한정</text>
+<text x="1130" y="388" text-anchor="start" font-size="11" fill="#444">L0→L2</text>
+<text x="1130" y="402" text-anchor="start" font-size="11" fill="#444">C2 큐 막힐 때</text>
+<text x="1130" y="483" text-anchor="start" font-size="11" fill="#444">L3→L4</text>
+<text x="1130" y="497" text-anchor="start" font-size="11" fill="#444">~15000회</text>
+<text x="50" y="618" text-anchor="start" font-size="13" fill="#444">왜 C1과 C2를 둘 다? — C1이 빠르게 native 공급(워밍업) + Profile 수집 / C2가 그 Profile로 공격적 최적화(peak)</text>
+</svg>

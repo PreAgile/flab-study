@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 910 730" width="910" height="730" font-family="-apple-system,BlinkMacSystemFont,&apos;Apple SD Gothic Neo&apos;,&apos;Pretendard&apos;,&apos;Noto Sans KR&apos;,&apos;Malgun Gothic&apos;,&apos;Helvetica Neue&apos;,Helvetica,Arial,sans-serif">
+<defs>
+<marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+</marker>
+</defs>
+<rect x="20" y="0" width="910" height="730" fill="#ffffff"/>
+<rect x="50" y="140" width="280" height="70" rx="8" ry="8" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+<rect x="50" y="250" width="280" height="200" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="70" y="290" width="240" height="40" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="70" y="350" width="240" height="40" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="70" y="410" width="240" height="35" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="50" y="490" width="280" height="80" rx="8" ry="8" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+<rect x="50" y="610" width="280" height="90" rx="8" ry="8" stroke="#c2185b" fill="#fce4ec" stroke-width="2"/>
+<rect x="550" y="170" width="220" height="55" rx="8" ry="8" stroke="#5d4037" fill="#efebe9" stroke-width="2"/>
+<rect x="550" y="255" width="220" height="55" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="550" y="340" width="220" height="55" rx="8" ry="8" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+<rect x="480" y="430" width="200" height="55" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="700" y="430" width="200" height="55" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<path d="M 190,215 L 190,245" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 190,335 L 190,345" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 190,395 L 190,405" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 190,455 L 190,485" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 190,575 L 190,605" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 660,250 L 660,230" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 660,335 L 660,315" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 580,425 L 580,405" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 740,425 L 740,405" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<text x="50" y="54" text-anchor="start" font-size="24" fill="#1e1e1e">ClassLoader: .class → Metaspace (3단계 + 부모 위임)</text>
+<text x="50" y="75" text-anchor="start" font-size="13" fill="#666">Loading → Linking(Verify/Prepare/Resolve) → Initialization</text>
+<text x="50" y="125" text-anchor="start" font-size="15" fill="#1e1e1e">[3단계 로딩 흐름]</text>
+<text x="190" y="172" text-anchor="middle" font-size="14" fill="#1e1e1e">1. Loading</text>
+<text x="190" y="189" text-anchor="middle" font-size="14" fill="#1e1e1e">byte[] 읽기 (파일/네트워크/메모리)</text>
+<text x="190" y="356" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="60" y="275" text-anchor="start" font-size="15" fill="#1e1e1e">2. Linking</text>
+<text x="190" y="307" text-anchor="middle" font-size="12" fill="#1e1e1e">2a. Verification</text>
+<text x="190" y="322" text-anchor="middle" font-size="12" fill="#1e1e1e">Magic, stack, type 검사</text>
+<text x="190" y="367" text-anchor="middle" font-size="12" fill="#1e1e1e">2b. Preparation</text>
+<text x="190" y="382" text-anchor="middle" font-size="12" fill="#1e1e1e">static 필드 = 기본값 (0/null)</text>
+<text x="190" y="424" text-anchor="middle" font-size="12" fill="#1e1e1e">2c. Resolution (lazy)</text>
+<text x="190" y="440" text-anchor="middle" font-size="12" fill="#1e1e1e">심볼 → 실제 참조</text>
+<text x="190" y="518" text-anchor="middle" font-size="14" fill="#1e1e1e">3. Initialization</text>
+<text x="190" y="535" text-anchor="middle" font-size="14" fill="#1e1e1e">&lt;clinit&gt; 실행</text>
+<text x="190" y="553" text-anchor="middle" font-size="14" fill="#1e1e1e">(static 블록 + 필드 할당)</text>
+<text x="190" y="644" text-anchor="middle" font-size="13" fill="#1e1e1e">Metaspace에 저장</text>
+<text x="190" y="660" text-anchor="middle" font-size="13" fill="#1e1e1e">(Class 객체 + CP + 메서드 메타</text>
+<text x="190" y="676" text-anchor="middle" font-size="13" fill="#1e1e1e">+ vtable + 필드 레이아웃)</text>
+<text x="480" y="125" text-anchor="start" font-size="15" fill="#1e1e1e">[부모 위임 모델]</text>
+<text x="480" y="144" text-anchor="start" font-size="12" fill="#666">자식이 부모에게 먼저 물어봄 → 보안·공유·격리</text>
+<text x="660" y="194" text-anchor="middle" font-size="13" fill="#1e1e1e">Bootstrap ClassLoader</text>
+<text x="660" y="210" text-anchor="middle" font-size="13" fill="#1e1e1e">(C++, java.lang.*)</text>
+<text x="660" y="279" text-anchor="middle" font-size="13" fill="#1e1e1e">Platform ClassLoader</text>
+<text x="660" y="296" text-anchor="middle" font-size="13" fill="#1e1e1e">(JDK 9+, java.sql/xml/...)</text>
+<text x="660" y="364" text-anchor="middle" font-size="13" fill="#1e1e1e">Application ClassLoader</text>
+<text x="660" y="380" text-anchor="middle" font-size="13" fill="#1e1e1e">(클래스패스/모듈패스)</text>
+<text x="580" y="454" text-anchor="middle" font-size="12" fill="#1e1e1e">Custom ClassLoader 1</text>
+<text x="580" y="470" text-anchor="middle" font-size="12" fill="#1e1e1e">(Tomcat 웹앱 A)</text>
+<text x="800" y="454" text-anchor="middle" font-size="12" fill="#1e1e1e">Custom ClassLoader 2</text>
+<text x="800" y="470" text-anchor="middle" font-size="12" fill="#1e1e1e">(Tomcat 웹앱 B)</text>
+<text x="480" y="542" text-anchor="start" font-size="12" fill="#666">위로 화살표 = "이거 갖고 있어?" 위임</text>
+<text x="480" y="564" text-anchor="start" font-size="12" fill="#666">→ 같은 java.lang.Object를 모두 공유</text>
+<text x="480" y="586" text-anchor="start" font-size="12" fill="#666">→ 웹앱 A/B가 서로 격리됨</text>
+</svg>

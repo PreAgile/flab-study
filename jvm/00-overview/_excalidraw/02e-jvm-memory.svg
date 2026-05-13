@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 950 850" width="950" height="850" font-family="-apple-system,BlinkMacSystemFont,&apos;Apple SD Gothic Neo&apos;,&apos;Pretendard&apos;,&apos;Noto Sans KR&apos;,&apos;Malgun Gothic&apos;,&apos;Helvetica Neue&apos;,Helvetica,Arial,sans-serif">
+<defs>
+<marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+</marker>
+</defs>
+<rect x="20" y="0" width="950" height="850" fill="#ffffff"/>
+<rect x="80" y="110" width="400" height="110" rx="8" ry="8" stroke="#c2185b" fill="#fce4ec" stroke-width="2"/>
+<rect x="80" y="238" width="400" height="110" rx="8" ry="8" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+<rect x="80" y="366" width="400" height="110" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<rect x="80" y="494" width="400" height="110" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="80" y="622" width="400" height="110" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="560" y="145" width="380" height="85" rx="8" ry="8" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+<rect x="560" y="245" width="380" height="85" rx="8" ry="8" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+<rect x="560" y="345" width="380" height="85" rx="8" ry="8" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+<path d="M 480,215 L 555,215" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<text x="50" y="54" text-anchor="start" font-size="24" fill="#1e1e1e">JVM 프로세스 메모리 레이아웃</text>
+<text x="50" y="75" text-anchor="start" font-size="13" fill="#666">각 영역이 무엇을 담고 누가 만들고 누가 GC하는가</text>
+<text x="280" y="171" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="100" y="143" text-anchor="start" font-size="18" fill="#1e1e1e">Heap (객체)</text>
+<text x="100" y="167" text-anchor="start" font-size="12" fill="#444">new Foo() 결과물</text>
+<text x="100" y="182" text-anchor="start" font-size="12" fill="#444">GC 대상 (G1/ZGC/Shenandoah)</text>
+<text x="100" y="203" text-anchor="start" font-size="11" fill="#666">채우는 주체: JIT/Interpreter</text>
+<text x="280" y="299" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="100" y="271" text-anchor="start" font-size="18" fill="#1e1e1e">Metaspace (클래스 메타)</text>
+<text x="100" y="295" text-anchor="start" font-size="12" fill="#444">Class 객체, Constant Pool,</text>
+<text x="100" y="310" text-anchor="start" font-size="12" fill="#444">메서드 메타데이터, vtable</text>
+<text x="100" y="331" text-anchor="start" font-size="11" fill="#666">채우는 주체: ClassLoader</text>
+<text x="280" y="427" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="100" y="399" text-anchor="start" font-size="18" fill="#1e1e1e">★ Code Cache (native code)</text>
+<text x="100" y="423" text-anchor="start" font-size="12" fill="#444">JIT 산출물 (C1/C2)</text>
+<text x="100" y="438" text-anchor="start" font-size="12" fill="#444">Segmented (JDK 9+)</text>
+<text x="100" y="453" text-anchor="start" font-size="12" fill="#444">기본 240MB</text>
+<text x="100" y="459" text-anchor="start" font-size="11" fill="#666">채우는 주체: JIT</text>
+<text x="280" y="555" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="100" y="527" text-anchor="start" font-size="18" fill="#1e1e1e">JVM Stack (스레드별)</text>
+<text x="100" y="551" text-anchor="start" font-size="12" fill="#444">프레임, 지역 변수,</text>
+<text x="100" y="566" text-anchor="start" font-size="12" fill="#444">operand stack</text>
+<text x="100" y="587" text-anchor="start" font-size="11" fill="#666">채우는 주체: 각 스레드</text>
+<text x="280" y="683" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="100" y="655" text-anchor="start" font-size="18" fill="#1e1e1e">Native Stack (C/C++)</text>
+<text x="100" y="679" text-anchor="start" font-size="12" fill="#444">JNI 호출, native 메서드</text>
+<text x="100" y="715" text-anchor="start" font-size="11" fill="#666">채우는 주체: OS</text>
+<text x="560" y="125" text-anchor="start" font-size="15" fill="#1e1e1e">★ Code Cache 내부 (JDK 9+ Segmented)</text>
+<text x="750" y="194" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="575" y="173" text-anchor="start" font-size="16" fill="#1e1e1e">Non-method</text>
+<text x="575" y="195" text-anchor="start" font-size="12" fill="#444">Interpreter 어셈블리,</text>
+<text x="575" y="210" text-anchor="start" font-size="12" fill="#444">adapter, stub</text>
+<text x="750" y="294" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="575" y="273" text-anchor="start" font-size="16" fill="#1e1e1e">Profiled methods</text>
+<text x="575" y="295" text-anchor="start" font-size="12" fill="#444">C1 컴파일 결과</text>
+<text x="575" y="310" text-anchor="start" font-size="12" fill="#444">(deopt 가능)</text>
+<text x="750" y="394" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="575" y="373" text-anchor="start" font-size="16" fill="#1e1e1e">Non-profiled methods</text>
+<text x="575" y="395" text-anchor="start" font-size="12" fill="#444">C2 컴파일 결과</text>
+<text x="575" y="410" text-anchor="start" font-size="12" fill="#444">(안정, deopt 드뭄)</text>
+<text x="50" y="793" text-anchor="start" font-size="13" fill="#c62828">Code Cache가 가득 차면? → JIT 중단 → 모든 새 메서드는 인터프리터 → 성능 폭락</text>
+<text x="50" y="817" text-anchor="start" font-size="12" fill="#666">튜닝: -XX:ReservedCodeCacheSize=512m (기본 240MB)</text>
+</svg>

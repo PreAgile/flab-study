@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 1620 573" width="1620" height="573" font-family="-apple-system,BlinkMacSystemFont,&apos;Apple SD Gothic Neo&apos;,&apos;Pretendard&apos;,&apos;Noto Sans KR&apos;,&apos;Malgun Gothic&apos;,&apos;Helvetica Neue&apos;,Helvetica,Arial,sans-serif">
+<defs>
+<marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+<path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+</marker>
+</defs>
+<rect x="20" y="0" width="1620" height="573" fill="#ffffff"/>
+<rect x="50" y="110" width="160" height="90" rx="8" ry="8" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+<rect x="250" y="110" width="160" height="90" rx="8" ry="8" stroke="#6a1b9a" fill="#f3e5f5" stroke-width="2"/>
+<rect x="450" y="110" width="160" height="90" rx="8" ry="8" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+<rect x="650" y="110" width="160" height="90" rx="8" ry="8" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+<rect x="850" y="110" width="160" height="90" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="1050" y="30" width="160" height="90" rx="8" ry="8" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+<rect x="1050" y="190" width="160" height="90" rx="8" ry="8" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+<rect x="1250" y="110" width="160" height="90" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<rect x="1450" y="110" width="160" height="90" rx="8" ry="8" stroke="#424242" fill="#eeeeee" stroke-width="2"/>
+<rect x="50" y="500" width="16" height="16" rx="8" ry="8" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+<rect x="50" y="525" width="16" height="16" rx="8" ry="8" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+<rect x="400" y="500" width="16" height="16" rx="8" ry="8" stroke="#c2185b" fill="#fce4ec" stroke-width="2"/>
+<rect x="400" y="525" width="16" height="16" rx="8" ry="8" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+<rect x="750" y="500" width="16" height="16" rx="8" ry="8" stroke="#f57c00" fill="#fff8e1" stroke-width="2"/>
+<rect x="750" y="525" width="16" height="16" rx="8" ry="8" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+<path d="M 210,155 L 250,155" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 410,155 L 450,155" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 610,155 L 650,155" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 810,155 L 850,155" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1010,130 L 1050,75" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1010,180 L 1050,235" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1210,75 L 1250,130" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1210,235 L 1250,180" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1410,155 L 1450,155" stroke="#1e1e1e" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1010,200 L 1450,200" stroke="#999" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowhead)"/>
+<path d="M 1250,230 L 1010,230" stroke="#c62828" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4" marker-end="url(#arrowhead)"/>
+<text x="50" y="54" text-anchor="start" font-size="24" fill="#1e1e1e">.java → CPU: 7-Stage 전체 흐름</text>
+<text x="50" y="75" text-anchor="start" font-size="13" fill="#666">각 박스를 클릭하면 (실제 문서에선 해당 Stage 절로 점프)</text>
+<text x="130" y="151" text-anchor="middle" font-size="15" fill="#1e1e1e">1. .java</text>
+<text x="130" y="170" text-anchor="middle" font-size="15" fill="#1e1e1e">(텍스트)</text>
+<text x="330" y="151" text-anchor="middle" font-size="15" fill="#1e1e1e">2. javac</text>
+<text x="330" y="170" text-anchor="middle" font-size="15" fill="#1e1e1e">(컴파일러)</text>
+<text x="530" y="151" text-anchor="middle" font-size="15" fill="#1e1e1e">3. .class</text>
+<text x="530" y="170" text-anchor="middle" font-size="15" fill="#1e1e1e">(바이트코드)</text>
+<text x="730" y="151" text-anchor="middle" font-size="15" fill="#1e1e1e">4. ClassLoader</text>
+<text x="730" y="170" text-anchor="middle" font-size="15" fill="#1e1e1e">→ Metaspace</text>
+<text x="930" y="151" text-anchor="middle" font-size="15" fill="#1e1e1e">5. Interpreter</text>
+<text x="930" y="170" text-anchor="middle" font-size="15" fill="#1e1e1e">(Template)</text>
+<text x="1130" y="81" text-anchor="middle" font-size="15" fill="#1e1e1e">6a. C1 JIT</text>
+<text x="1130" y="241" text-anchor="middle" font-size="15" fill="#1e1e1e">6b. C2 JIT</text>
+<text x="1330" y="151" text-anchor="middle" font-size="15" fill="#1e1e1e">7. Code Cache</text>
+<text x="1330" y="170" text-anchor="middle" font-size="15" fill="#1e1e1e">(native code)</text>
+<text x="1530" y="161" text-anchor="middle" font-size="15" fill="#1e1e1e">8. CPU 실행</text>
+<text x="1100" y="221" text-anchor="start" font-size="11" fill="#999">(interp 직접 실행도 가능)</text>
+<text x="1080" y="252" text-anchor="start" font-size="12" fill="#c62828">★ Deopt (C2 가정 깨질 때)</text>
+<text x="50" y="234" text-anchor="start" font-size="14" fill="#1565c0">Stage 1</text>
+<text x="50" y="251" text-anchor="start" font-size="11" fill="#444">javac 4단계:</text>
+<text x="50" y="265" text-anchor="start" font-size="11" fill="#444">Lex → Parse →</text>
+<text x="50" y="278" text-anchor="start" font-size="11" fill="#444">APT → BCGen</text>
+<text x="450" y="234" text-anchor="start" font-size="14" fill="#1565c0">Stage 2</text>
+<text x="450" y="251" text-anchor="start" font-size="11" fill="#444">ClassFile 포맷:</text>
+<text x="450" y="265" text-anchor="start" font-size="11" fill="#444">CAFEBABE</text>
+<text x="450" y="278" text-anchor="start" font-size="11" fill="#444">Constant Pool</text>
+<text x="650" y="234" text-anchor="start" font-size="14" fill="#1565c0">Stage 3</text>
+<text x="650" y="251" text-anchor="start" font-size="11" fill="#444">Loading →</text>
+<text x="650" y="265" text-anchor="start" font-size="11" fill="#444">Linking →</text>
+<text x="650" y="278" text-anchor="start" font-size="11" fill="#444">Initialization</text>
+<text x="850" y="234" text-anchor="start" font-size="14" fill="#1565c0">Stage 4</text>
+<text x="850" y="251" text-anchor="start" font-size="11" fill="#444">Template</text>
+<text x="850" y="265" text-anchor="start" font-size="11" fill="#444">Interpreter</text>
+<text x="850" y="278" text-anchor="start" font-size="11" fill="#444">(asm 점프 테이블)</text>
+<text x="1050" y="334" text-anchor="start" font-size="14" fill="#1565c0">Stage 5</text>
+<text x="1050" y="351" text-anchor="start" font-size="11" fill="#444">C1: 빠른 컴파일</text>
+<text x="1050" y="365" text-anchor="start" font-size="11" fill="#444">C2: 공격적 최적화</text>
+<text x="1050" y="378" text-anchor="start" font-size="11" fill="#444">Tiered로 협업</text>
+<text x="1250" y="334" text-anchor="start" font-size="14" fill="#1565c0">Stage 6</text>
+<text x="1250" y="351" text-anchor="start" font-size="11" fill="#444">Native code</text>
+<text x="1250" y="365" text-anchor="start" font-size="11" fill="#444">메서드 단위 캐싱</text>
+<text x="1250" y="378" text-anchor="start" font-size="11" fill="#444">4-entry 디스패치</text>
+<text x="1450" y="334" text-anchor="start" font-size="14" fill="#1565c0">결과</text>
+<text x="1450" y="351" text-anchor="start" font-size="11" fill="#444">CPU가 직접</text>
+<text x="1450" y="365" text-anchor="start" font-size="11" fill="#444">machine code 실행</text>
+<text x="50" y="485" text-anchor="start" font-size="15" fill="#1e1e1e">메모리 행선지</text>
+<text x="58" y="514" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="75" y="513" text-anchor="start" font-size="12" fill="#444">.java → 디스크</text>
+<text x="58" y="539" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="75" y="538" text-anchor="start" font-size="12" fill="#444">.class → 디스크</text>
+<text x="408" y="514" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="425" y="513" text-anchor="start" font-size="12" fill="#444">객체 (new ...) → Heap</text>
+<text x="408" y="539" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="425" y="538" text-anchor="start" font-size="12" fill="#444">클래스 메타 → Metaspace</text>
+<text x="758" y="514" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="775" y="513" text-anchor="start" font-size="12" fill="#444">프레임/스택 → JVM Stack (스레드별)</text>
+<text x="758" y="539" text-anchor="middle" font-size="16" fill="#1e1e1e"></text>
+<text x="775" y="538" text-anchor="start" font-size="12" fill="#444">native code → Code Cache</text>
+</svg>
