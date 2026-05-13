@@ -67,6 +67,410 @@
 - **JIT (Just-In-Time) 컴파일러**: 런타임에 bytecode(또는 그 일부)를 native machine code로 변환하는 컴파일러. HotSpot은 C1(빠른 컴파일)과 C2(공격적 최적화)를 Tiered Compilation으로 조합한다.
 - **두 방식 공존의 이유**: 컴파일 비용 vs 실행 성능의 균형. 자주 안 쓰이는 코드까지 컴파일하면 시동이 느려진다.
 
+<details>
+<summary><b>🔎 "Template Interpreter 변형"이 정확히 뭐고, 다른 JVM은 뭐가 다른가?</b></summary>
+
+> "인터프리터"라는 단어 하나가 구현 방식을 다 가린다. JVM 인터프리터 구현은 4가지 스펙트럼이 있고, JVM 구현체마다 선택이 다르다.
+
+### 인터프리터 구현 스펙트럼 — 4가지 방식
+
+**(1) Switch-based Interpreter — 가장 순진한 방식**
+
+```c
+while (true) {
+    uint8_t opcode = *pc++;
+    switch (opcode) {
+        case ICONST_0: push(0); break;
+        case ICONST_1: push(1); break;
+        case IADD: { int b=pop(), a=pop(); push(a+b); } break;
+        // ... 200여 개 case
+    }
+}
+```
+
+- C/C++의 `switch` 문 하나에 모든 bytecode를 case로 나열.
+- **문제**: 매 bytecode마다 점프 테이블을 거치고, CPU의 **branch predictor가 다음 opcode를 예측 못 함** (인덱스가 매번 다름) → indirect branch misprediction이 거의 항상 발생.
+- 1996년 Classic VM이 이 방식. **C++ 대비 20~50배 느렸던 이유**.
+
+**(2) Direct-Threaded Interpreter — 살짝 진화**
+
+각 opcode 핸들러의 주소를 테이블에 저장하고, 각 핸들러 끝에서 다음 opcode 주소로 직접 점프 (`goto *next_handler`). GCC 확장 `&&label`을 쓴다. switch보다 빠르지만, 표준 C는 아님. **CPython 3.11+, Lua가 이 방식**.
+
+**(3) Template Interpreter — HotSpot의 방식 ★**
+
+이게 핵심이다. **"인터프리터지만 사실상 매우 단순한 JIT"**.
+
+```
+JVM 시작 시:
+1. CPU 아키텍처 감지 (x86_64인지 aarch64인지)
+2. 각 bytecode opcode에 대해 "이 opcode에 해당하는 어셈블리 시퀀스"를 생성
+3. 생성된 어셈블리를 메모리에 배치 (이게 진짜 인터프리터의 실체)
+4. 각 어셈블리 끝에는 "다음 bytecode 위치 계산 → 그 핸들러로 점프" 코드 자동 추가
+
+실행 시:
+- bytecode를 만나면 → 해당 opcode의 generated assembly로 jump
+- switch도, 함수 호출도 없음. 그냥 직접 점프.
+```
+
+**예시**: `iadd` opcode를 만나면 HotSpot은 미리 생성해둔 어셈블리로 점프:
+
+```asm
+pop     rax              ; operand stack에서 두번째 값
+add     [rsp], eax       ; 첫번째 값과 더해서 stack top에 저장
+movzbl  eax, [r13+1]     ; 다음 bytecode opcode 읽기
+inc     r13              ; pc 증가
+jmp     [r14 + rax*8]    ; 다음 opcode의 generated assembly로 점프
+```
+
+즉, **HotSpot 인터프리터는 부팅 시점에 자기 자신을 어셈블리로 컴파일한다**. 그래서 `templateInterpreter.cpp`가 그렇게 길고 이상한 매크로(`__`)를 쓴다.
+
+**왜 이렇게 만들었나**:
+- 일반 C++ switch보다 2~3배 빠름.
+- JIT 컴파일된 코드와 **calling convention이 동일** → 인터프리터 ↔ JIT 코드 전환이 매끄러움 (OSR, Deopt이 가능한 결정적 이유).
+- Register 사용도 직접 제어 가능 → operand stack pointer를 register에 고정 (x86_64에선 `rsp`/`r13` 등).
+
+**(4) AST + Self-optimizing — Truffle (GraalVM)**
+
+이건 완전히 다른 발상. 뒤 GraalVM 항목에서 설명.
+
+---
+
+### JVM 구현별 인터프리터 차이
+
+| JVM | 인터프리터 | JIT |
+|---|---|---|
+| **HotSpot (OpenJDK)** | Template Interpreter | C1 + C2 (Tiered) |
+| **OpenJDK** | = HotSpot (사실상 같은 코드) | = HotSpot |
+| **GraalVM (Community/Enterprise)** | HotSpot Template Interpreter 그대로 | **Graal JIT**으로 C2를 교체 |
+| **GraalVM Native Image** | **없음** (AOT 컴파일) | 없음 (AOT) |
+| **Eclipse OpenJ9 (IBM)** | 자체 구현 (어셈블리 + JIT helper) | **Testarossa JIT** (TR) |
+| **Azul Zing / Prime** | HotSpot fork (Template) | **Falcon** (LLVM 기반) |
+| **Android ART** | 자체 (register-based) | **AOT + JIT 혼합** |
+| **Dalvik (구 Android)** | register-based 인터프리터 | JIT (4.0~) |
+| **Avian, JamVM** | switch 또는 threaded | 미니 JIT 또는 없음 |
+
+#### OpenJDK vs HotSpot — 사실상 같은 것
+
+자주 혼동되는 지점:
+- **OpenJDK** = "Java 표준의 오픈소스 구현체" (JDK 라이브러리 + 도구 + JVM 전부 포함)
+- **HotSpot** = 그 OpenJDK 안에 들어있는 **JVM 부분의 이름**
+- 즉 OpenJDK = HotSpot JVM + JDK 라이브러리 + javac 등 도구
+
+Oracle JDK, Amazon Corretto, Azul Zulu, Adoptium Temurin, Microsoft OpenJDK 등은 전부 **OpenJDK 소스를 빌드한 결과물**이라 인터프리터가 동일하다 (Template Interpreter).
+
+#### GraalVM — 인터프리터는 같지만, JIT은 다름
+
+**모드 A: HotSpot + Graal JIT (기본)**
+- 인터프리터: HotSpot Template Interpreter **그대로**
+- C1: HotSpot C1 **그대로**
+- C2: **Graal JIT으로 교체** (Java로 작성된 컴파일러)
+- 즉, "C2만 갈아끼운 HotSpot"
+
+```
+[Template Interpreter (HotSpot)] → [C1 (HotSpot)] → [Graal JIT (Java)]
+```
+
+Graal JIT의 장점:
+- Java로 작성됨 → 디버깅/확장 쉬움
+- Partial Escape Analysis가 C2보다 강력
+- Stream/람다 최적화가 더 좋다고 알려짐
+
+**모드 B: Native Image (AOT)**
+- **인터프리터, JIT 둘 다 없음**
+- 빌드 시점에 reachable한 모든 코드를 native binary로 AOT 컴파일
+- closed-world assumption — reflection은 빌드 시점에 설정으로 알려줘야 함
+- 시작 시간이 ms 단위 (HotSpot은 수백 ms ~ 수 초)
+
+**모드 C: Truffle Framework**
+Ruby(TruffleRuby), Python(GraalPy), JavaScript(GraalJS)를 GraalVM에서 돌릴 때 쓰는 방식:
+
+```
+1. 언어 구현자가 AST 인터프리터를 Java로 작성
+2. Truffle이 AST의 각 노드에 "자기-프로파일링" 기능 추가
+3. 핫한 AST 서브트리는 Graal JIT이 통째로 native code로 컴파일
+4. 가정 깨지면 다시 AST 인터프리터로 폴백
+```
+
+**"AST 자체가 인터프리터이자 IR"**. AST를 직접 JIT한다. 일반적인 bytecode 인터프리터와는 차원이 다른 접근.
+
+#### Eclipse OpenJ9 — 완전히 다른 코드베이스
+
+IBM J9가 오픈소스화된 것. HotSpot과 **소스 공유 전혀 없음**.
+- **인터프리터**: HotSpot처럼 어셈블리 템플릿 기반이지만 구조가 다름. `bcInterp.asm` 같은 어셈블리 파일에 직접 작성.
+- **JIT**: Testarossa (TR). HotSpot C1/C2와 완전히 다른 아키텍처.
+- **차이가 두드러지는 지점**:
+  - 메모리 사용량이 HotSpot보다 작음 (메모리 제약 환경에 강함)
+  - Shared Class Cache (여러 JVM이 클래스 메타데이터 공유) — 컨테이너에서 강력
+  - Pauseless GC (Metronome) 옵션
+
+#### Android ART — register-based, 완전 다른 길
+
+- **register-based bytecode** (Dalvik bytecode, `.dex`)
+- 처음엔 인터프리터로 시작 → hot 메서드는 **AOT로 디스크에 저장** (앱 설치/유휴 시) → 이후 실행 시 즉시 native
+- HotSpot 식 "어셈블리 템플릿"이 아니라 **C++로 작성된 switch interpreter**가 기본. 단, "Mterp"라는 어셈블리 인터프리터를 별도로 갖고 있어 hot path에선 그걸 사용.
+
+---
+
+### 그래서 "Template Interpreter 변형" 표현은 왜 썼나
+
+아래 [4단계 내부 구현](#-4단계-내부-구현-hotspot)의 Template Interpreter 절이 답이다. HotSpot 인터프리터는 **부팅 시점에 어셈블리를 generate**하는 매우 독특한 구현이고, 학술적으로 분류하면 "switch-based"도 "threaded"도 아니라 별도 카테고리다.
+
+다른 JVM도 비슷한 발상을 쓰지만 (OpenJ9도 어셈블리 기반), HotSpot의 구체적 구현 — `TemplateTable` 클래스, `MacroAssembler` 매크로, 부팅 시 `generate_all()` — 은 HotSpot 고유이므로 "HotSpot은 Template Interpreter 변형을 쓴다"고 한정한 것이다.
+
+---
+
+### 한 줄 요약
+
+- **인터프리터에도 여러 구현 방식이 있다** (switch / threaded / template / AST)
+- **HotSpot은 Template Interpreter**: 부팅 시 각 opcode를 어셈블리로 미리 generate해서 그걸 점프 테이블처럼 쓴다. 사실상 매우 단순한 JIT.
+- **OpenJDK = HotSpot** (같은 코드)
+- **GraalVM**: 인터프리터는 HotSpot 그대로 빌려 쓰고, C2 자리만 Graal JIT으로 교체. Native Image 모드면 인터프리터 자체가 없음 (AOT).
+- **OpenJ9**: 별도 코드베이스. 인터프리터/JIT 둘 다 자체 구현. 메모리 효율 강점.
+- **Android ART**: 아예 register-based + AOT 중심으로 다른 길.
+
+> 💡 면접 꼬리질문 소재: "왜 GraalVM은 C2만 갈아끼웠을까?" → 인터프리터/JIT/Calling Convention의 분리도를 묻는 좋은 시그널.
+
+</details>
+
+<details>
+<summary><b>🔎 opcode가 정확히 뭐고, 왜 핸들러 주소 테이블을 만들어 직접 점프하는가?</b></summary>
+
+위 토글의 "Switch-based / Direct-Threaded" 설명에서 등장한 두 핵심 개념 — `opcode`와 `goto *handler_table[...]` — 을 한 단계 더 풀어본다.
+
+---
+
+### 1. opcode란 무엇인가
+
+> **opcode = "operation code"의 줄임말**. CPU나 가상 머신이 이해하는 **기본 명령어 단위**의 식별자.
+
+JVM 바이트코드에서 한 명령은 보통:
+- **1바이트 opcode** (0~255 중 하나의 숫자)
+- **0~여러 바이트의 operand** (피연산자, 명령에 따라 가변)
+
+예를 들어 `iconst_1` 명령은 **1바이트짜리 숫자 `0x04`** 한 개로 표현된다. 사람이 읽기 좋게 `iconst_1`이라는 이름을 붙였을 뿐, JVM이 보는 건 숫자 하나.
+
+#### JVM의 200여 개 opcode (대표적인 것들)
+
+| 16진수 | 이름 | 동작 |
+|---|---|---|
+| `0x01` | `aconst_null` | null을 operand stack에 push |
+| `0x03` | `iconst_0` | int 0을 stack에 push |
+| `0x04` | `iconst_1` | int 1을 stack에 push |
+| `0x1B` | `iload_1` | 지역변수 1번을 stack에 push |
+| `0x3E` | `istore_3` | stack top을 지역변수 3번에 저장 |
+| `0x60` | `iadd` | int 두 개 pop → 더해서 push |
+| `0x99` | `ifeq` | stack top이 0이면 분기 |
+| `0xB6` | `invokevirtual` | 가상 메서드 호출 |
+| `0xB8` | `invokestatic` | static 메서드 호출 |
+| `0xBA` | `invokedynamic` | 동적 메서드 호출 (JDK 7+) |
+| `0xBB` | `new` | 객체 할당 |
+
+#### `.class` 파일에 실제로 들어있는 모습
+
+```java
+int c = a + b;
+```
+
+이 한 줄이 `.class` 파일에선 정확히 이런 4바이트로 들어간다:
+
+```
+1B 1C 60 3E
+```
+
+각 바이트의 의미:
+- `0x1B` → `iload_1` (a를 push)
+- `0x1C` → `iload_2` (b를 push)
+- `0x60` → `iadd` (더하기)
+- `0x3E` → `istore_3` (c에 저장)
+
+`javap -c`가 보여주는 `iload_1` 같은 이름은 **사람을 위한 디스어셈블리 결과**일 뿐, 디스크에는 숫자 한 바이트로 저장돼 있다.
+
+#### 왜 1바이트인가
+
+- **컴팩트함**: `.class` 파일이 작아짐 → 메모리/디스크/네트워크 효율
+- **빠른 디스패치**: 1바이트면 0~255 → 256-entry 점프 테이블의 **인덱스로 바로 사용 가능**
+- **단순한 디코딩**: 한 바이트만 읽으면 명령 종류가 결정됨
+
+255개로 부족하지 않나? JVM은 현재 약 200여 개 opcode 사용. 여유 있음. 추가 인자 확장이 필요하면 `wide` opcode (`0xC4`) — "다음 명령의 인자를 2바이트로 확장"이라는 prefix가 있다.
+
+> 📌 정리: **opcode = "이 1바이트가 어떤 동작을 의미하는가"를 식별하는 숫자**. JVM 인터프리터의 출발점은 매번 "이 바이트가 어느 opcode야?"를 묻는 것이다.
+
+---
+
+### 2. 핸들러 주소 테이블 — 왜 만들고, 왜 직접 점프하나
+
+#### 출발점: Switch 문은 왜 느린가?
+
+가장 단순한 구현:
+
+```c
+while (true) {
+    uint8_t opcode = *pc++;
+    switch (opcode) {
+        case 0x1B: /* iload_1 */ push(local[1]); break;
+        case 0x1C: /* iload_2 */ push(local[2]); break;
+        case 0x60: /* iadd */ { int b=pop(), a=pop(); push(a+b); } break;
+        // ... 200여 개 case
+    }
+}
+```
+
+컴파일러는 보통 이걸 **점프 테이블**로 최적화한다:
+
+```asm
+jump_table:
+    .quad case_iload_1     ; opcode 0x1B에 대응하는 코드 주소
+    .quad case_iload_2     ; opcode 0x1C에 대응하는 코드 주소
+    .quad case_iadd        ; opcode 0x60에 대응하는 코드 주소
+    ...
+
+main_loop:                  ; ← 모든 case가 여기로 돌아옴
+    movzx eax, byte [pc]
+    inc   pc
+    jmp   [jump_table + rax*8]   ; ← 단 하나의 디스패치 지점
+
+case_iload_1:
+    push local[1]
+    jmp main_loop           ; ← 다시 디스패치 지점으로
+
+case_iload_2:
+    push local[2]
+    jmp main_loop           ; ← 또 다시 디스패치 지점으로
+
+case_iadd:
+    ...
+    jmp main_loop           ; ← 항상 같은 곳으로 복귀
+```
+
+**문제**: 모든 디스패치가 `main_loop`의 단 한 줄 `jmp [jump_table + rax*8]`에서 일어난다.
+
+이 한 줄은 매번 `rax` 값에 따라 다른 곳으로 점프한다 (indirect branch). CPU 입장에서:
+- **branch predictor가 학습 못 함**: "여기선 다음에 어디로 갈까?"를 묻는데, 입력 패턴이 사실상 random
+- → 거의 항상 **branch misprediction**
+- → 파이프라인이 잘못된 명령을 prefetch했다가 버림 (수 사이클 손실)
+
+200줄짜리 메서드 실행하면 200번 다 misprediction → 인터프리터가 느려지는 진짜 이유.
+
+#### 해결: 디스패치를 "분산"시킨다 — Direct-Threaded
+
+> **핵심 아이디어**: 디스패치 지점을 한 곳에 모으지 말고, **각 핸들러 끝에 따로따로** 두자.
+
+```c
+// 각 라벨의 주소를 담은 테이블 (GCC 확장)
+static void* handler_table[256] = {
+    [0x1B] = &&handle_iload_1,    // && 는 라벨 주소를 얻는 GCC 문법
+    [0x1C] = &&handle_iload_2,
+    [0x60] = &&handle_iadd,
+    // ...
+};
+
+// 시작: 첫 opcode를 읽고 그 핸들러로 점프
+goto *handler_table[*pc++];
+
+handle_iload_1:
+    push(local[1]);
+    goto *handler_table[*pc++];   // ← 이 핸들러 전용 디스패치 지점
+
+handle_iload_2:
+    push(local[2]);
+    goto *handler_table[*pc++];   // ← 또 다른 디스패치 지점
+
+handle_iadd:
+    int b = pop(), a = pop();
+    push(a + b);
+    goto *handler_table[*pc++];   // ← 여기도 자기만의 디스패치 지점
+```
+
+이제 디스패치가 **200개 핸들러에 200개 분산**된다.
+
+#### 왜 이게 빠른가 — branch predictor의 학습
+
+CPU의 indirect branch predictor는 **각 점프 명령마다 별도의 학습 기록**을 가진다.
+
+- **Switch**: 디스패치 지점 = 1개 → 1개의 학습 기록에 200개 opcode 시퀀스를 다 우겨넣으려고 함 → 패턴 분간 못함
+- **Direct-Threaded**: 디스패치 지점 = 200개 → 각 핸들러가 자기만의 학습 기록을 가짐
+
+자바 코드의 실제 분포:
+```
+iload + iload + iadd + istore + iload + iload + iadd + istore + ...
+```
+
+이런 패턴이 흔하다. Direct-Threaded에선 `iload_1` 핸들러 끝의 디스패치 지점이 **"내 다음엔 iload_2가 자주 와"** 를 학습한다. Predictor 적중률이 급격히 올라감.
+
+> 측정 결과: Direct-Threaded는 일반적으로 Switch보다 **20~50% 빠름**. Python 3.11이 이 방식으로 바꿔서 평균 25% 빨라진 이유.
+
+#### 왜 "주소 테이블"인가 — opcode를 인덱스로 쓰기 위해
+
+핵심 질문: **opcode 값 `0x1B`를 받았을 때 어떻게 `handle_iload_1`로 가나?**
+
+답: **opcode가 곧 테이블의 인덱스**. `handler_table[0x1B]`이 곧 `&&handle_iload_1`을 담고 있다.
+
+```
+opcode = 0x1B  →  handler_table[0x1B]  →  &&handle_iload_1 (주소)  →  jmp 그 주소
+```
+
+- 배열 인덱싱은 **O(1) 메모리 접근 한 번** — 사실상 register 연산 한두 개로 끝
+- if-else 체인이면 O(N), 평균 N/2번 비교 — 200개면 100번 비교
+- 점프 테이블이면 1번의 메모리 로드 + 1번의 점프
+
+→ **opcode가 1바이트이고 0~255 범위인 것**과 **256-entry 테이블의 인덱스**가 정확히 맞물려서 설계됐다.
+
+#### 왜 "직접 점프(goto)"인가 — 함수 호출 비용 회피
+
+대안 1: 핸들러를 함수로 만들기
+
+```c
+void handle_iload_1(VM* vm) { vm->push(vm->local[1]); }
+
+while (true) {
+    handler_funcs[*pc++](vm);   // 함수 포인터 호출
+}
+```
+
+이 경우 매 핸들러마다 발생하는 비용:
+- 함수 호출 prologue (스택 프레임 생성, callee-saved register 저장)
+- 인자 전달 (calling convention)
+- 핸들러 본문
+- 함수 호출 epilogue (register 복원, 스택 정리)
+- `ret` 명령
+- 다시 루프로 돌아와 디스패치
+
+대안 2: `goto *...`로 직접 점프
+
+- 그냥 `jmp` 명령 한 번
+- 함수 호출 prologue/epilogue **없음**
+- 모든 핸들러가 **같은 함수 안에 있음** → 컴파일러가 operand stack pointer, frame pointer 같은 핵심 변수를 **register에 고정 배치 가능**
+- 함수 호출이면 그 register들을 매번 save/restore 해야 함
+
+→ goto 방식이 **함수 호출 비용 + register 트래픽 둘 다 0**.
+
+---
+
+### 3. HotSpot Template Interpreter는 이걸 한 단계 더 — 어셈블리 직접 생성
+
+위에서 본 Direct-Threaded도 결국 C로 작성한 인터프리터다. 핸들러 **본문은 C 컴파일러가 만든 어셈블리**.
+
+HotSpot은 거기서 한 발 더 나간다:
+- C 코드를 거치지 않고
+- **부팅 시점에 어셈블리를 직접 generate**
+- 각 opcode별로 가장 효율적인 native instruction sequence를 손수 설계
+- `r13` (bytecode pointer), `r14` (handler table base), `rsp` (operand stack) 같은 register를 **강제로 고정 배치**
+- C 컴파일러가 절대 못 만드는 calling convention을 만들어서 JIT 코드와 호환되게 함
+
+결과: C로 짠 인터프리터(Direct-Threaded 포함)보다 또 **2~3배 빠름**. 이게 HotSpot이 "Template Interpreter"라는 별도 카테고리로 분류되는 이유.
+
+---
+
+### 한 줄 요약
+
+- **opcode** = JVM이 이해하는 명령어의 1바이트 식별자 (0x1B = iload_1, 0x60 = iadd, ...). `.class`에 실제로 들어가는 건 이 숫자 하나
+- **핸들러 테이블** = `handler_table[opcode]` → 그 opcode 처리 코드의 주소. opcode가 곧 인덱스
+- **직접 점프(goto)** = 함수 호출 비용 회피 + register 고정 배치 가능 + branch predictor 학습 가능
+
+세 가지가 합쳐져서 "C++의 switch 인터프리터보다 훨씬 빠른 native-speed dispatch"가 가능해진다. HotSpot은 거기서 한 발 더 나가 어셈블리를 직접 생성한다.
+
+</details>
+
 ### 왜 두 번 컴파일하나?
 
 > **답**: 트레이드오프의 균형.
@@ -75,6 +479,331 @@
 > - 옵션 B: 전부 인터프리트 → 원조 JVM (1.0). 단순하지만 **느림**.
 > - 옵션 C: AOT + 인터프리트 → 효율적이지만 **JVM의 동적 기능 (reflection, dynamic class loading) 약함**.
 > - 옵션 D: javac (bytecode) + JIT — **현재 JVM 방식**. javac가 플랫폼 독립적 중간 표현으로 컴파일 → JVM이 런타임에 실측 프로파일로 추가 컴파일.
+
+<details>
+<summary><b>🔎 AOT란 뭐고, JVM의 javac+JIT 모델은 어떻게 동작하는가? 동적 컴파일이 정확히 뭔가?</b></summary>
+
+### 1. AOT (Ahead-of-Time) 컴파일이란
+
+> **"실행되기 전에 미리"** 컴파일.
+
+C/C++, Rust, Go가 이 방식이다. 빌드 시점에 소스코드 → CPU가 직접 실행하는 **기계어(native code)** 까지 한 번에 만든다.
+
+```
+[hello.c] → (gcc) → [hello.exe]
+                     ↑
+                     이게 이미 x86_64 기계어. CPU가 바로 실행.
+```
+
+**장점**:
+- **시작이 빠름**: 변환 비용을 빌드 때 다 지불했으니 실행 시점엔 0
+- **결정론적**: 같은 입력 → 같은 결과 (워밍업 변동 없음)
+- **메모리 적음**: 런타임에 컴파일러를 들고 있을 필요 없음
+
+**한계**:
+- **플랫폼 종속**: x86_64 Linux 바이너리는 ARM Mac에서 못 돈다. 새 플랫폼마다 재컴파일/포팅
+- **동적 정보 0**: 컴파일 시점엔 "어떤 분기가 99% 잡힌다", "어떤 타입이 항상 들어온다"를 **알 길이 없음**. 그래서 보수적 최적화만 가능
+- **Dynamic feature 약함**: reflection, dynamic class loading, 코드 hot-swap이 본질적으로 어렵다
+
+> GraalVM Native Image가 정확히 이 길로 간 것. 시작 ms 단위지만 reflection을 빌드 설정으로 미리 알려줘야 함.
+
+---
+
+### 2. JVM 모델 — javac + JIT의 분업
+
+JVM은 **컴파일을 두 단계로 쪼개서** AOT의 한계를 우회한다.
+
+#### 1차 컴파일: `javac` (정적, 빌드 시점)
+
+`javac`가 하는 일: **`.java` → 바이트코드 (`.class`)**.
+
+바이트코드는 **"가상의 CPU"가 이해하는 명령어**다. 실제 x86이나 ARM과 무관한 추상 명령어 집합.
+
+**예시 — 한 줄짜리 자바를 javac가 어떻게 바이트코드로 만드는가**:
+
+```java
+int c = a + b;
+```
+
+```
+iload_1       // 지역변수 1번(a)을 operand stack에 push
+iload_2       // 지역변수 2번(b)을 operand stack에 push
+iadd          // stack top 두 정수를 pop해서 더한 뒤 결과를 push
+istore_3      // pop해서 지역변수 3번(c)에 저장
+```
+
+핵심 포인트:
+- 이 4개 명령어는 **x86이든 ARM이든 RISC-V든 똑같다** → 플랫폼 독립
+- 이건 아직 CPU가 직접 실행 못 함. **JVM이 해석해줘야 한다**
+- "stack-based" 가상 머신: register 없이 operand stack에서만 연산
+
+> 그래서 `.class`는 정확히 말하면 **"중간 표현(IR)이 디스크에 저장된 것"** 이다. C 컴파일러의 LLVM IR이 디스크에 남아있는 거라고 생각하면 비슷하다.
+
+#### 2차 컴파일: JVM이 런타임에 — Interpreter + JIT
+
+JVM이 `.class`를 받으면 두 가지 방법으로 실행한다:
+
+**(A) Interpreter** — 바이트코드를 한 줄씩 해석해서 실행:
+
+```
+프로그램 시작
+ ↓
+Interpreter가 iload_1 만남 → "지역변수 1번을 stack에 push해야 하는구나" → 실행
+ ↓
+다음 명령어 iload_2 만남 → 실행
+ ↓
+다음 명령어 iadd 만남 → 실행
+ ↓ ... (한 줄씩 해석 반복)
+```
+
+- 변환 비용 0 → **즉시 시작 가능**
+- 하지만 같은 코드가 100만 번 실행되면 100만 번 해석함 → 느림
+
+**(B) JIT** — 자주 실행되는 메서드는 **native code로 변환해서 캐싱**:
+
+```
+이 메서드가 1만 번 호출됨 → "hot하다" → JIT 컴파일러 호출
+                                          ↓
+                              바이트코드 → x86_64 어셈블리 변환
+                                          ↓
+                              Code Cache에 저장
+                                          ↓
+                              다음 호출부터는 어셈블리로 직접 점프 (해석 안 함)
+```
+
+---
+
+### 3. 동적 컴파일 — JIT이 AOT보다 잘하는 지점
+
+> 핵심: **JIT은 "실제 실행을 본 결과"를 가지고 컴파일한다.**
+
+AOT 컴파일러는 코드를 정적으로 보면서 "최선의 추측"으로 최적화한다. 그런데 실제 프로그램의 동적 특성은 코드만 봐선 알 수 없다.
+
+#### JIT이 활용하는 5가지 "실측 정보"와 그 활용
+
+**(1) Inlining — 자주 호출되는 작은 메서드 본문을 호출 사이트에 끼워넣기**
+
+```java
+int square(int x) { return x * x; }
+
+int sum() {
+    int s = 0;
+    for (int i = 0; i < 1000; i++) {
+        s += square(i);   // 1000번 호출
+    }
+    return s;
+}
+```
+
+JIT 판단: `square`가 hot, 짧음 → `sum` 안에 통째로 삽입:
+
+```java
+// JIT이 만든 가상 코드
+int sum() {
+    int s = 0;
+    for (int i = 0; i < 1000; i++) {
+        s += i * i;   // square 호출 사라짐
+    }
+    return s;
+}
+```
+
+→ 함수 호출 비용(스택 프레임, register save) 0. 그리고 이걸 발판으로 다음 최적화들이 가능해진다.
+
+**(2) Devirtualization — 가상 호출을 정적 호출로**
+
+```java
+interface Animal { void speak(); }
+class Dog implements Animal { void speak() { ... } }
+class Cat implements Animal { void speak() { ... } }
+
+void run(Animal a) {
+    a.speak();   // 어느 구현이 호출될지 정적으로는 모름
+}
+```
+
+AOT는 가상 호출 테이블 조회를 거쳐야 함 (vtable lookup).
+
+JIT은 1만 번 실측을 보고: **"항상 Dog만 들어왔네"** → `Dog.speak()`로 가정 + inline:
+
+```
+[가정] a는 Dog다
+[가드] if (a.getClass() != Dog) goto deopt;
+[본문] Dog.speak()의 본문을 펼친 코드
+[deopt] 가정 깨지면 인터프리터로 복귀
+```
+
+→ 가상 호출 비용 0. 만약 어느 날 Cat이 들어오면 deopt 발생 → 인터프리터 → 재컴파일.
+
+**(3) Branch Prediction — 자주 잡히는 분기 우선 배치**
+
+```java
+if (x == null) { /* 에러 처리 */ }
+else { /* hot path */ }
+```
+
+JIT이 본 결과: 99% null 아님 → 어셈블리에서 else 본문을 **fall-through**(점프 없이 다음에 바로 오는 경로)로 배치:
+
+```asm
+test    eax, eax       ; x가 null인지 검사
+jz      error_handler  ; null이면 점프 (드뭄)
+; hot path 본문이 바로 여기 옴 — CPU 캐시 hit, branch predictor 정확
+...
+```
+
+→ CPU 명령어 캐시 효율 + branch predictor 정확도 ↑.
+
+**(4) Escape Analysis + Scalar Replacement — Heap 할당 제거**
+
+```java
+int distance(int x1, int y1, int x2, int y2) {
+    Point p1 = new Point(x1, y1);
+    Point p2 = new Point(x2, y2);
+    return Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
+}
+```
+
+JIT 분석: `p1`, `p2`가 메서드 밖으로 안 나감("escape" 안 함) → **Heap 할당 자체를 제거** + 필드를 register로 분해:
+
+```java
+// JIT이 만든 가상 코드 — 객체가 사라짐
+int distance(int x1, int y1, int x2, int y2) {
+    return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+}
+```
+
+→ GC 부담 0. allocation 0. 이게 JVM이 "객체 마구 만들어도 빠른" 이유의 핵심.
+
+**(5) Loop Unrolling + Vectorization**
+
+```java
+for (int i = 0; i < 1000; i++) sum += arr[i];
+```
+
+JIT이 만드는 어셈블리:
+
+```asm
+; 4개씩 묶어 SIMD 명령으로 한 번에 처리
+vmovdqu  ymm0, [rax]       ; arr[i..i+7] 8개 정수를 한 번에 load
+vpaddd   ymm1, ymm1, ymm0  ; 8개를 한 번에 더함
+add      rax, 32
+cmp      rax, rcx
+jl       loop
+```
+
+→ 8개 정수를 한 명령으로 처리. 이론적으로 8배 빠름.
+
+---
+
+### 4. JVM은 어떻게 "hot 코드"를 알아내는가 — 동적 컴파일의 실제 흐름
+
+JIT의 메커니즘은 결국 **세 가지**다:
+1. **카운터로 hot 판정**
+2. **인터프리터에서 프로파일 수집**
+3. **임계치 넘으면 JIT 큐에 제출**
+
+#### 카운터 시스템
+
+JVM은 메서드마다 두 카운터를 둔다:
+
+| 카운터 | 의미 |
+|---|---|
+| **Invocation counter** | 이 메서드가 호출된 횟수 |
+| **Back-edge counter** | 이 메서드 안의 루프가 회전한 횟수 |
+
+기본 임계치 (Tiered Compilation 기준):
+- C1 컴파일 트리거: invocation ≥ ~200, back-edge ≥ ~1000
+- C2 컴파일 트리거: invocation ≥ ~5000, back-edge ≥ ~10000
+- (정확한 값은 `-XX:Tier3InvocationThreshold` 등으로 조정)
+
+#### 프로파일 데이터 수집 — `MethodData`
+
+인터프리터와 C1이 메서드 실행 중에 모으는 데이터:
+
+```
+MethodData {
+    invocation_count
+    backedge_count
+
+    // 각 가상 호출 site별로
+    receiver_class_distribution: { Dog: 9990, Cat: 10 }
+
+    // 각 if/switch별로
+    branch_taken_count
+    branch_not_taken_count
+
+    // 각 null check별로
+    null_seen_count
+
+    // 각 메서드 인자별로
+    type_profile: { String: 9999, Object: 1 }
+}
+```
+
+이게 Metaspace에 메서드마다 저장된다. C2가 컴파일할 때 이걸 읽어서 **"99% Dog면 Dog로 가정"** 같은 결정을 내린다.
+
+#### 전체 라이프사이클
+
+```
+[새 메서드 호출됨]
+        │
+        ▼
+[Level 0: 인터프리터 실행]
+        │ invocation/backedge 카운터 ++
+        │
+        │ 카운터 ≥ 임계치
+        ▼
+[Level 3: C1 컴파일 (with full profiling)]
+        │ Code Cache에 native code 저장
+        │ 호출 시 어셈블리로 직접 점프
+        │ MethodData에 profile 누적
+        │
+        │ 카운터 더 누적
+        ▼
+[Level 4: C2 컴파일 (profile-guided)]
+        │ MethodData를 읽어서 공격적 최적화
+        │ inline + EA + vectorization
+        │ Code Cache에 새 native code 저장 (L3 코드 폐기)
+        │
+        │ ← 가정 깨짐 (예: 갑자기 Cat 들어옴)
+        ▼
+[Deoptimization]
+        │ register/stack 상태를 인터프리터 frame으로 재구성
+        │
+        ▼
+[Level 0으로 복귀 → 다시 카운터 누적 → 재컴파일]
+```
+
+---
+
+### 5. AOT vs JIT — 정리 비교
+
+| 항목 | AOT (C/C++) | JIT (JVM) |
+|---|---|---|
+| **컴파일 시점** | 빌드 시 (한 번) | 런타임 (반복) |
+| **결과물** | 플랫폼 종속 binary | bytecode + 런타임에 생성된 native code |
+| **시작 속도** | 빠름 (바로 실행) | 느림 (warmup 필요) |
+| **Peak 성능** | 좋음 (정적 최적화 한계) | 더 좋을 수 있음 (실측 기반 최적화) |
+| **플랫폼 이식** | 재컴파일 | bytecode는 어디서나 |
+| **메모리** | 적음 | 많음 (JVM + Code Cache + MethodData) |
+| **최적화 정보** | 정적 분석만 | 정적 + **실측 프로파일** |
+| **동적 기능** | 어려움 | reflection, hot-swap 자연스러움 |
+| **대표 사례** | C, C++, Rust, Go | Java, Kotlin, Scala |
+
+---
+
+### 6. 한 줄 요약
+
+> **AOT는 "예측 컴파일"이고, JIT은 "관측 컴파일"이다.**
+
+- AOT는 코드만 보고 "이렇게 돌아갈 것이다"를 가정한다
+- JIT은 실제로 돌아가는 걸 보고 "이렇게 돌아간다"를 알아낸 다음 컴파일한다
+- 그래서 JIT은 **AOT가 절대 할 수 없는 최적화** — devirtualization, escape analysis, branch prediction에 실측 적용 — 를 한다
+- 대가는 **warmup**(처음엔 인터프리터로 느리게 시작) + **메모리**(JIT 컴파일러 + Code Cache + MethodData)
+
+이게 "javac가 한 번, JIT이 한 번, 그 사이엔 인터프리트"라는 이 챕터 도입부 문장의 본질이다. 같은 코드를 **두 번 컴파일**하는 이유는 — **정적 컴파일러가 알 수 없는 정보를, 동적 컴파일러가 실측으로 알아낸 뒤 더 깊이 최적화하기 위해서**다.
+
+</details>
 
 ### "Bytecode가 왜 stack-based인가?"
 
