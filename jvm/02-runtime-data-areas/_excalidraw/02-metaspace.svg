@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">Metaspace + ClassLoaderData — Heap 밖의 클래스 메타</text>
+  <text x="30" y="62" font-size="13" fill="#666">PermGen → Metaspace (JDK 8). CLD 단위 chunk 할당. ClassLoader unload = chunk 통째 free.</text>
+
+  <rect x="30" y="90" width="555" height="580" rx="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="307" y="118" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">Metaspace 3단 구조</text>
+
+  <rect x="50" y="140" width="515" height="110" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="160" font-size="12" fill="#1565c0" font-weight="bold">1단: VirtualSpaceList</text>
+  <text x="70" y="178" font-size="11" fill="#333">OS로부터 큰 가상 주소 reserve (mmap)</text>
+  <text x="70" y="196" font-size="11" fill="#333">2MB+ 단위 VirtualSpaceNode들의 linked list</text>
+  <text x="70" y="214" font-size="11" fill="#333">Compressed Class Space는 별도 1GB reserve</text>
+  <text x="70" y="232" font-size="11" fill="#333">  (-XX:CompressedClassSpaceSize)</text>
+
+  <rect x="50" y="265" width="515" height="120" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="285" font-size="12" fill="#1565c0" font-weight="bold">2단: Chunk</text>
+  <text x="70" y="303" font-size="11" fill="#333">VirtualSpaceNode를 chunk로 분할. 등급:</text>
+  <text x="70" y="321" font-size="11" fill="#333">• Specialized: 1KB</text>
+  <text x="70" y="339" font-size="11" fill="#333">• Small: 4KB</text>
+  <text x="70" y="357" font-size="11" fill="#333">• Medium: 64KB</text>
+  <text x="70" y="375" font-size="11" fill="#333">• Humongous: 가변</text>
+
+  <rect x="50" y="400" width="515" height="130" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="420" font-size="12" fill="#1565c0" font-weight="bold">3단: Block (실제 메타데이터)</text>
+  <text x="70" y="438" font-size="11" fill="#333">Chunk 안에 bump-the-pointer 할당:</text>
+  <text x="70" y="456" font-size="11" fill="#333">• InstanceKlass (vtable, itable, fields, methods)</text>
+  <text x="70" y="474" font-size="11" fill="#333">• Method (한 메서드의 메타)</text>
+  <text x="70" y="492" font-size="11" fill="#333">• ConstantPool (런타임 상수 풀)</text>
+  <text x="70" y="510" font-size="11" fill="#333">• Symbol (이름 internalization)</text>
+
+  <text x="50" y="555" font-size="11" fill="#1565c0" font-weight="bold">옵션:</text>
+  <text x="60" y="573" font-size="11" fill="#333" font-family="monospace">-XX:MaxMetaspaceSize=512m</text>
+  <text x="60" y="590" font-size="11" fill="#333" font-family="monospace">-XX:CompressedClassSpaceSize=1g</text>
+  <text x="60" y="615" font-size="11" fill="#c62828">→ 미설정 시 unlimited (OS 메모리까지)</text>
+  <text x="60" y="633" font-size="11" fill="#c62828">→ ClassLoader 누수 시 OOM:Metaspace</text>
+
+  <rect x="615" y="90" width="555" height="580" rx="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="892" y="118" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">ClassLoaderData (CLD)</text>
+
+  <rect x="635" y="140" width="515" height="110" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="645" y="160" font-size="12" fill="#7b1fa2" font-weight="bold">CLD = ClassLoader 1:1 대응</text>
+  <text x="655" y="178" font-size="11" fill="#333">각 ClassLoader가 자기 CLD 보유.</text>
+  <text x="655" y="196" font-size="11" fill="#333">CLD가 자기만의 chunk 리스트.</text>
+  <text x="655" y="214" font-size="11" fill="#333">그 CL이 로드한 모든 클래스의 메타 보관.</text>
+  <text x="655" y="232" font-size="11" fill="#1565c0" font-weight="bold">→ "CL 단위 캡슐화"</text>
+
+  <rect x="635" y="265" width="515" height="170" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="645" y="285" font-size="12" fill="#7b1fa2" font-weight="bold">ClassLoader unload 흐름:</text>
+  <text x="655" y="305" font-size="11" fill="#333">1. CL 객체가 unreachable</text>
+  <text x="655" y="323" font-size="11" fill="#333">2. GC가 CLD의 _class_loader_ref 못 따라감</text>
+  <text x="655" y="341" font-size="11" fill="#333">3. CLD가 dead로 표시</text>
+  <text x="655" y="359" font-size="11" fill="#333">4. CLD가 가진 모든 chunk를 free list로</text>
+  <text x="655" y="377" font-size="11" fill="#333">5. 다음 GC cycle에서 OS uncommit</text>
+  <text x="655" y="405" font-size="11" fill="#2e7d32" font-weight="bold">→ 개별 Klass sweep 없이 chunk 단위로 free</text>
+  <text x="655" y="423" font-size="11" fill="#2e7d32">→ 매우 효율적</text>
+
+  <rect x="635" y="450" width="515" height="200" stroke="#c62828" fill="#ffcdd2"/>
+  <text x="645" y="470" font-size="12" fill="#c62828" font-weight="bold">ClassLoader 누수 5대 패턴:</text>
+  <text x="655" y="490" font-size="11" fill="#333">1. 정적 캐시에 외부 CL의 Class 보관</text>
+  <text x="655" y="508" font-size="11" fill="#333">2. ThreadLocal (Tomcat thread pool 영구)</text>
+  <text x="655" y="526" font-size="11" fill="#333">3. JDBC DriverManager 미해제</text>
+  <text x="655" y="544" font-size="11" fill="#333">4. Logger context (Log4j2 shutdown 누락)</text>
+  <text x="655" y="562" font-size="11" fill="#333">5. Reflection cache</text>
+  <text x="655" y="590" font-size="11" fill="#c62828" font-weight="bold">진단:</text>
+  <text x="655" y="608" font-size="11" fill="#333" font-family="monospace">jcmd PID VM.classloader_stats</text>
+  <text x="655" y="624" font-size="10" fill="#666">→ 같은 이름 CL 수십 개 = 누수 확정</text>
+  <text x="655" y="642" font-size="11" fill="#333" font-family="monospace">-Xlog:class+unload=info</text>
+</svg>

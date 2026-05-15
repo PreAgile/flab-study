@@ -6,6 +6,40 @@
 
 ---
 
+## 🗺️ JVM 라이프사이클 안에서 이 챕터의 위치
+
+이 챕터는 클래스 라이프사이클 5단계 중 **Linking** — 로드된 `InstanceKlass`를 검증·준비·해결하는 3단계 서브 파이프라인을 다룬다.
+
+![class lifecycle](./_excalidraw/04-class-lifecycle.svg)
+
+```
+   .java ──javac──► .class
+                       │
+                       ▼
+                   Loading                                  → [02-classloader-hierarchy](./02-classloader-hierarchy.md)
+                       │
+                       ▼  ★ 이 챕터 ★
+                   Linking
+                   ├─ Verification  (bytecode 타입 안전 증명)
+                   ├─ Preparation   (static 필드 default 할당)
+                   └─ Resolution    (심볼릭 참조 → 실제 메모리 주소, lazy)
+                       │
+                       ▼
+                   Initialization (<clinit>)                → [04-initialization-and-unload](./04-initialization-and-unload.md)
+                       │
+                       ▼
+                   Usage → Unloading
+```
+
+**상세 다이어그램**: ![linking 3단계](./_excalidraw/03-linking-stages.svg)
+
+**이전/다음 챕터와의 연결**:
+- ← [01-classfile-format](./01-classfile-format.md): Verification이 검증하는 입력 (ClassFile의 구조).
+- ← [02-classloader-hierarchy](./02-classloader-hierarchy.md): Linking의 입력(`InstanceKlass`)을 만든 주체.
+- → [04-initialization-and-unload](./04-initialization-and-unload.md): Linking이 끝난 뒤 `<clinit>`이 실행되는 단계.
+
+---
+
 ## 📍 학습 목표
 
 1. Loading → Linking → Initialization의 경계를 명확히 그릴 수 있다.
@@ -396,6 +430,18 @@ B는 재컴파일 안 함. 실행 시:
 - Resolution → `NoSuchFieldError`.
 
 이게 **binary compatibility**의 영역. JLS 13장에서 자세히 정의.
+
+---
+
+## 🗺️ 잠깐 — 우리는 라이프사이클 어디인가? (Reminder)
+
+> Verify/Prepare/Resolve 세 단계를 거치며 클래스가 **사용 가능한 상태에 가까워졌다**. 하지만 아직 `<clinit>`는 안 돌았다.
+>
+> ```
+> Loading ──[★ Linking: 우리가 지금까지 본 곳 ★]──► Initialization ──► Use ──► Unload
+> ```
+>
+> 다음 4단계는 위 3단계의 HotSpot 구현 코드. `<clinit>` 실행 자체는 [04-initialization-and-unload](./04-initialization-and-unload.md).
 
 ---
 

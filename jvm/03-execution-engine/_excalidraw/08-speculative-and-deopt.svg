@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/></marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c62828"/></marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="760" fill="#ffffff"/>
+  <text x="30" y="40" font-size="24" fill="#1e1e1e" font-weight="bold">Speculative Optimization + Deoptimization</text>
+  <text x="30" y="63" font-size="13" fill="#666">"공격적으로 가정하고, 깨지면 안전하게 되돌린다" — C2의 모든 최적화의 안전판</text>
+
+  <!-- Speculation types -->
+  <rect x="30" y="90" width="555" height="320" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="307" y="118" font-size="16" fill="#1565c0" text-anchor="middle" font-weight="bold">Speculation 종류</text>
+
+  <rect x="50" y="138" width="515" height="55" rx="6" ry="6" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="158" font-size="12" fill="#1565c0" font-weight="bold">① CHA-based — Monomorphic 가정</text>
+  <text x="60" y="178" font-size="11" fill="#333">"현재 이 인터페이스 구현체 1개뿐" → 강제 inline. 새 구현체 로드 시 deopt.</text>
+
+  <rect x="50" y="200" width="515" height="55" rx="6" ry="6" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="220" font-size="12" fill="#1565c0" font-weight="bold">② Type Profile — Receiver 타입 가정</text>
+  <text x="60" y="240" font-size="11" fill="#333">"이 call site의 receiver는 95% FooImpl" → FooImpl로 inline + 다른 케이스는 uncommon trap.</text>
+
+  <rect x="50" y="262" width="515" height="55" rx="6" ry="6" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="282" font-size="12" fill="#1565c0" font-weight="bold">③ Branch Profile — 분기 결과 가정</text>
+  <text x="60" y="302" font-size="11" fill="#333">"이 분기는 99% true" → false 케이스를 uncommon path로 옮김 + true path 최적화.</text>
+
+  <rect x="50" y="324" width="515" height="55" rx="6" ry="6" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="344" font-size="12" fill="#1565c0" font-weight="bold">④ Null/Range check elimination — Predicate hoisting</text>
+  <text x="60" y="364" font-size="11" fill="#333">"이 reference는 null 아님" 또는 "이 index는 범위 안" 가정. uncommon trap으로 안전판.</text>
+
+  <text x="50" y="394" font-size="11" fill="#1565c0" font-style="italic">→ 모든 speculation에는 "uncommon trap" (deopt trigger)가 안전판으로 함께</text>
+
+  <!-- Deopt flow -->
+  <rect x="615" y="90" width="555" height="320" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="892" y="118" font-size="16" fill="#c62828" text-anchor="middle" font-weight="bold">Deoptimization 흐름</text>
+
+  <text x="635" y="148" font-size="12" fill="#c62828" font-weight="bold">1. Speculation 위반 감지</text>
+  <text x="635" y="167" font-size="11" fill="#333">  • Uncommon trap 도달 (분기 가정 깨짐)</text>
+  <text x="635" y="184" font-size="11" fill="#333">  • CHA 의존성 위반 (새 클래스 로드)</text>
+  <text x="635" y="201" font-size="11" fill="#333">  • Type check 실패</text>
+
+  <text x="635" y="228" font-size="12" fill="#c62828" font-weight="bold">2. nmethod에 not_entrant 표시</text>
+  <text x="635" y="247" font-size="11" fill="#333">  • 다음 호출은 인터프리터로</text>
+  <text x="635" y="264" font-size="11" fill="#333">  • Method._code 필드를 인터프리터 stub으로 patch</text>
+
+  <text x="635" y="291" font-size="12" fill="#c62828" font-weight="bold">3. 현재 native frame 변환 (★ 핵심)</text>
+  <text x="635" y="310" font-size="11" fill="#333">  • OopMap으로 register/stack의 oop 위치 식별</text>
+  <text x="635" y="327" font-size="11" fill="#333">  • vframe (virtual frame) 추출</text>
+  <text x="635" y="344" font-size="11" fill="#333">  • Interpreter frame 새로 만들고 local/operand 복원</text>
+
+  <text x="635" y="371" font-size="12" fill="#c62828" font-weight="bold">4. 인터프리터로 재개 + profile 재수집</text>
+  <text x="635" y="390" font-size="11" fill="#333">  • 시간 지나 재컴파일 (보수적 옵션)</text>
+
+  <!-- Deopt reasons -->
+  <rect x="30" y="430" width="1140" height="310" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="600" y="460" font-size="16" fill="#7b1fa2" text-anchor="middle" font-weight="bold">Deopt Reason — JFR jdk.Deoptimization 분석</text>
+
+  <rect x="50" y="480" width="360" height="240" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="60" y="503" font-size="12" fill="#7b1fa2" font-weight="bold">자주 보이는 reason:</text>
+  <text x="60" y="525" font-size="11" fill="#333" font-family="monospace">unstable_if</text>
+  <text x="80" y="541" font-size="10" fill="#666">분기 가정 깨짐 (95% true → 자주 false)</text>
+  <text x="60" y="563" font-size="11" fill="#333" font-family="monospace">class_check</text>
+  <text x="80" y="579" font-size="10" fill="#666">CHA 위반 — 새 구현체 등장</text>
+  <text x="60" y="601" font-size="11" fill="#333" font-family="monospace">unreached</text>
+  <text x="80" y="617" font-size="10" fill="#666">도달 안 함 표시 path 도달</text>
+  <text x="60" y="639" font-size="11" fill="#333" font-family="monospace">null_check / null_assert</text>
+  <text x="80" y="655" font-size="10" fill="#666">null 아님 가정 깨짐</text>
+  <text x="60" y="677" font-size="11" fill="#333" font-family="monospace">range_check</text>
+  <text x="80" y="693" font-size="10" fill="#666">RCE 가정 깨짐 (out of range)</text>
+  <text x="60" y="715" font-size="11" fill="#333" font-family="monospace">predicate</text>
+
+  <rect x="430" y="480" width="360" height="240" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="440" y="503" font-size="12" fill="#7b1fa2" font-weight="bold">덜 흔한 reason:</text>
+  <text x="440" y="525" font-size="11" fill="#333" font-family="monospace">array_check</text>
+  <text x="460" y="541" font-size="10" fill="#666">Object array store type 위반</text>
+  <text x="440" y="563" font-size="11" fill="#333" font-family="monospace">div0_check</text>
+  <text x="460" y="579" font-size="10" fill="#666">0으로 나누기 (자주 안 일어남 가정 깨짐)</text>
+  <text x="440" y="601" font-size="11" fill="#333" font-family="monospace">monitor_enter / monitor_exit</text>
+  <text x="460" y="617" font-size="10" fill="#666">lock 가정 깨짐 (biased lock revoke 등)</text>
+  <text x="440" y="639" font-size="11" fill="#333" font-family="monospace">jvmti</text>
+  <text x="460" y="655" font-size="10" fill="#666">JVMTI debugger attach</text>
+  <text x="440" y="677" font-size="11" fill="#333" font-family="monospace">constraint</text>
+  <text x="460" y="693" font-size="10" fill="#666">기타 type constraint 깨짐</text>
+
+  <rect x="810" y="480" width="340" height="240" stroke="#7b1fa2" fill="#ffcdd2"/>
+  <text x="980" y="503" font-size="12" fill="#7b1fa2" text-anchor="middle" font-weight="bold">Deopt Action</text>
+  <text x="820" y="525" font-size="11" fill="#333" font-family="monospace">Action::none</text>
+  <text x="840" y="541" font-size="10" fill="#666">재컴파일 가능 (다시 시도)</text>
+  <text x="820" y="563" font-size="11" fill="#333" font-family="monospace">Action::maybe_recompile</text>
+  <text x="840" y="579" font-size="10" fill="#666">profile 재수집 후 재컴파일</text>
+  <text x="820" y="601" font-size="11" fill="#333" font-family="monospace">Action::reinterpret</text>
+  <text x="840" y="617" font-size="10" fill="#666">인터프리터 한동안</text>
+  <text x="820" y="639" font-size="11" fill="#333" font-family="monospace">Action::make_not_entrant</text>
+  <text x="840" y="655" font-size="10" fill="#666">옛 nmethod 폐기</text>
+  <text x="820" y="677" font-size="11" fill="#c62828" font-family="monospace" font-weight="bold">Action::make_not_compilable</text>
+  <text x="840" y="693" font-size="10" fill="#c62828">★ 영원히 인터프리터 — 같은 reason 반복 시</text>
+  <text x="820" y="715" font-size="10" fill="#c62828" font-style="italic">→ P99 영구 spike의 원인</text>
+</svg>

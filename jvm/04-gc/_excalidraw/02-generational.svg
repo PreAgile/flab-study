@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="600" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">Generational GC — Serial / Parallel</text>
+  <text x="30" y="62" font-size="13" fill="#666">Young (Eden + S0 + S1) + Old. 대부분 객체는 일찍 죽는다는 가설 활용.</text>
+
+  <!-- Heap layout -->
+  <rect x="30" y="90" width="1140" height="170" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="600" y="115" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">Heap layout</text>
+
+  <rect x="60" y="135" width="700" height="100" stroke="#fbc02d" fill="#fff9c4" stroke-width="1.5"/>
+  <text x="410" y="160" font-size="13" fill="#f57f17" text-anchor="middle" font-weight="bold">Young Generation (전체의 ~33%, NewRatio=2)</text>
+  <rect x="80" y="170" width="500" height="50" stroke="#ef6c00" fill="#ffe0b2"/>
+  <text x="330" y="200" font-size="12" fill="#bf360c" text-anchor="middle">Eden (80% of Young)</text>
+  <rect x="590" y="170" width="80" height="50" stroke="#7b1fa2" fill="#f3e5f5"/>
+  <text x="630" y="200" font-size="11" fill="#4a148c" text-anchor="middle">S0 (10%)</text>
+  <rect x="680" y="170" width="80" height="50" stroke="#7b1fa2" fill="#f3e5f5"/>
+  <text x="720" y="200" font-size="11" fill="#4a148c" text-anchor="middle">S1 (10%)</text>
+
+  <rect x="780" y="135" width="380" height="100" stroke="#c62828" fill="#ffcdd2" stroke-width="1.5"/>
+  <text x="970" y="160" font-size="13" fill="#b71c1c" text-anchor="middle" font-weight="bold">Old Generation (~67%)</text>
+  <text x="970" y="190" font-size="11" fill="#333" text-anchor="middle">살아남은 객체들 (tenured)</text>
+  <text x="970" y="210" font-size="11" fill="#333" text-anchor="middle">Major/Full GC 대상</text>
+
+  <!-- Young GC flow -->
+  <rect x="30" y="285" width="555" height="295" rx="10" ry="10" stroke="#f57f17" fill="#fff9c4" stroke-width="2"/>
+  <text x="307" y="310" font-size="14" fill="#f57f17" text-anchor="middle" font-weight="bold">Young GC (Copying)</text>
+
+  <text x="50" y="340" font-size="12" fill="#333" font-weight="bold">흐름:</text>
+  <text x="60" y="360" font-size="11" fill="#333">1. Eden 가득 → Young GC 트리거 (STW)</text>
+  <text x="60" y="378" font-size="11" fill="#333">2. Eden + active Survivor의 live 객체를 다른 Survivor로 copy</text>
+  <text x="60" y="396" font-size="11" fill="#333">3. 객체 age + 1 (Object Header에 4비트)</text>
+  <text x="60" y="414" font-size="11" fill="#333">4. age &gt; MaxTenuringThreshold (기본 15) → Old로 promote</text>
+  <text x="60" y="432" font-size="11" fill="#333">5. Eden + 옛 Survivor 비움 (통째로 reclaim)</text>
+  <text x="60" y="450" font-size="11" fill="#333">6. Survivor toggle: S0 ↔ S1</text>
+
+  <text x="50" y="478" font-size="11" fill="#f57f17" font-weight="bold">특성:</text>
+  <text x="60" y="496" font-size="11" fill="#333">• 살아있는 객체만 복사 → live ratio 낮을수록 빠름</text>
+  <text x="60" y="514" font-size="11" fill="#333">• 일반적 STW: 10~50 ms</text>
+  <text x="60" y="532" font-size="11" fill="#333">• 빈도: 수 초마다 (allocation rate 따라)</text>
+  <text x="60" y="555" font-size="11" fill="#f57f17" font-style="italic">→ 95% 죽음 + 5% 복사 = 매우 효율</text>
+
+  <!-- Old/Full GC -->
+  <rect x="615" y="285" width="555" height="295" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="892" y="310" font-size="14" fill="#c62828" text-anchor="middle" font-weight="bold">Old/Full GC (Mark-Compact)</text>
+
+  <text x="635" y="340" font-size="12" fill="#333" font-weight="bold">트리거:</text>
+  <text x="645" y="360" font-size="11" fill="#333">• Old gen이 한계 도달</text>
+  <text x="645" y="378" font-size="11" fill="#333">• Young GC에서 promote 못 함 (Old 공간 부족)</text>
+  <text x="645" y="396" font-size="11" fill="#333">• System.gc() (DisableExplicitGC 끄지 않으면)</text>
+
+  <text x="635" y="425" font-size="12" fill="#333" font-weight="bold">흐름:</text>
+  <text x="645" y="445" font-size="11" fill="#333">1. 전체 Heap에 대해 mark (Old + Young)</text>
+  <text x="645" y="463" font-size="11" fill="#333">2. 살아있는 객체를 한 쪽으로 compact</text>
+  <text x="645" y="481" font-size="11" fill="#333">3. 모든 참조 갱신 (객체 주소 바뀜)</text>
+
+  <text x="635" y="510" font-size="11" fill="#c62828" font-weight="bold">특성:</text>
+  <text x="645" y="528" font-size="11" fill="#333">• STW: 수백 ms ~ 수 초 (Heap 크기에 비례)</text>
+  <text x="645" y="546" font-size="11" fill="#333">• 빈도: 정상이면 분/시간 단위</text>
+  <text x="645" y="563" font-size="11" fill="#c62828" font-style="italic">→ Full GC 빈발은 운영 사고 신호</text>
+</svg>

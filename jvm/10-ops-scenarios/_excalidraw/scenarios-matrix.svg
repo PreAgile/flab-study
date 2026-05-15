@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 700" width="1300" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1300" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">8대 운영 시나리오 진단 매트릭스</text>
+  <text x="30" y="62" font-size="13" fill="#666">증상 → 진단 명령 → 가능 원인 → 조치. 모든 시나리오의 first responder가 답해야 할 것.</text>
+
+  <!-- 8 cards -->
+  <g>
+    <rect x="30" y="90" width="305" height="280" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+    <text x="182" y="115" font-size="13" fill="#c62828" text-anchor="middle" font-weight="bold">① P99 Latency Spike</text>
+    <text x="40" y="140" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> 평소 50ms, 가끔 1000ms+</text>
+    <text x="40" y="160" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="50" y="178" font-size="10" fill="#333">• JFR jdk.GarbageCollection</text>
+    <text x="50" y="194" font-size="10" fill="#333">• JFR jdk.Deoptimization</text>
+    <text x="50" y="210" font-size="10" fill="#333">• JFR jdk.JavaMonitorWait</text>
+    <text x="40" y="232" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="50" y="248" font-size="10" fill="#333">• GC pause (Full GC?)</text>
+    <text x="50" y="263" font-size="10" fill="#333">• Deopt burst</text>
+    <text x="50" y="278" font-size="10" fill="#333">• Lock contention</text>
+    <text x="40" y="300" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="50" y="316" font-size="10" fill="#333">• G1 → ZGC 마이그</text>
+    <text x="50" y="331" font-size="10" fill="#333">• Lock-free 자료구조</text>
+    <text x="50" y="346" font-size="10" fill="#333">• 코드 audit (poly call site)</text>
+
+    <rect x="350" y="90" width="305" height="280" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+    <text x="502" y="115" font-size="13" fill="#c62828" text-anchor="middle" font-weight="bold">② Full GC 빈발</text>
+    <text x="360" y="140" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> 분당 Full GC 5+</text>
+    <text x="360" y="160" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="370" y="178" font-size="10" fill="#333">• -Xlog:gc* — Full GC cause</text>
+    <text x="370" y="194" font-size="10" fill="#333">• Heap dump + MAT</text>
+    <text x="370" y="210" font-size="10" fill="#333">• jstat -gc 1s</text>
+    <text x="360" y="232" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="370" y="248" font-size="10" fill="#333">• Old gen 누적 (cache 누수)</text>
+    <text x="370" y="263" font-size="10" fill="#333">• Premature promotion</text>
+    <text x="370" y="278" font-size="10" fill="#333">• Metaspace 압박</text>
+    <text x="360" y="300" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="370" y="316" font-size="10" fill="#333">• Cache 크기 제한 (LRU)</text>
+    <text x="370" y="331" font-size="10" fill="#333">• Heap ↑ (limit 안에서)</text>
+    <text x="370" y="346" font-size="10" fill="#333">• Young 크기 조정</text>
+
+    <rect x="670" y="90" width="305" height="280" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+    <text x="822" y="115" font-size="13" fill="#c62828" text-anchor="middle" font-weight="bold">③ OOM: Java heap space</text>
+    <text x="680" y="140" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> OutOfMemoryError + crash</text>
+    <text x="680" y="160" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="690" y="178" font-size="10" fill="#333">• Heap dump (자동 또는 jcmd)</text>
+    <text x="690" y="194" font-size="10" fill="#333">• MAT의 Leak Suspects</text>
+    <text x="690" y="210" font-size="10" fill="#333">• GC root 추적</text>
+    <text x="680" y="232" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="690" y="248" font-size="10" fill="#333">• 정적 컬렉션 누수</text>
+    <text x="690" y="263" font-size="10" fill="#333">• ThreadLocal 누수</text>
+    <text x="690" y="278" font-size="10" fill="#333">• Listener 미해제</text>
+    <text x="680" y="300" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="690" y="316" font-size="10" fill="#333">• 누수 코드 수정</text>
+    <text x="690" y="331" font-size="10" fill="#333">• -XX:+HeapDumpOnOOM 설정</text>
+    <text x="690" y="346" font-size="10" fill="#333">• 알람: Old gen 사용량</text>
+
+    <rect x="990" y="90" width="290" height="280" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+    <text x="1135" y="115" font-size="13" fill="#c62828" text-anchor="middle" font-weight="bold">④ OOM: Metaspace</text>
+    <text x="1000" y="140" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> ClassLoader leak 신호</text>
+    <text x="1000" y="160" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="1010" y="178" font-size="10" fill="#333">• jcmd VM.metaspace summary</text>
+    <text x="1010" y="194" font-size="10" fill="#333">• jcmd VM.classloader_stats</text>
+    <text x="1010" y="210" font-size="10" fill="#333">• -Xlog:class+unload</text>
+    <text x="1000" y="232" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="1010" y="248" font-size="10" fill="#333">• Hot reload 누적</text>
+    <text x="1010" y="263" font-size="10" fill="#333">• JDBC driver 미해제</text>
+    <text x="1010" y="278" font-size="10" fill="#333">• Dynamic proxy 폭주</text>
+    <text x="1000" y="300" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="1010" y="316" font-size="10" fill="#333">• ClassLoader 누수 패턴 점검</text>
+    <text x="1010" y="331" font-size="10" fill="#333">• Lambda 사용 패턴 audit</text>
+    <text x="1010" y="346" font-size="10" fill="#333">• Tomcat MemoryLeakProtection</text>
+
+    <rect x="30" y="390" width="305" height="280" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+    <text x="182" y="415" font-size="13" fill="#7b1fa2" text-anchor="middle" font-weight="bold">⑤ Container OOM-killed</text>
+    <text x="40" y="440" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> Container killed, Heap 정상</text>
+    <text x="40" y="460" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="50" y="478" font-size="10" fill="#333">• NMT (VM.native_memory)</text>
+    <text x="50" y="494" font-size="10" fill="#333">• pmap, ps RSS</text>
+    <text x="50" y="510" font-size="10" fill="#333">• BufferPoolMXBean</text>
+    <text x="40" y="532" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="50" y="548" font-size="10" fill="#333">• Thread 폭증</text>
+    <text x="50" y="563" font-size="10" fill="#333">• Direct Memory 누수 (Netty)</text>
+    <text x="50" y="578" font-size="10" fill="#333">• Code Cache full</text>
+    <text x="40" y="600" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="50" y="616" font-size="10" fill="#333">• -XX:MaxDirectMemorySize</text>
+    <text x="50" y="631" font-size="10" fill="#333">• Container limit 재계산</text>
+    <text x="50" y="646" font-size="10" fill="#333">• Thread pool 제한</text>
+
+    <rect x="350" y="390" width="305" height="280" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+    <text x="502" y="415" font-size="13" fill="#7b1fa2" text-anchor="middle" font-weight="bold">⑥ Code Cache Full</text>
+    <text x="360" y="440" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> 시간 지나 응답 5× 느림</text>
+    <text x="360" y="460" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="370" y="478" font-size="10" fill="#333">• jcmd Compiler.codecache</text>
+    <text x="370" y="494" font-size="10" fill="#333">• stopped_count > 0 확인</text>
+    <text x="370" y="510" font-size="10" fill="#333">• JFR jdk.CodeCacheFull</text>
+    <text x="360" y="532" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="370" y="548" font-size="10" fill="#333">• 동적 클래스 폭주 (Lambda)</text>
+    <text x="370" y="563" font-size="10" fill="#333">• ReservedCodeCacheSize 부족</text>
+    <text x="370" y="578" font-size="10" fill="#333">• Hot reload 누적</text>
+    <text x="360" y="600" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="370" y="616" font-size="10" fill="#333">• -XX:ReservedCodeCacheSize=512m</text>
+    <text x="370" y="631" font-size="10" fill="#333">• -XX:+UseCodeCacheFlushing</text>
+    <text x="370" y="646" font-size="10" fill="#333">• 동적 클래스 audit</text>
+
+    <rect x="670" y="390" width="305" height="280" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+    <text x="822" y="415" font-size="13" fill="#ef6c00" text-anchor="middle" font-weight="bold">⑦ VThread Pinning</text>
+    <text x="680" y="440" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> VT 도입 후 throughput ↓</text>
+    <text x="680" y="460" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="690" y="478" font-size="10" fill="#333">• -Djdk.tracePinnedThreads=full</text>
+    <text x="690" y="494" font-size="10" fill="#333">• JFR jdk.VirtualThreadPinned</text>
+    <text x="690" y="510" font-size="10" fill="#333">• "monitors:1" 빈도</text>
+    <text x="680" y="532" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="690" y="548" font-size="10" fill="#333">• synchronized + I/O</text>
+    <text x="690" y="563" font-size="10" fill="#333">• JNI 호출</text>
+    <text x="690" y="578" font-size="10" fill="#333">• 옛 JDBC driver</text>
+    <text x="680" y="600" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="690" y="616" font-size="10" fill="#333">• synchronized → ReentrantLock</text>
+    <text x="690" y="631" font-size="10" fill="#333">• 라이브러리 업그레이드</text>
+    <text x="690" y="646" font-size="10" fill="#333">• JDK 24+ 대기 (JEP 491)</text>
+
+    <rect x="990" y="390" width="290" height="280" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+    <text x="1135" y="415" font-size="13" fill="#ef6c00" text-anchor="middle" font-weight="bold">⑧ Slow Warmup</text>
+    <text x="1000" y="440" font-size="10" fill="#333"><tspan font-weight="bold">증상:</tspan> Pod 시작 후 5분 응답 느림</text>
+    <text x="1000" y="460" font-size="10" fill="#333"><tspan font-weight="bold">진단:</tspan></text>
+    <text x="1010" y="478" font-size="10" fill="#333">• -XX:+PrintCompilation</text>
+    <text x="1010" y="494" font-size="10" fill="#333">• jcmd Compiler.queue</text>
+    <text x="1010" y="510" font-size="10" fill="#333">• jcmd Compiler.codecache</text>
+    <text x="1000" y="532" font-size="10" fill="#333"><tspan font-weight="bold">원인 후보:</tspan></text>
+    <text x="1010" y="548" font-size="10" fill="#333">• CICompilerCount 부족</text>
+    <text x="1010" y="563" font-size="10" fill="#333">• Code Cache 부족</text>
+    <text x="1010" y="578" font-size="10" fill="#333">• 트래픽 burst</text>
+    <text x="1000" y="600" font-size="10" fill="#333"><tspan font-weight="bold">조치:</tspan></text>
+    <text x="1010" y="616" font-size="10" fill="#333">• K8s readiness 합성 warmup</text>
+    <text x="1010" y="631" font-size="10" fill="#333">• AppCDS</text>
+    <text x="1010" y="646" font-size="10" fill="#333">• Native Image 검토</text>
+  </g>
+</svg>

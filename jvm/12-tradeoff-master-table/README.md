@@ -1,101 +1,123 @@
-# 12. Tradeoff Master Table — cross-chapter 종합 비교
+# 12. Tradeoff Master Table — Cross-chapter 종합 비교
 
-> 각 챕터 안에서도 트레이드오프를 다뤘지만,
-> **한눈에 비교**할 수 있는 종합 표는 별개의 가치.
-> 면접에서 "왜 X 대신 Y인가" 질문에 즉답하려면 이 표가 머리에 박혀 있어야 한다.
-
----
-
-## 📍 학습 목표
-
-이 챕터를 끝내면 다음 비교를 표를 안 보고 그릴 수 있다:
-1. GC 7종 (Serial/Parallel/CMS/G1/ZGC/Shenandoah/Epsilon)의 트레이드오프
-2. JVM 구현 5종 (HotSpot/OpenJ9/GraalVM/Zing/Avian)의 차이
-3. AOT vs JIT vs Tiered Compilation
-4. Threading 모델 3종 (Platform / Virtual / Reactive)
-5. 메모리 영역 종류별 GC 정책
-6. ClassLoader 모델별 격리 vs 성능
-7. Memory Barriers 종류별 비용
+> "왜 X 대신 Y?" — 모든 시니어 질문의 핵심.
+> 본 챕터는 챕터 전체의 트레이드오프를 한 표로 종합.
 
 ---
 
-## 비교 표 카탈로그 (작성 예정)
+## 📊 GC 7종 종합
 
-### 1. GC 종합 비교
-
-| 속성 | Serial | Parallel | CMS | G1 | ZGC | Shenandoah | Epsilon |
+| | Serial | Parallel | CMS (제거) | G1 | ZGC (single) | Shenandoah | Gen ZGC |
 |---|---|---|---|---|---|---|---|
-| **도입 JDK** | 1.0 | 1.4 | 1.4 (제거 14) | 7 (default 9) | 11 (prod 15) | 12 (Red Hat) | 11 |
-| **알고리즘** | mark-sweep-compact | parallel mark-sweep-compact | mark-sweep (Old만 concurrent) | region-based, mostly concurrent | colored pointers, fully concurrent | Brooks/LRB, fully concurrent | no-op |
-| **세대 구분** | Y/O | Y/O | Y/O | Region 기반 (sof Y/O) | 21까지 single-gen, 21+ generational | Single-gen | N/A |
-| **STW** | 길다 | 길다 | Old 짧음, Young 길음 | 예측가능 (목표) | < 1ms | < 1ms | 0 (수집 안함) |
-| **Throughput** | 낮음 | ★★★★★ | ★★★ | ★★★★ | ★★★★ | ★★★★ | ★★★★★ |
-| **Latency** | ★ | ★ | ★★★ | ★★★★ | ★★★★★ | ★★★★★ | ★★★★★ |
-| **Heap 크기** | 작음 (~수백MB) | 중간 (~수십GB) | ~수십GB | ~수백GB | 8MB ~ 16TB | ~수백GB | 임의 |
-| **메모리 오버헤드** | 작음 | 작음 | 중간 | 중간 | 큼 (~10%) | 큼 (~10%) | 0 |
-| **유즈케이스** | 임베디드/CLI | 배치/Throughput | (deprecated) | 일반 서버 | 초저지연 + 큰 heap | 초저지연 + 큰 heap | benchmark, OOM 측정 |
-| **활성화** | `-XX:+UseSerialGC` | `-XX:+UseParallelGC` | (제거됨) | `-XX:+UseG1GC` | `-XX:+UseZGC` | `-XX:+UseShenandoahGC` | `-XX:+UseEpsilonGC` |
+| JDK | 1.0+ | 1.4+ | 1.4~13 | 7+, 9 default | 11~ | 12~ | 21+ |
+| Young algo | Copying | Parallel Copy | Parallel Copy | Region Evac | Concurrent | Concurrent | Concurrent |
+| Old algo | Mark-Compact | Mark-Compact | Concurrent MS | Region Evac | Concurrent | Concurrent | Concurrent |
+| STW pause | 수백 ms ~ 수초 | 수십 ~ 수백 ms | ~100 ms (CMF 시 김) | 10~200 ms (목표) | < 1 ms | ~10 ms | < 1 ms |
+| Throughput | 보통 | 높음 | 보통 | 보통~높음 | 85% (G1 대비) | 85% | 100% (G1 동등) |
+| Heap 한계 | <512MB | ~수십 GB | ~수십 GB | ~수백 GB | 16TB | ~수백 GB | 16TB |
+| 메모리 효율 | 좋음 | 좋음 | △ (frag) | 좋음 | 부담 (~20%) | 좋음 | 좋음 |
+| 적합 | 작은 Heap, 단일코어 | Batch, throughput | (제거) | 일반 서비스 | 큰 Heap latency | Latency portable | 신규 default |
+| 옵션 | -XX:+UseSerialGC | -XX:+UseParallelGC | (제거) | -XX:+UseG1GC | -XX:+UseZGC | -XX:+UseShenandoahGC | -XX:+UseZGC -XX:+ZGenerational |
 
-### 2. JVM 구현 비교
+## 📊 컴파일 모델 5종
 
-| 속성 | HotSpot | OpenJ9 | GraalVM | Zing | Avian |
+| | Interpreter only | C1 only | C2 only | Tiered (기본) | AOT/Native Image |
 |---|---|---|---|---|---|
-| **개발사** | Oracle/OpenJDK | IBM/Eclipse | Oracle Labs | Azul | 개인 |
-| **JIT 언어** | C++ | C/C++ | **Java** | C++/LLVM | C++ |
-| **AOT** | (JEP 295 제거) | shared cache | **Native Image** | Falcon (LLVM) | 부분 |
-| **GC 종류** | G1/ZGC/Shenandoah | Balanced/Gencon | G1/ZGC | C4 (pauseless) | Mark-sweep |
-| **메모리 footprint** | 큼 | 작음 | 작음 (Native Image) | 큼 | 매우 작음 |
-| **Startup** | 보통 | 빠름 (shared cache) | 매우 빠름 (Native) | 보통 | 빠름 |
-| **GC pause** | ~1ms (ZGC) | ~수십 ms | ~1ms (ZGC) | < 10ms (C4) | 길다 |
-| **유즈케이스** | 표준 | Cloud, low footprint | Serverless, CLI | Trading | 임베디드 |
+| Startup | 즉시 | 빠름 | 매우 느림 | 빠름 | 가장 빠름 (수십 ms) |
+| Peak throughput | 매우 낮음 | 보통 | 최고 | 최고 | 약간 낮음 (~90%) |
+| Code Cache | 0 | 작음 | 보통 | 큼 | 0 (binary에 포함) |
+| 옵션 | -Xint | -XX:TieredStopAtLevel=1 | -XX:-TieredCompilation | (기본) | native-image |
+| 적합 | 디버깅, 재현 | 컨테이너 작음 | Batch | 일반 | Serverless, CLI |
 
-### 3. AOT vs JIT vs Tiered
+## 📊 Threading 모델 3종
 
-| 속성 | AOT (Native Image) | JIT (C2 only) | Tiered (C1+C2) |
+| | Platform Thread (1:1) | Virtual Thread (M:N) | Async (CompletableFuture) |
 |---|---|---|---|
-| **Startup** | < 100ms | 수~수십초 | 수초 |
-| **Peak performance** | ★★★ | ★★★★★ | ★★★★★ |
-| **메모리** | ★★★★★ (작음) | ★ (큼) | ★★ |
-| **동적 기능** | 제한적 (closed-world) | 모두 가능 | 모두 가능 |
-| **Reflection** | 별도 metadata 필요 | 완전 지원 | 완전 지원 |
-| **유즈케이스** | FaaS, CLI, 콜드스타트 | 단일 워크로드 서버 | 일반 서버 (default) |
+| Memory | 1MB/thread (OS stack) | ~수 KB (Heap chunk) | 0 (continuation 없음) |
+| 최대 수 | ~수천 | 수십만~수백만 | 무제한 |
+| 생성 비용 | ~수 ms | ~수 us | ~수 us |
+| Synchronous 코드 | ✅ | ✅ | ❌ (async only) |
+| Blocking I/O | ❌ (thread 점유) | ✅ (freeze) | ❌ |
+| CPU-bound | ✅ | △ (carrier 점유) | △ |
+| synchronized | ✅ | ❌ pinning (JDK 21~23) | ✅ |
+| 디버깅 | 정상 | 정상 (stack trace) | 어려움 (callback hell) |
 
-### 4. Threading 모델
+## 📊 JVM 구현 비교
 
-| 속성 | Platform Thread | Virtual Thread (Loom) | Reactive |
-|---|---|---|---|
-| **1:1 OS thread** | 예 | 아니오 (M:N) | 아니오 |
-| **Stack size** | 1MB | 가변 (Heap의 chunk) | 없음 (callback) |
-| **Max concurrency** | ~수천 | 100만+ | 100만+ |
-| **Blocking 모델** | OK | OK (자동 unmount) | 금지 (callback hell) |
-| **코드 가독성** | ★★★★★ | ★★★★★ | ★★ |
-| **디버깅** | ★★★★ | ★★★★ | ★★ |
-| **CPU 효율** | ★★ | ★★★★ | ★★★★★ |
-| **사용 시기** | 적은 동시성 + CPU 집중 | 많은 동시성 + I/O | 진짜 reactive 시나리오 |
+| | HotSpot | OpenJ9 | GraalVM | Native Image |
+|---|---|---|---|---|
+| Author | Oracle | IBM Eclipse | Oracle | Oracle |
+| Compiler | C2 (C++) | TR (C++) | Graal (Java) | AOT Graal |
+| Footprint | 보통 | 작음 (~30% ↓) | 보통 | 작음 (~70% ↓) |
+| Startup | 보통 | 빠름 | 보통 | 가장 빠름 |
+| Peak throughput | 최고 | 약간 ↓ | 일부 ↑ | 약간 ↓ |
+| 운영 maturity | 매우 성숙 | 성숙 | 성숙 중 | 성숙 중 |
+| 적합 | 일반 | 메모리 제약 | Polyglot, 큰 throughput | Serverless |
 
-### 5. Memory Barriers (CPU 아키텍처별)
+## 📊 동기화 메커니즘 비교
 
-| Barrier | 의미 | x86 (강한 모델) | ARM (약한 모델) |
-|---|---|---|---|
-| **LoadLoad** | 앞 load가 뒤 load보다 먼저 보이게 | (자동) | `DMB ISHLD` |
-| **StoreStore** | 앞 store가 뒤 store보다 먼저 보이게 | (자동) | `DMB ISHST` |
-| **LoadStore** | 앞 load 후 뒤 store | (자동) | `DMB ISH` |
-| **StoreLoad** | 앞 store 후 뒤 load | `MFENCE` 또는 `lock add` | `DMB ISH` |
+| | synchronized | ReentrantLock | volatile | CAS (AtomicXxx) |
+|---|---|---|---|---|
+| 메커니즘 | JVM Mark Word | Java AQS | Memory barrier | lock cmpxchg |
+| 비용 (no contention) | ~수십 cycles | ~수십 cycles | ~30 cycles (write) | ~10 cycles |
+| 비용 (contention) | OS park/unpark | OS park/unpark | N/A | retry |
+| 정확성 | 모든 mutate | 모든 mutate | visibility만 | atomicity 보장 |
+| Try-lock | ❌ | ✅ | N/A | ✅ |
+| Interruption | ❌ | ✅ | N/A | N/A |
+| Condition | wait/notify | 여러 Condition | N/A | N/A |
+| VT pinning | ❌ | ✅ | ✅ | ✅ |
 
-> volatile write는 모든 4가지 barrier. x86은 사실상 `lock add` 하나로 처리 가능.
+## 📊 옵션 매트릭스 — Container 환경
 
-### 6. ClassLoader 모델
+```
+2 CPU, 4GB limit:
+  -Xms2g -Xmx2g
+  -XX:MaxMetaspaceSize=256m
+  -XX:MaxDirectMemorySize=512m
+  -XX:ReservedCodeCacheSize=128m
+  -XX:+UseG1GC -XX:MaxGCPauseMillis=200
 
-| 모델 | 위임 방향 | 격리 | 메모리 |
-|---|---|---|---|
-| **표준 (Java)** | 부모 → 자기 | 약함 | 효율적 |
-| **Tomcat WebappCL** | 자기 → 부모 (반전) | 강함 (앱별) | 중복 가능 |
-| **OSGi BundleCL** | DAG (그래프) | 매우 강함 | 효율적 (의존성 명시) |
-| **JPMS Module** | 모듈 그래프 | 강함 (모듈별 export) | 효율적 |
+4 CPU, 8GB limit:
+  -Xms4g -Xmx4g
+  -XX:MaxMetaspaceSize=512m
+  -XX:MaxDirectMemorySize=1g
+  -XX:ReservedCodeCacheSize=256m
+  -XX:+UseG1GC -XX:MaxGCPauseMillis=100
+
+16 CPU, 64GB limit:
+  -Xms32g -Xmx32g
+  -XX:MaxMetaspaceSize=1g
+  -XX:MaxDirectMemorySize=4g
+  -XX:ReservedCodeCacheSize=512m
+  -XX:+UseZGC -XX:+ZGenerational (JDK 21+)
+  또는 -XX:+UseG1GC
+```
+
+## ⚔️ 결정 트리
+
+```
+1. Startup이 가장 중요?
+   YES → Native Image (GraalVM) 또는 Serial/C1-only
+   NO → 2번
+
+2. P99 latency 목표 < 10ms?
+   YES → ZGC 또는 Generational ZGC (JDK 21+)
+   NO → 3번
+
+3. Throughput 최우선 (batch)?
+   YES → Parallel GC + -XX:-TieredCompilation
+   NO → 4번
+
+4. 일반 서비스 (대부분):
+   → G1 (기본) + Tiered Compilation (기본)
+
+5. I/O bound 동시성 ↑↑?
+   → Virtual Thread (JDK 21+)
+```
 
 ---
 
-## 작성 진행 상황
+## 🔗 다음 단계
 
-⏳ 각 표를 상세 분석 + 트레이드오프 explained로 채울 예정.
-이 챕터는 모든 본 챕터 (00~08) 학습 후 종합 정리용.
+- → [09. Mock Interviews](../09-mock-interviews/)
+- 모든 챕터 cross-reference의 한 점.

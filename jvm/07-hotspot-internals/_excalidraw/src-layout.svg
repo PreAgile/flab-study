@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">src/hotspot — HotSpot JVM 소스 디렉토리 구조</text>
+  <text x="30" y="62" font-size="13" fill="#666">~1.5M 줄 C++. share/cpu/os 3개 큰 분할.</text>
+
+  <rect x="30" y="90" width="1140" height="590" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="600" y="118" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">디렉토리 매핑</text>
+
+  <!-- share -->
+  <rect x="50" y="140" width="540" height="520" stroke="#1565c0" fill="#ffffff"/>
+  <text x="320" y="165" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">share/ (platform-independent)</text>
+
+  <text x="70" y="190" font-size="11" fill="#333" font-weight="bold">classfile/</text>
+  <text x="80" y="208" font-size="10" fill="#666">classFileParser.cpp (6000줄), classLoader.cpp,</text>
+  <text x="80" y="224" font-size="10" fill="#666">classLoaderData.cpp, verifier.cpp, symbolTable.cpp</text>
+
+  <text x="70" y="248" font-size="11" fill="#333" font-weight="bold">interpreter/</text>
+  <text x="80" y="266" font-size="10" fill="#666">templateInterpreter.cpp, templateTable.cpp,</text>
+  <text x="80" y="282" font-size="10" fill="#666">bytecodeInterpreter.cpp</text>
+
+  <text x="70" y="306" font-size="11" fill="#333" font-weight="bold">c1/  (Client compiler)</text>
+  <text x="80" y="324" font-size="10" fill="#666">c1_Compiler.cpp, c1_LIR.cpp, c1_LinearScan.cpp (~3K)</text>
+
+  <text x="70" y="348" font-size="11" fill="#333" font-weight="bold">opto/  (★ C2 — Server compiler)</text>
+  <text x="80" y="366" font-size="10" fill="#666">compile.cpp, node.hpp (Sea-of-Nodes),</text>
+  <text x="80" y="382" font-size="10" fill="#666">escape.cpp, loopnode.cpp, superword.cpp,</text>
+  <text x="80" y="398" font-size="10" fill="#666">chaitin.cpp (RA), bytecodeInfo.cpp (~50K 총)</text>
+
+  <text x="70" y="422" font-size="11" fill="#333" font-weight="bold">code/</text>
+  <text x="80" y="440" font-size="10" fill="#666">codeCache.cpp, nmethod.cpp, compiledIC.cpp,</text>
+  <text x="80" y="456" font-size="10" fill="#666">dependencies.cpp (CHA), debugInfo.cpp</text>
+
+  <text x="70" y="480" font-size="11" fill="#333" font-weight="bold">gc/</text>
+  <text x="80" y="498" font-size="10" fill="#666">shared/ (collectedHeap.cpp, ...)</text>
+  <text x="80" y="514" font-size="10" fill="#666">serial/ parallel/ g1/ z/ shenandoah/</text>
+
+  <text x="70" y="538" font-size="11" fill="#333" font-weight="bold">runtime/</text>
+  <text x="80" y="556" font-size="10" fill="#666">javaThread.hpp, frame.cpp, deoptimization.cpp,</text>
+  <text x="80" y="572" font-size="10" fill="#666">safepoint.cpp, synchronizer.cpp, continuation.cpp</text>
+
+  <text x="70" y="596" font-size="11" fill="#333" font-weight="bold">memory/</text>
+  <text x="80" y="614" font-size="10" fill="#666">metaspace.cpp, universe.cpp, allocation.hpp</text>
+
+  <text x="70" y="638" font-size="11" fill="#333" font-weight="bold">oops/</text>
+  <text x="80" y="654" font-size="10" fill="#666">klass.hpp, instanceKlass.hpp, method.hpp, markWord.hpp</text>
+
+  <!-- cpu + os -->
+  <rect x="610" y="140" width="540" height="260" stroke="#ef6c00" fill="#fff3e0"/>
+  <text x="880" y="165" font-size="14" fill="#ef6c00" text-anchor="middle" font-weight="bold">cpu/ (CPU별 구현)</text>
+  <text x="630" y="190" font-size="11" fill="#333" font-weight="bold">x86/, aarch64/, ppc/, riscv/, ...</text>
+  <text x="630" y="210" font-size="10" fill="#666">- templateTable_x86.cpp (각 opcode의 native asm)</text>
+  <text x="630" y="226" font-size="10" fill="#666">- macroAssembler_x86.cpp (asm DSL)</text>
+  <text x="630" y="242" font-size="10" fill="#666">- c1_LIRAssembler_x86.cpp (C1 code emit)</text>
+  <text x="630" y="258" font-size="10" fill="#666">- vm_version_x86.cpp (CPU feature detection)</text>
+
+  <text x="630" y="290" font-size="12" fill="#ef6c00" font-weight="bold">CPU별로 별도 구현 필요:</text>
+  <text x="630" y="308" font-size="10" fill="#666">• Template Interpreter (각 opcode asm)</text>
+  <text x="630" y="324" font-size="10" fill="#666">• Adapter stubs (calling convention)</text>
+  <text x="630" y="340" font-size="10" fill="#666">• Code emit for C1/C2</text>
+  <text x="630" y="356" font-size="10" fill="#666">• Memory barrier instruction</text>
+  <text x="630" y="372" font-size="10" fill="#666">• Safepoint polling</text>
+
+  <rect x="610" y="420" width="540" height="240" stroke="#7b1fa2" fill="#f3e5f5"/>
+  <text x="880" y="445" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">os/ (OS별 구현)</text>
+  <text x="630" y="470" font-size="11" fill="#333" font-weight="bold">linux/, bsd/, windows/, ...</text>
+  <text x="630" y="490" font-size="10" fill="#666">- os_linux.cpp (pthread, mmap, signal handler)</text>
+  <text x="630" y="506" font-size="10" fill="#666">- os_perf_linux.cpp (perf events)</text>
+  <text x="630" y="522" font-size="10" fill="#666">- objectMonitor_linux.cpp</text>
+
+  <text x="630" y="550" font-size="12" fill="#7b1fa2" font-weight="bold">OS API wrapping:</text>
+  <text x="630" y="568" font-size="10" fill="#666">• Thread create (pthread_create)</text>
+  <text x="630" y="584" font-size="10" fill="#666">• Memory map (mmap, mprotect)</text>
+  <text x="630" y="600" font-size="10" fill="#666">• Signal handler (SIGSEGV for safepoint poll)</text>
+  <text x="630" y="616" font-size="10" fill="#666">• File I/O, network</text>
+  <text x="630" y="632" font-size="10" fill="#666">• cgroup (container CPU/memory limit)</text>
+</svg>

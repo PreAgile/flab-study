@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">GC Fundamentals — Reachability + Mark/Sweep/Compact</text>
+  <text x="30" y="62" font-size="13" fill="#666">"살아있다" = GC Roots에서 도달 가능. 죽은 객체는 회수. 3가지 기본 변환.</text>
+
+  <!-- Reachability -->
+  <rect x="30" y="90" width="555" height="280" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="307" y="118" font-size="16" fill="#1565c0" text-anchor="middle" font-weight="bold">Reachability — "살아있다"의 정의</text>
+
+  <text x="50" y="148" font-size="12" fill="#333" font-weight="bold">GC Roots 4종:</text>
+  <text x="60" y="168" font-size="11" fill="#333">1. <tspan font-weight="bold">Stack의 local variable</tspan> + operand stack — 각 thread의 JVM Stack</text>
+  <text x="60" y="186" font-size="11" fill="#333">2. <tspan font-weight="bold">Static field</tspan> — Metaspace의 각 InstanceKlass</text>
+  <text x="60" y="204" font-size="11" fill="#333">3. <tspan font-weight="bold">JNI global reference</tspan> — native 코드가 잡는 객체</text>
+  <text x="60" y="222" font-size="11" fill="#333">4. <tspan font-weight="bold">Active thread / monitor</tspan> — 살아있는 thread, locked object</text>
+
+  <text x="50" y="252" font-size="12" fill="#333" font-weight="bold">알고리즘:</text>
+  <text x="60" y="272" font-size="11" fill="#333">1. GC Roots에서 시작</text>
+  <text x="60" y="290" font-size="11" fill="#333">2. 참조 따라가며 visited 표시 (Mark phase)</text>
+  <text x="60" y="308" font-size="11" fill="#333">3. visited 안 된 객체 = 죽음 → 회수</text>
+
+  <text x="50" y="340" font-size="11" fill="#1565c0" font-style="italic">→ 참조 카운팅(reference counting)이 아닌 reachability — 순환 참조도 회수 가능</text>
+
+  <!-- 3 strategies -->
+  <rect x="615" y="90" width="555" height="540" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="892" y="118" font-size="16" fill="#c62828" text-anchor="middle" font-weight="bold">3가지 회수 변환</text>
+
+  <rect x="635" y="138" width="515" height="155" rx="6" ry="6" stroke="#c62828" fill="#ffffff"/>
+  <text x="645" y="160" font-size="14" fill="#c62828" font-weight="bold">① Mark-Sweep</text>
+  <text x="645" y="178" font-size="11" fill="#333">Mark phase 후 죽은 객체 메모리를 free list에 반환.</text>
+  <text x="645" y="200" font-size="11" fill="#1565c0">+ 단순. 살아있는 객체 이동 안 함 (안전).</text>
+  <text x="645" y="218" font-size="11" fill="#c62828">- Fragmentation. 작은 free 영역 흩뿌려짐.</text>
+  <text x="645" y="236" font-size="11" fill="#c62828">- 큰 객체 allocation 어려움.</text>
+  <text x="645" y="258" font-size="11" fill="#333">사용: 옛 CMS, ZGC의 Old gen 일부.</text>
+  <text x="645" y="278" font-size="11" fill="#1565c0" font-style="italic">예: [살][죽][살][죽][살] → [살][free][살][free][살]</text>
+
+  <rect x="635" y="305" width="515" height="155" rx="6" ry="6" stroke="#c62828" fill="#ffffff"/>
+  <text x="645" y="327" font-size="14" fill="#c62828" font-weight="bold">② Mark-Compact</text>
+  <text x="645" y="345" font-size="11" fill="#333">Mark 후 살아있는 객체를 한 쪽으로 모음.</text>
+  <text x="645" y="367" font-size="11" fill="#1565c0">+ Fragmentation 0.</text>
+  <text x="645" y="385" font-size="11" fill="#1565c0">+ 큰 객체 allocation 자유.</text>
+  <text x="645" y="403" font-size="11" fill="#c62828">- 객체 이동 비용 (모든 참조 갱신).</text>
+  <text x="645" y="421" font-size="11" fill="#c62828">- 일반적으로 STW.</text>
+  <text x="645" y="443" font-size="11" fill="#333">사용: Serial Old, Parallel Old, G1의 Full GC.</text>
+
+  <rect x="635" y="472" width="515" height="155" rx="6" ry="6" stroke="#c62828" fill="#ffffff"/>
+  <text x="645" y="494" font-size="14" fill="#c62828" font-weight="bold">③ Copying (Mark-Copy)</text>
+  <text x="645" y="512" font-size="11" fill="#333">두 영역 사용. 살아있는 객체를 한 영역에서 다른 영역으로 복사.</text>
+  <text x="645" y="534" font-size="11" fill="#1565c0">+ Mark + Compact 동시 (효율).</text>
+  <text x="645" y="552" font-size="11" fill="#1565c0">+ 살아있는 객체가 적으면 매우 빠름 (Young GC에 적합).</text>
+  <text x="645" y="570" font-size="11" fill="#c62828">- 메모리 절반만 사용 가능 (두 영역).</text>
+  <text x="645" y="592" font-size="11" fill="#333">사용: Young GC의 Eden → Survivor → Survivor.</text>
+  <text x="645" y="612" font-size="11" fill="#1565c0" font-style="italic">→ Weak Generational Hypothesis가 효율 극대화</text>
+
+  <!-- Bottom -->
+  <rect x="30" y="395" width="555" height="235" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="307" y="422" font-size="16" fill="#7b1fa2" text-anchor="middle" font-weight="bold">STW (Stop-The-World)</text>
+
+  <text x="50" y="450" font-size="12" fill="#333">전통적 GC는 mark/copy 중 모든 application thread 정지:</text>
+  <text x="50" y="470" font-size="11" fill="#333">  • Mark 정확성 보장 (객체 그래프 변경 없음)</text>
+  <text x="50" y="488" font-size="11" fill="#333">  • Compact의 객체 이동 안전 (다른 thread가 옛 주소 접근 안 함)</text>
+
+  <text x="50" y="514" font-size="12" fill="#7b1fa2" font-weight="bold">STW 시간이 GC의 주요 지표:</text>
+  <text x="50" y="532" font-size="11" fill="#333">  • Serial: 수백 ms ~ 수 초</text>
+  <text x="50" y="550" font-size="11" fill="#333">  • Parallel: 수십~수백 ms (병렬 처리)</text>
+  <text x="50" y="568" font-size="11" fill="#333">  • G1: ~10~200 ms (목표 지정 가능)</text>
+  <text x="50" y="586" font-size="11" fill="#333">  • ZGC/Shenandoah: <1 ms (concurrent)</text>
+
+  <text x="50" y="612" font-size="11" fill="#7b1fa2" font-style="italic">→ "STW를 어떻게 줄이나"가 30년 GC 진화의 핵심 질문</text>
+</svg>

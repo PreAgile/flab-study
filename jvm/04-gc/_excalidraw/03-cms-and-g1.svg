@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 620" width="1200" height="620" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="620" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">CMS (제거됨) → G1 — Region 기반의 진화</text>
+  <text x="30" y="62" font-size="13" fill="#666">CMS의 fragmentation 문제 → G1의 region 단위 + 예측 가능한 STW</text>
+
+  <!-- CMS -->
+  <rect x="30" y="90" width="560" height="510" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="310" y="118" font-size="16" fill="#7b1fa2" text-anchor="middle" font-weight="bold">CMS — Concurrent Mark-Sweep (JDK 14에서 제거)</text>
+
+  <text x="50" y="148" font-size="12" fill="#7b1fa2" font-weight="bold">Phase:</text>
+  <rect x="50" y="158" width="520" height="160" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="60" y="178" font-size="11" fill="#333">1. <tspan font-weight="bold">Initial Mark</tspan> (STW, 짧음) — GC Roots만</text>
+  <text x="60" y="198" font-size="11" fill="#333">2. <tspan font-weight="bold">Concurrent Mark</tspan> — mutator와 동시</text>
+  <text x="60" y="218" font-size="11" fill="#333">3. <tspan font-weight="bold">Concurrent Preclean</tspan> — incremental update queue 처리</text>
+  <text x="60" y="238" font-size="11" fill="#333">4. <tspan font-weight="bold">Remark</tspan> (STW) — mutator 변경분 처리</text>
+  <text x="60" y="258" font-size="11" fill="#333">5. <tspan font-weight="bold">Concurrent Sweep</tspan> — free list에 반환 (compact 없음)</text>
+  <text x="60" y="278" font-size="11" fill="#333">6. <tspan font-weight="bold">Concurrent Reset</tspan> — 다음 cycle 준비</text>
+  <text x="60" y="302" font-size="11" fill="#7b1fa2" font-weight="bold">→ Mark의 대부분이 concurrent → STW 짧음</text>
+
+  <text x="50" y="335" font-size="12" fill="#c62828" font-weight="bold">CMS의 본질적 문제:</text>
+  <text x="60" y="355" font-size="11" fill="#333">1. <tspan font-weight="bold">Fragmentation</tspan> (Mark-Sweep, compact 없음)</text>
+  <text x="60" y="373" font-size="11" fill="#333">  → 큰 객체 allocation 실패 시 Full GC</text>
+  <text x="60" y="395" font-size="11" fill="#333">2. <tspan font-weight="bold">Concurrent Mode Failure</tspan></text>
+  <text x="60" y="413" font-size="11" fill="#333">  → concurrent 중 Old gen 가득 → STW Full GC</text>
+  <text x="60" y="435" font-size="11" fill="#333">3. <tspan font-weight="bold">Floating Garbage</tspan></text>
+  <text x="60" y="453" font-size="11" fill="#333">  → concurrent 중 죽은 객체는 다음 cycle에 회수</text>
+  <text x="60" y="475" font-size="11" fill="#333">4. <tspan font-weight="bold">CPU 영향 큼</tspan></text>
+  <text x="60" y="493" font-size="11" fill="#333">  → concurrent 작업이 application과 CPU 경쟁</text>
+
+  <text x="50" y="530" font-size="12" fill="#7b1fa2" font-weight="bold">제거 사유 (JEP 363):</text>
+  <text x="60" y="548" font-size="11" fill="#333">• 유지보수 부담 — 새 기능 추가 시 CMS 호환 어려움</text>
+  <text x="60" y="566" font-size="11" fill="#333">• G1이 CMS의 대안으로 충분히 성숙</text>
+  <text x="60" y="584" font-size="11" fill="#7b1fa2" font-style="italic">→ JDK 14에서 완전 제거</text>
+
+  <!-- G1 -->
+  <rect x="620" y="90" width="550" height="510" rx="10" ry="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="895" y="118" font-size="16" fill="#2e7d32" text-anchor="middle" font-weight="bold">G1 — Garbage First (JDK 9+ 기본)</text>
+
+  <text x="640" y="148" font-size="12" fill="#2e7d32" font-weight="bold">핵심 아이디어:</text>
+  <text x="650" y="168" font-size="11" fill="#333">• Heap을 1~32MB <tspan font-weight="bold">region</tspan>으로 분할</text>
+  <text x="650" y="186" font-size="11" fill="#333">• Young/Old는 논리적 — 같은 region이 GC마다 역할 변경</text>
+  <text x="650" y="204" font-size="11" fill="#333">• 쓰레기 많은 region부터 수집 ("Garbage First")</text>
+
+  <text x="640" y="234" font-size="12" fill="#2e7d32" font-weight="bold">GC 종류:</text>
+  <rect x="640" y="244" width="510" height="100" stroke="#2e7d32" fill="#ffffff"/>
+  <text x="650" y="262" font-size="11" fill="#333"><tspan font-weight="bold">Young GC</tspan>: Young region들만 evacuate (자주, STW)</text>
+  <text x="650" y="280" font-size="11" fill="#333"><tspan font-weight="bold">Mixed GC</tspan>: Young + 일부 Old (garbage-rich) region (가끔)</text>
+  <text x="650" y="298" font-size="11" fill="#333"><tspan font-weight="bold">Concurrent Marking</tspan>: SATB 기반, mutator와 동시</text>
+  <text x="650" y="316" font-size="11" fill="#333"><tspan font-weight="bold">Full GC</tspan>: 최후 수단 (Mark-Compact, STW 매우 김)</text>
+
+  <text x="640" y="365" font-size="12" fill="#2e7d32" font-weight="bold">예측 가능한 STW:</text>
+  <text x="650" y="383" font-size="11" fill="#333">-XX:MaxGCPauseMillis=200  → 목표 STW 200ms 안</text>
+  <text x="650" y="401" font-size="11" fill="#333">G1이 매 cycle 어느 region 수집할지 결정</text>
+  <text x="650" y="419" font-size="11" fill="#333">목표 시간 안에 끝나도록 region 수 조절</text>
+
+  <text x="640" y="450" font-size="12" fill="#2e7d32" font-weight="bold">Remembered Set:</text>
+  <text x="650" y="468" font-size="11" fill="#333">각 region이 "어느 region이 나를 가리키나" 기록</text>
+  <text x="650" y="486" font-size="11" fill="#333">Mixed GC에서 RSet으로 cross-region ref 추적</text>
+  <text x="650" y="504" font-size="11" fill="#c62828">→ RSet 비대화가 G1의 주요 운영 함정</text>
+
+  <text x="640" y="535" font-size="12" fill="#2e7d32" font-weight="bold">Humongous Object:</text>
+  <text x="650" y="553" font-size="11" fill="#333">Region 크기의 50% 이상 객체 → Old gen 직접 할당</text>
+  <text x="650" y="571" font-size="11" fill="#c62828">→ Young GC 안 거침, 회수 늦음, fragmentation 위험</text>
+</svg>

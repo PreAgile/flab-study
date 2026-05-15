@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">synchronized — Mark Word 승격 (Biased → Lightweight → Heavyweight)</text>
+  <text x="30" y="62" font-size="13" fill="#666">contention 따라 lock 형태가 자동 승격. JDK 15+ Biased 제거 추세.</text>
+
+  <!-- Lock evolution -->
+  <rect x="30" y="90" width="375" height="280" rx="10" ry="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="217" y="115" font-size="14" fill="#2e7d32" text-anchor="middle" font-weight="bold">① Biased Lock (JDK 15-에서 제거)</text>
+  <text x="50" y="140" font-size="11" fill="#333">처음 lock한 thread를 "owner"로 Mark Word에 기록.</text>
+  <text x="50" y="160" font-size="11" fill="#333">같은 thread의 재진입 = 단순 비교.</text>
+  <text x="50" y="180" font-size="11" fill="#333">CAS 없음 → 매우 빠름 (~수 cycles).</text>
+  <text x="50" y="208" font-size="12" fill="#2e7d32" font-weight="bold">Mark Word:</text>
+  <text x="50" y="228" font-size="10" fill="#333" font-family="monospace">[thread_id:54][epoch:2][age:4][biased=1][lock=01]</text>
+  <text x="50" y="258" font-size="11" fill="#c62828" font-weight="bold">한계:</text>
+  <text x="50" y="276" font-size="11" fill="#333">다른 thread 등장 시 revoke 비용 큼.</text>
+  <text x="50" y="294" font-size="11" fill="#333">현대 멀티스레드 워크로드에서 효과 작음.</text>
+  <text x="50" y="316" font-size="11" fill="#1565c0" font-weight="bold">JDK 15: deprecated (JEP 374)</text>
+  <text x="50" y="334" font-size="11" fill="#1565c0">JDK 17+: 사실상 제거</text>
+
+  <!-- Lightweight -->
+  <rect x="415" y="90" width="375" height="280" rx="10" ry="10" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+  <text x="602" y="115" font-size="14" fill="#ef6c00" text-anchor="middle" font-weight="bold">② Lightweight Lock</text>
+  <text x="435" y="140" font-size="11" fill="#333">CAS로 Mark Word에 lock record 포인터 교환.</text>
+  <text x="435" y="160" font-size="11" fill="#333">Stack에 LockRecord 할당.</text>
+  <text x="435" y="180" font-size="11" fill="#333">Contention 거의 없을 때 빠름.</text>
+  <text x="435" y="208" font-size="12" fill="#ef6c00" font-weight="bold">Mark Word:</text>
+  <text x="435" y="228" font-size="10" fill="#333" font-family="monospace">[lock_record_ptr:62][lock=00]</text>
+  <text x="435" y="258" font-size="11" fill="#1565c0" font-weight="bold">동작:</text>
+  <text x="435" y="276" font-size="11" fill="#333">1. Stack에 LockRecord 생성</text>
+  <text x="435" y="294" font-size="11" fill="#333">2. CAS로 Mark Word를 LockRecord 포인터로</text>
+  <text x="435" y="312" font-size="11" fill="#333">3. 성공 → lock 획득</text>
+  <text x="435" y="333" font-size="11" fill="#c62828">CAS 실패 (contention) → Heavyweight 승격</text>
+
+  <!-- Heavyweight -->
+  <rect x="800" y="90" width="370" height="280" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="985" y="115" font-size="14" fill="#c62828" text-anchor="middle" font-weight="bold">③ Heavyweight Lock (Monitor)</text>
+  <text x="820" y="140" font-size="11" fill="#333">OS-level mutex (pthread_mutex).</text>
+  <text x="820" y="160" font-size="11" fill="#333">Contention 시 thread park (sleep).</text>
+  <text x="820" y="180" font-size="11" fill="#333">Owner thread가 unlock 시 wake.</text>
+  <text x="820" y="208" font-size="12" fill="#c62828" font-weight="bold">Mark Word:</text>
+  <text x="820" y="228" font-size="10" fill="#333" font-family="monospace">[monitor_ptr:62][lock=10]</text>
+  <text x="820" y="258" font-size="11" fill="#c62828" font-weight="bold">비용:</text>
+  <text x="820" y="276" font-size="11" fill="#333">• Lock acquire: ~수십~수백 cycles</text>
+  <text x="820" y="294" font-size="11" fill="#333">• Contention 시 context switch (~수 us)</text>
+  <text x="820" y="312" font-size="11" fill="#333">• Park/Unpark = pthread_cond_wait/signal</text>
+  <text x="820" y="333" font-size="11" fill="#c62828" font-style="italic">→ 가장 비싼 lock 형태</text>
+
+  <!-- Park/Unpark -->
+  <rect x="30" y="395" width="1140" height="290" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="600" y="420" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">Park / Unpark — JVM의 thread 대기 메커니즘</text>
+
+  <text x="50" y="450" font-size="12" fill="#7b1fa2" font-weight="bold">Object.wait() / LockSupport.park() 의 native 구현:</text>
+
+  <rect x="50" y="465" width="540" height="200" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="60" y="488" font-size="12" fill="#1565c0" font-weight="bold">Linux 구현 (pthread_cond_wait):</text>
+  <text x="60" y="510" font-size="11" fill="#333" font-family="monospace">  void Parker::park(...) {</text>
+  <text x="60" y="528" font-size="11" fill="#333" font-family="monospace">    pthread_mutex_lock(&_mutex);</text>
+  <text x="60" y="546" font-size="11" fill="#333" font-family="monospace">    while (!_counter) {</text>
+  <text x="60" y="564" font-size="11" fill="#333" font-family="monospace">      pthread_cond_wait(&_cond, &_mutex);</text>
+  <text x="60" y="582" font-size="11" fill="#333" font-family="monospace">    }</text>
+  <text x="60" y="600" font-size="11" fill="#333" font-family="monospace">    _counter = 0;</text>
+  <text x="60" y="618" font-size="11" fill="#333" font-family="monospace">    pthread_mutex_unlock(&_mutex);</text>
+  <text x="60" y="636" font-size="11" fill="#333" font-family="monospace">  }</text>
+  <text x="60" y="660" font-size="11" fill="#666">→ OS가 thread 정지, CPU 사용 0</text>
+
+  <rect x="610" y="465" width="540" height="200" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="620" y="488" font-size="12" fill="#1565c0" font-weight="bold">unpark (pthread_cond_signal):</text>
+  <text x="620" y="510" font-size="11" fill="#333" font-family="monospace">  void Parker::unpark(...) {</text>
+  <text x="620" y="528" font-size="11" fill="#333" font-family="monospace">    pthread_mutex_lock(&_mutex);</text>
+  <text x="620" y="546" font-size="11" fill="#333" font-family="monospace">    _counter = 1;</text>
+  <text x="620" y="564" font-size="11" fill="#333" font-family="monospace">    pthread_cond_signal(&_cond);</text>
+  <text x="620" y="582" font-size="11" fill="#333" font-family="monospace">    pthread_mutex_unlock(&_mutex);</text>
+  <text x="620" y="600" font-size="11" fill="#333" font-family="monospace">  }</text>
+
+  <text x="620" y="630" font-size="11" fill="#7b1fa2" font-weight="bold">비용:</text>
+  <text x="620" y="648" font-size="11" fill="#333">• park: ~수 us (context switch)</text>
+  <text x="620" y="664" font-size="11" fill="#333">• unpark: ~수 us</text>
+</svg>

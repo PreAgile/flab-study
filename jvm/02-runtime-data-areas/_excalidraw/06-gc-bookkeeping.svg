@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="600" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">GC Bookkeeping — Card Table / RSet / Mark Bitmap</text>
+  <text x="30" y="62" font-size="13" fill="#666">100GB Heap이면 부속 자료구조 3~20GB. RSS 차이의 큰 부분.</text>
+
+  <rect x="30" y="90" width="370" height="490" rx="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="215" y="115" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">Card Table</text>
+  <text x="40" y="140" font-size="11" fill="#333">Heap을 512B 단위 "카드"로 분할.</text>
+  <text x="40" y="158" font-size="11" fill="#333">한 카드당 1바이트 표시판.</text>
+  <text x="40" y="178" font-size="12" fill="#1565c0" font-weight="bold">크기: Heap / 512 (0.2%)</text>
+  <text x="40" y="196" font-size="11" fill="#333">100GB → 200MB</text>
+
+  <text x="40" y="225" font-size="12" fill="#1565c0" font-weight="bold">용도:</text>
+  <text x="40" y="243" font-size="11" fill="#333">Old → Young 참조 추적.</text>
+  <text x="40" y="261" font-size="11" fill="#333">Young GC 시 dirty card만 스캔.</text>
+  <text x="40" y="279" font-size="11" fill="#333">(Old 전체 100GB 안 봄)</text>
+
+  <text x="40" y="310" font-size="12" fill="#1565c0" font-weight="bold">Write Barrier:</text>
+  <text x="40" y="328" font-size="11" fill="#333" font-family="monospace">obj.field = ref;</text>
+  <text x="40" y="346" font-size="11" fill="#333" font-family="monospace">// JIT 자동 inline</text>
+  <text x="40" y="364" font-size="11" fill="#333" font-family="monospace">card_table[addr&gt;&gt;9] = dirty;</text>
+
+  <text x="40" y="395" font-size="11" fill="#c62828">한계 (G1 도입 동기):</text>
+  <text x="40" y="413" font-size="11" fill="#333">Heap 100GB, dirty 1%면</text>
+  <text x="40" y="431" font-size="11" fill="#333">2M 카드 스캔 = 1GB Old gen scan.</text>
+  <text x="40" y="455" font-size="11" fill="#1565c0">→ G1은 RSet으로 region 단위 추적.</text>
+
+  <rect x="420" y="90" width="370" height="490" rx="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="605" y="115" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">Remembered Set (G1)</text>
+  <text x="430" y="140" font-size="11" fill="#333">각 region의 "어디서 나를 가리키나" 목록.</text>
+  <text x="430" y="160" font-size="11" fill="#333">3-tier: Sparse → Fine → Coarse.</text>
+  <text x="430" y="180" font-size="12" fill="#7b1fa2" font-weight="bold">크기:</text>
+  <text x="430" y="198" font-size="11" fill="#333">워크로드 따라 5~20%</text>
+  <text x="430" y="216" font-size="11" fill="#333">100GB → 5~20GB</text>
+
+  <text x="430" y="245" font-size="12" fill="#7b1fa2" font-weight="bold">3 tier 자료구조:</text>
+  <text x="440" y="263" font-size="11" fill="#333">• Sparse: 적은 entry, hash table</text>
+  <text x="440" y="281" font-size="11" fill="#333">• Fine: 중간, region bitmap</text>
+  <text x="440" y="299" font-size="11" fill="#333">• Coarse: 많음, "이 region 전체"</text>
+
+  <text x="430" y="330" font-size="12" fill="#7b1fa2" font-weight="bold">운영 함정 — RSet 비대화:</text>
+  <text x="430" y="348" font-size="11" fill="#333">Cross-region 참조 dense → RSet 폭증.</text>
+  <text x="430" y="366" font-size="11" fill="#333">→ Mixed GC pause ↑.</text>
+
+  <text x="430" y="395" font-size="11" fill="#c62828">진단:</text>
+  <text x="430" y="413" font-size="10" fill="#333" font-family="monospace">-Xlog:gc+remset=info</text>
+  <text x="430" y="431" font-size="10" fill="#333">fine→coarse transitions 빈도</text>
+  <text x="430" y="455" font-size="11" fill="#c62828">조치:</text>
+  <text x="430" y="473" font-size="10" fill="#333" font-family="monospace">-XX:G1HeapRegionSize=32m</text>
+  <text x="430" y="491" font-size="10" fill="#333">(region 수 ↓ → RSet 수 ↓)</text>
+
+  <rect x="810" y="90" width="360" height="490" rx="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="990" y="115" font-size="14" fill="#c62828" text-anchor="middle" font-weight="bold">Mark Bitmap</text>
+  <text x="820" y="140" font-size="11" fill="#333">Concurrent GC가 객체별 mark bit 보관.</text>
+  <text x="820" y="160" font-size="11" fill="#333">8B 정렬 기준 객체당 1 bit.</text>
+  <text x="820" y="180" font-size="12" fill="#c62828" font-weight="bold">크기: Heap / 64</text>
+  <text x="820" y="198" font-size="11" fill="#333">100GB → 1.5GB</text>
+
+  <text x="820" y="225" font-size="12" fill="#c62828" font-weight="bold">G1은 2개 유지:</text>
+  <text x="820" y="243" font-size="11" fill="#333">• prev bitmap (이전 cycle)</text>
+  <text x="820" y="261" font-size="11" fill="#333">• next bitmap (현재 작업)</text>
+  <text x="820" y="279" font-size="11" fill="#333">→ 총 3GB</text>
+
+  <text x="820" y="310" font-size="12" fill="#c62828" font-weight="bold">ZGC는 Colored Pointer:</text>
+  <text x="820" y="328" font-size="11" fill="#333">Pointer 자체에 mark bit.</text>
+  <text x="820" y="346" font-size="11" fill="#333">별도 bitmap 거의 없음.</text>
+
+  <text x="820" y="375" font-size="12" fill="#c62828" font-weight="bold">SATB Queue:</text>
+  <text x="820" y="393" font-size="11" fill="#333">Concurrent marking 중 mutator의</text>
+  <text x="820" y="411" font-size="11" fill="#333">옛 값 보존 (snapshot).</text>
+  <text x="820" y="429" font-size="11" fill="#333">Write barrier가 enqueue.</text>
+
+  <text x="820" y="465" font-size="11" fill="#c62828" font-weight="bold">총 footprint (G1 100GB):</text>
+  <text x="820" y="483" font-size="10" fill="#333">Card Table: 200MB</text>
+  <text x="820" y="500" font-size="10" fill="#333">Mark Bitmap × 2: 3GB</text>
+  <text x="820" y="517" font-size="10" fill="#333">RSet (평균): 5GB</text>
+  <text x="820" y="537" font-size="10" fill="#c62828" font-weight="bold">합계: ~8GB (Heap의 8%)</text>
+</svg>

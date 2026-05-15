@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">Stack + PC + Native Stack — Per-Thread 영역</text>
+  <text x="30" y="62" font-size="13" fill="#666">스레드당 3가지 영역. RSS의 큰 부분 (500 thread × 1MB = 500MB).</text>
+
+  <rect x="30" y="90" width="370" height="580" rx="10" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+  <text x="215" y="115" font-size="14" fill="#ef6c00" text-anchor="middle" font-weight="bold">JVM Stack (per-thread)</text>
+  <text x="40" y="140" font-size="11" fill="#333">메서드 호출 Stack Frame들. LIFO.</text>
+  <text x="40" y="160" font-size="11" fill="#333">크기: -Xss (기본 1MB).</text>
+
+  <rect x="40" y="180" width="350" height="240" stroke="#ef6c00" fill="#ffffff"/>
+  <text x="215" y="200" font-size="12" fill="#ef6c00" text-anchor="middle" font-weight="bold">Stack Frame 구조</text>
+
+  <rect x="60" y="215" width="310" height="55" stroke="#ef6c00" fill="#fff9c4"/>
+  <text x="215" y="232" font-size="11" fill="#bf360c" text-anchor="middle" font-weight="bold">① Local Variable Array</text>
+  <text x="70" y="248" font-size="10" fill="#333">파라미터 + 로컬 변수. max_locals 크기.</text>
+  <text x="70" y="263" font-size="10" fill="#333">slot[0] = this (인스턴스 메서드)</text>
+
+  <rect x="60" y="280" width="310" height="55" stroke="#ef6c00" fill="#fff9c4"/>
+  <text x="215" y="297" font-size="11" fill="#bf360c" text-anchor="middle" font-weight="bold">② Operand Stack</text>
+  <text x="70" y="313" font-size="10" fill="#333">bytecode 실행 중 push/pop.</text>
+  <text x="70" y="328" font-size="10" fill="#333">iadd: top 2 pop + sum push.</text>
+
+  <rect x="60" y="345" width="310" height="60" stroke="#ef6c00" fill="#fff9c4"/>
+  <text x="215" y="362" font-size="11" fill="#bf360c" text-anchor="middle" font-weight="bold">③ Frame Data</text>
+  <text x="70" y="378" font-size="10" fill="#333">Constant Pool 참조</text>
+  <text x="70" y="392" font-size="10" fill="#333">Return PC (caller로)</text>
+
+  <text x="40" y="445" font-size="11" fill="#ef6c00" font-weight="bold">max_stack, max_locals:</text>
+  <text x="40" y="463" font-size="11" fill="#333">javac가 미리 계산.</text>
+  <text x="40" y="481" font-size="11" fill="#333">ClassFile Code attribute에 저장.</text>
+  <text x="40" y="499" font-size="11" fill="#333">→ JVM이 Frame을 정확한 크기로</text>
+  <text x="40" y="517" font-size="11" fill="#333">  한 번에 할당. 동적 growth 없음.</text>
+
+  <text x="40" y="555" font-size="11" fill="#c62828" font-weight="bold">StackOverflowError:</text>
+  <text x="40" y="573" font-size="11" fill="#333">push 자리 없음 (재귀 폭주).</text>
+  <text x="40" y="595" font-size="11" fill="#c62828" font-weight="bold">OOM:unable to create thread:</text>
+  <text x="40" y="613" font-size="11" fill="#333">새 OS thread 생성 실패</text>
+  <text x="40" y="628" font-size="11" fill="#333">(thread 수 한계 / 메모리 부족).</text>
+
+  <!-- PC -->
+  <rect x="420" y="90" width="370" height="280" rx="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="605" y="115" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">PC Register (per-thread)</text>
+  <text x="430" y="140" font-size="11" fill="#333">현재 실행 중인 bytecode offset.</text>
+  <text x="430" y="160" font-size="11" fill="#333">매우 작음 (1 word).</text>
+  <text x="430" y="190" font-size="12" fill="#1565c0" font-weight="bold">왜 per-thread?</text>
+  <text x="430" y="208" font-size="11" fill="#333">멀티스레드의 본질 —</text>
+  <text x="430" y="226" font-size="11" fill="#333">각 thread가 자기 위치 보유.</text>
+  <text x="430" y="244" font-size="11" fill="#333">Context switch 시 OS 저장/복원.</text>
+  <text x="430" y="275" font-size="12" fill="#1565c0" font-weight="bold">Native 실행 중:</text>
+  <text x="430" y="293" font-size="11" fill="#333">JNI 호출 중에는 PC = undefined</text>
+  <text x="430" y="311" font-size="11" fill="#333">(bytecode offset 개념 없음).</text>
+
+  <!-- Native Stack -->
+  <rect x="810" y="90" width="360" height="280" rx="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="990" y="115" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">Native Method Stack</text>
+  <text x="820" y="140" font-size="11" fill="#333">JNI 호출 시 C/C++ 함수 stack.</text>
+  <text x="820" y="160" font-size="11" fill="#333">OS thread stack 그대로.</text>
+  <text x="820" y="190" font-size="12" fill="#7b1fa2" font-weight="bold">HotSpot 구현:</text>
+  <text x="820" y="208" font-size="11" fill="#333">JVM Stack과 Native Stack을</text>
+  <text x="820" y="226" font-size="11" fill="#333">같은 OS thread stack에 통합.</text>
+  <text x="820" y="244" font-size="11" fill="#333">경계는 논리적.</text>
+  <text x="820" y="275" font-size="12" fill="#7b1fa2" font-weight="bold">크기:</text>
+  <text x="820" y="293" font-size="11" fill="#333">-Xss로 함께 제어.</text>
+  <text x="820" y="311" font-size="11" fill="#333">OS 기본 ~512KB ~ 1MB.</text>
+
+  <!-- VT -->
+  <rect x="420" y="395" width="750" height="275" rx="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="795" y="420" font-size="14" fill="#2e7d32" text-anchor="middle" font-weight="bold">Virtual Thread (JDK 21+) — M:N 모델</text>
+  <text x="440" y="445" font-size="12" fill="#2e7d32" font-weight="bold">차이:</text>
+  <text x="440" y="463" font-size="11" fill="#333">• Platform Thread: OS 1:1. Stack = OS stack 1MB.</text>
+  <text x="440" y="481" font-size="11" fill="#333">• Virtual Thread: M개 VT : N개 carrier (OS). Stack = Heap의 StackChunk.</text>
+
+  <text x="440" y="510" font-size="12" fill="#2e7d32" font-weight="bold">Continuation freeze/thaw:</text>
+  <text x="440" y="528" font-size="11" fill="#333">1. VT가 blocking 호출 → stack frame을 Heap StackChunk로 freeze.</text>
+  <text x="440" y="546" font-size="11" fill="#333">2. Carrier가 다른 VT 실행 (stack 비움).</text>
+  <text x="440" y="564" font-size="11" fill="#333">3. I/O 완료 → StackChunk를 carrier OS stack에 thaw.</text>
+  <text x="440" y="582" font-size="11" fill="#333">4. VT가 blocking 다음 줄부터 재개.</text>
+
+  <text x="440" y="615" font-size="12" fill="#c62828" font-weight="bold">Pinning 함정:</text>
+  <text x="440" y="633" font-size="11" fill="#333">synchronized 안 blocking → carrier 묶임 → 다른 VT 실행 불가.</text>
+  <text x="440" y="651" font-size="11" fill="#c62828">진단: -Djdk.tracePinnedThreads=full. JDK 24+ JEP 491에서 해소 예정.</text>
+</svg>

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="600" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">Memory Barriers — happens-before를 CPU 레벨로 강제</text>
+  <text x="30" y="62" font-size="13" fill="#666">4종 barrier가 reorder를 막음. volatile, synchronized, CAS의 CPU 구현.</text>
+
+  <rect x="30" y="90" width="1140" height="490" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+
+  <text x="50" y="120" font-size="14" fill="#1565c0" font-weight="bold">4가지 Memory Barrier (Doug Lea의 명명):</text>
+
+  <rect x="50" y="140" width="540" height="200" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="165" font-size="13" fill="#1565c0" font-weight="bold">① LoadLoad</text>
+  <text x="60" y="183" font-size="11" fill="#333">"이전 load가 이후 load보다 먼저 완료"</text>
+  <text x="60" y="201" font-size="11" fill="#666">→ x86: 자동 (Total Store Order)</text>
+  <text x="60" y="219" font-size="11" fill="#666">→ ARM: dmb ld</text>
+
+  <text x="60" y="248" font-size="13" fill="#1565c0" font-weight="bold">② StoreStore</text>
+  <text x="60" y="266" font-size="11" fill="#333">"이전 store가 이후 store보다 먼저 완료"</text>
+  <text x="60" y="284" font-size="11" fill="#666">→ x86: 자동</text>
+  <text x="60" y="302" font-size="11" fill="#666">→ ARM: dmb st</text>
+  <text x="60" y="325" font-size="11" fill="#666">사용: volatile write 후, final field publish</text>
+
+  <rect x="610" y="140" width="540" height="200" stroke="#1565c0" fill="#ffffff"/>
+  <text x="620" y="165" font-size="13" fill="#1565c0" font-weight="bold">③ LoadStore</text>
+  <text x="620" y="183" font-size="11" fill="#333">"이전 load가 이후 store보다 먼저 완료"</text>
+  <text x="620" y="201" font-size="11" fill="#666">→ x86: 자동</text>
+  <text x="620" y="219" font-size="11" fill="#666">→ ARM: dmb</text>
+
+  <text x="620" y="248" font-size="13" fill="#c62828" font-weight="bold">④ StoreLoad ★ 가장 비쌈</text>
+  <text x="620" y="266" font-size="11" fill="#333">"이전 store가 이후 load보다 먼저 완료"</text>
+  <text x="620" y="284" font-size="11" fill="#c62828">→ x86: <tspan font-family="monospace">mfence</tspan> (~30 cycles)</text>
+  <text x="620" y="302" font-size="11" fill="#c62828">→ ARM: <tspan font-family="monospace">dmb sy</tspan></text>
+  <text x="620" y="325" font-size="11" fill="#666">사용: volatile write, monitor unlock</text>
+
+  <text x="50" y="370" font-size="14" fill="#1565c0" font-weight="bold">volatile의 구현 (x86 기준):</text>
+  <rect x="50" y="385" width="540" height="170" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="405" font-size="12" fill="#1565c0" font-weight="bold">volatile write:</text>
+  <text x="60" y="423" font-size="11" fill="#333" font-family="monospace">  store v, val</text>
+  <text x="60" y="441" font-size="11" fill="#c62828" font-family="monospace">  mfence       ★ StoreLoad barrier (~30 cycles)</text>
+
+  <text x="60" y="465" font-size="12" fill="#1565c0" font-weight="bold">volatile read:</text>
+  <text x="60" y="483" font-size="11" fill="#333" font-family="monospace">  load v       (x86은 LoadLoad 자동)</text>
+  <text x="60" y="501" font-size="11" fill="#333" font-family="monospace">  (별도 barrier 불필요)</text>
+
+  <text x="60" y="530" font-size="11" fill="#1565c0" font-style="italic">→ volatile write가 read보다 ~10× 비쌈 (mfence 때문)</text>
+
+  <text x="620" y="370" font-size="14" fill="#1565c0" font-weight="bold">CAS (lock cmpxchg)의 구현:</text>
+  <rect x="610" y="385" width="540" height="170" stroke="#1565c0" fill="#ffffff"/>
+  <text x="620" y="405" font-size="12" fill="#1565c0" font-weight="bold">AtomicInteger.compareAndSet:</text>
+  <text x="620" y="423" font-size="11" fill="#333" font-family="monospace">  lock cmpxchg [v], val</text>
+  <text x="620" y="443" font-size="11" fill="#666">  ↑ <tspan font-family="monospace">lock</tspan> prefix가 implicit full barrier</text>
+  <text x="620" y="465" font-size="11" fill="#666">  + atomicity 보장 (cache line lock)</text>
+  <text x="620" y="490" font-size="12" fill="#c62828" font-weight="bold">비용:</text>
+  <text x="620" y="508" font-size="11" fill="#333">  ~수십 cycles (cache contention 시 더 큼)</text>
+  <text x="620" y="528" font-size="11" fill="#333">  contention 없을 시 ~10 cycles</text>
+  <text x="620" y="548" font-size="11" fill="#1565c0" font-style="italic">→ Lock-free 알고리즘의 building block</text>
+</svg>

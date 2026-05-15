@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="760" fill="#ffffff"/>
+  <text x="30" y="40" font-size="24" fill="#1e1e1e" font-weight="bold">Loop Optimizations — Unrolling, RCE, LICM, SuperWord</text>
+  <text x="30" y="63" font-size="13" fill="#666">C2의 Loop opt phase는 4가지 큰 변환을 수행. SuperWord는 SIMD 자동 vectorization.</text>
+
+  <!-- LICM -->
+  <rect x="30" y="90" width="370" height="320" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="215" y="120" font-size="16" fill="#1565c0" text-anchor="middle" font-weight="bold">① LICM — Loop Invariant Code Motion</text>
+  <text x="50" y="145" font-size="11" fill="#333" font-weight="bold">변환 전:</text>
+  <rect x="50" y="155" width="330" height="80" stroke="#1565c0" fill="#ffffff"/>
+  <text x="60" y="173" font-size="11" fill="#333" font-family="monospace">for (int i = 0; i &lt; n; i++) {</text>
+  <text x="80" y="188" font-size="11" fill="#c62828" font-family="monospace">int len = arr.length;  // loop마다 같음</text>
+  <text x="80" y="203" font-size="11" fill="#333" font-family="monospace">if (i &lt; len) use(arr[i]);</text>
+  <text x="60" y="218" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <text x="50" y="255" font-size="11" fill="#333" font-weight="bold">변환 후 (invariant를 loop 밖으로):</text>
+  <rect x="50" y="265" width="330" height="80" stroke="#1565c0" fill="#e8f5e9"/>
+  <text x="60" y="283" font-size="11" fill="#2e7d32" font-family="monospace">int len = arr.length;  // 1회만</text>
+  <text x="60" y="298" font-size="11" fill="#333" font-family="monospace">for (int i = 0; i &lt; n; i++) {</text>
+  <text x="80" y="313" font-size="11" fill="#333" font-family="monospace">if (i &lt; len) use(arr[i]);</text>
+  <text x="60" y="328" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <text x="50" y="365" font-size="11" fill="#1565c0">→ Loop 안의 invariant computation 1회로</text>
+  <text x="50" y="383" font-size="11" fill="#1565c0">→ Memory access, 산술 비용 ↓</text>
+  <text x="50" y="401" font-size="11" fill="#1565c0">→ Inlining + EA 후 추가 발견되는 경우 많음</text>
+
+  <!-- RCE -->
+  <rect x="415" y="90" width="370" height="320" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="600" y="120" font-size="16" fill="#7b1fa2" text-anchor="middle" font-weight="bold">② RCE — Range Check Elimination</text>
+  <text x="435" y="145" font-size="11" fill="#333" font-weight="bold">변환 전 (Java의 모든 배열 접근에 자동 삽입):</text>
+  <rect x="435" y="155" width="330" height="80" stroke="#7b1fa2" fill="#ffffff"/>
+  <text x="445" y="173" font-size="11" fill="#333" font-family="monospace">for (int i = 0; i &lt; n; i++) {</text>
+  <text x="465" y="188" font-size="11" fill="#c62828" font-family="monospace">if (i &gt;= arr.length) throw AIOOBE;</text>
+  <text x="465" y="203" font-size="11" fill="#333" font-family="monospace">sum += arr[i];</text>
+  <text x="445" y="218" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <text x="435" y="255" font-size="11" fill="#333" font-weight="bold">변환 후 (n &lt;= arr.length임이 증명되면):</text>
+  <rect x="435" y="265" width="330" height="80" stroke="#7b1fa2" fill="#e8f5e9"/>
+  <text x="445" y="283" font-size="11" fill="#2e7d32" font-family="monospace">// range check 제거됨</text>
+  <text x="445" y="298" font-size="11" fill="#333" font-family="monospace">for (int i = 0; i &lt; n; i++) {</text>
+  <text x="465" y="313" font-size="11" fill="#333" font-family="monospace">sum += arr[i];  // check 없음</text>
+  <text x="445" y="328" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <text x="435" y="365" font-size="11" fill="#7b1fa2">→ Java의 array bound safety 비용 제거</text>
+  <text x="435" y="383" font-size="11" fill="#7b1fa2">→ Loop의 모든 iteration에서 check 1번씩 사라짐</text>
+  <text x="435" y="401" font-size="11" fill="#7b1fa2">→ 거의 C 수준 속도 (단, RCE 성공 시)</text>
+
+  <!-- Loop Unrolling -->
+  <rect x="800" y="90" width="370" height="320" rx="10" ry="10" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+  <text x="985" y="120" font-size="16" fill="#ef6c00" text-anchor="middle" font-weight="bold">③ Loop Unrolling</text>
+  <text x="820" y="145" font-size="11" fill="#333" font-weight="bold">변환 전:</text>
+  <rect x="820" y="155" width="330" height="60" stroke="#ef6c00" fill="#ffffff"/>
+  <text x="830" y="175" font-size="11" fill="#333" font-family="monospace">for (int i = 0; i &lt; n; i++) {</text>
+  <text x="850" y="190" font-size="11" fill="#333" font-family="monospace">sum += arr[i];</text>
+  <text x="830" y="205" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <text x="820" y="235" font-size="11" fill="#333" font-weight="bold">변환 후 (4-way unroll):</text>
+  <rect x="820" y="245" width="330" height="100" stroke="#ef6c00" fill="#e8f5e9"/>
+  <text x="830" y="263" font-size="11" fill="#333" font-family="monospace">for (i = 0; i+4 &lt;= n; i += 4) {</text>
+  <text x="850" y="278" font-size="11" fill="#2e7d32" font-family="monospace">sum += arr[i];</text>
+  <text x="850" y="293" font-size="11" fill="#2e7d32" font-family="monospace">sum += arr[i+1];</text>
+  <text x="850" y="308" font-size="11" fill="#2e7d32" font-family="monospace">sum += arr[i+2];</text>
+  <text x="850" y="323" font-size="11" fill="#2e7d32" font-family="monospace">sum += arr[i+3];</text>
+  <text x="830" y="338" font-size="11" fill="#333" font-family="monospace">}  // tail handling 추가</text>
+
+  <text x="820" y="370" font-size="11" fill="#ef6c00">→ Loop overhead (branch + i++) 줄임</text>
+  <text x="820" y="388" font-size="11" fill="#ef6c00">→ CPU pipeline 이용도 ↑ (instruction level parallelism)</text>
+  <text x="820" y="406" font-size="11" fill="#ef6c00">→ SuperWord의 전제조건</text>
+
+  <!-- SuperWord (SIMD) -->
+  <rect x="30" y="430" width="1140" height="310" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="600" y="460" font-size="18" fill="#c62828" text-anchor="middle" font-weight="bold">④ SuperWord — SIMD 자동 Vectorization (C2의 자랑)</text>
+
+  <text x="60" y="488" font-size="13" fill="#333" font-weight="bold">CPU의 SIMD instruction (예: AVX2 256-bit, AVX-512 512-bit)을 자동 활용</text>
+  <text x="60" y="510" font-size="12" fill="#333">Unroll된 loop의 인접 iteration들을 SIMD 벡터 instruction 1개로 통합</text>
+
+  <rect x="60" y="525" width="540" height="195" stroke="#c62828" fill="#ffffff"/>
+  <text x="80" y="548" font-size="13" fill="#c62828" font-weight="bold">변환 흐름:</text>
+  <text x="80" y="568" font-size="11" fill="#333" font-family="monospace">// 1. Loop unroll로 4-way</text>
+  <text x="80" y="583" font-size="11" fill="#333" font-family="monospace">sum += arr[i]; sum += arr[i+1];</text>
+  <text x="80" y="598" font-size="11" fill="#333" font-family="monospace">sum += arr[i+2]; sum += arr[i+3];</text>
+  <text x="80" y="623" font-size="11" fill="#c62828" font-family="monospace">// 2. SuperWord pack analysis</text>
+  <text x="80" y="638" font-size="11" fill="#c62828" font-family="monospace">// 같은 op + 인접 메모리 → SIMD 후보</text>
+  <text x="80" y="663" font-size="11" fill="#2e7d32" font-family="monospace">// 3. AVX2 instruction emit</text>
+  <text x="80" y="678" font-size="11" fill="#2e7d32" font-family="monospace">vmovdqu ymm0, [arr+i*4]   ; 4 ints 한 번에 load</text>
+  <text x="80" y="693" font-size="11" fill="#2e7d32" font-family="monospace">vpaddd  ymm1, ymm1, ymm0  ; 4 ints 한 번에 더하기</text>
+  <text x="80" y="708" font-size="11" fill="#2e7d32" font-family="monospace">// 1 instruction = 4 iteration 처리</text>
+
+  <rect x="620" y="525" width="540" height="195" stroke="#c62828" fill="#ffffff"/>
+  <text x="640" y="548" font-size="13" fill="#c62828" font-weight="bold">SuperWord의 조건 (운영자가 알아야):</text>
+  <text x="640" y="568" font-size="11" fill="#333">1. <tspan font-weight="bold">단일 type loop</tspan> (int[], float[], double[] 등)</text>
+  <text x="640" y="586" font-size="11" fill="#333">2. <tspan font-weight="bold">단순 산술 / load / store</tspan> (call, branch 없음)</text>
+  <text x="640" y="604" font-size="11" fill="#333">3. <tspan font-weight="bold">메모리 alignment</tspan> + 인접 access</text>
+  <text x="640" y="622" font-size="11" fill="#333">4. <tspan font-weight="bold">Loop trip count 알려짐</tspan> (또는 추론)</text>
+  <text x="640" y="640" font-size="11" fill="#333">5. <tspan font-weight="bold">CPU가 해당 SIMD 지원</tspan> (AVX2, AVX-512 등)</text>
+  <text x="640" y="668" font-size="11" fill="#c62828" font-weight="bold">조건 깨지는 흔한 패턴:</text>
+  <text x="640" y="686" font-size="11" fill="#333">• if/else 분기 in loop</text>
+  <text x="640" y="701" font-size="11" fill="#333">• method call (inline 안 된 경우)</text>
+  <text x="640" y="716" font-size="11" fill="#333">• Object 배열 (primitive만 SuperWord)</text>
+</svg>

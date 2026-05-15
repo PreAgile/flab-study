@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">JVM 운영 도구 매핑 — 언제 어느 도구</text>
+  <text x="30" y="62" font-size="13" fill="#666">JMH (벤치마크) / JFR (continuous) / async-profiler (flame graph) / MAT (heap dump) / jcmd (live)</text>
+
+  <!-- JMH -->
+  <rect x="30" y="90" width="280" height="280" rx="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="170" y="115" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">JMH (벤치마크)</text>
+  <text x="40" y="140" font-size="11" fill="#333"><tspan font-weight="bold">용도:</tspan> 정확한 micro-benchmark</text>
+  <text x="40" y="160" font-size="11" fill="#333"><tspan font-weight="bold">언제:</tspan></text>
+  <text x="50" y="178" font-size="10" fill="#333">• 코드 변경 전/후 비교</text>
+  <text x="50" y="194" font-size="10" fill="#333">• 옵션 변경 효과 측정</text>
+  <text x="50" y="210" font-size="10" fill="#333">• 라이브러리 선택 결정</text>
+  <text x="40" y="232" font-size="11" fill="#333"><tspan font-weight="bold">사용:</tspan></text>
+  <text x="50" y="248" font-size="10" fill="#666" font-family="monospace">@Benchmark</text>
+  <text x="50" y="263" font-size="10" fill="#666" font-family="monospace">public void method() { ... }</text>
+  <text x="50" y="285" font-size="10" fill="#666" font-family="monospace">mvn clean package</text>
+  <text x="50" y="300" font-size="10" fill="#666" font-family="monospace">java -jar target/benchmarks.jar</text>
+  <text x="40" y="325" font-size="11" fill="#c62828"><tspan font-weight="bold">함정:</tspan></text>
+  <text x="50" y="343" font-size="10" fill="#333">• Warmup 충분히</text>
+  <text x="50" y="358" font-size="10" fill="#333">• Dead code elimination 회피</text>
+
+  <!-- JFR -->
+  <rect x="320" y="90" width="280" height="280" rx="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="460" y="115" font-size="14" fill="#2e7d32" text-anchor="middle" font-weight="bold">JFR (Flight Recorder)</text>
+  <text x="330" y="140" font-size="11" fill="#333"><tspan font-weight="bold">용도:</tspan> production 상시 모니터링</text>
+  <text x="330" y="160" font-size="11" fill="#333"><tspan font-weight="bold">언제:</tspan></text>
+  <text x="340" y="178" font-size="10" fill="#333">• 사후 분석 (post-mortem)</text>
+  <text x="340" y="194" font-size="10" fill="#333">• 24/7 continuous recording</text>
+  <text x="340" y="210" font-size="10" fill="#333">• 사고 시점 이벤트 추적</text>
+  <text x="330" y="232" font-size="11" fill="#333"><tspan font-weight="bold">사용:</tspan></text>
+  <text x="340" y="248" font-size="10" fill="#666" font-family="monospace">jcmd PID JFR.start</text>
+  <text x="340" y="263" font-size="10" fill="#666" font-family="monospace">  duration=60s settings=profile</text>
+  <text x="340" y="278" font-size="10" fill="#666" font-family="monospace">  filename=rec.jfr</text>
+  <text x="340" y="300" font-size="10" fill="#666" font-family="monospace">jfr print --events ... rec.jfr</text>
+  <text x="330" y="325" font-size="11" fill="#2e7d32"><tspan font-weight="bold">강점:</tspan></text>
+  <text x="340" y="343" font-size="10" fill="#333">overhead 작음 (~1%)</text>
+  <text x="340" y="358" font-size="10" fill="#333">JMC GUI로 분석</text>
+
+  <!-- async-profiler -->
+  <rect x="610" y="90" width="280" height="280" rx="10" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+  <text x="750" y="115" font-size="14" fill="#ef6c00" text-anchor="middle" font-weight="bold">async-profiler</text>
+  <text x="620" y="140" font-size="11" fill="#333"><tspan font-weight="bold">용도:</tspan> Flame graph 시각화</text>
+  <text x="620" y="160" font-size="11" fill="#333"><tspan font-weight="bold">언제:</tspan></text>
+  <text x="630" y="178" font-size="10" fill="#333">• Hot path 식별</text>
+  <text x="630" y="194" font-size="10" fill="#333">• CPU/Allocation/Lock 프로파일</text>
+  <text x="630" y="210" font-size="10" fill="#333">• Native + Java 통합 stack</text>
+  <text x="620" y="232" font-size="11" fill="#333"><tspan font-weight="bold">사용:</tspan></text>
+  <text x="630" y="248" font-size="10" fill="#666" font-family="monospace">asprof -e cpu -d 60</text>
+  <text x="630" y="263" font-size="10" fill="#666" font-family="monospace">  -f profile.html PID</text>
+  <text x="630" y="285" font-size="10" fill="#666" font-family="monospace">asprof -e alloc ...</text>
+  <text x="630" y="300" font-size="10" fill="#666" font-family="monospace">asprof -e lock ...</text>
+  <text x="620" y="325" font-size="11" fill="#ef6c00"><tspan font-weight="bold">강점:</tspan></text>
+  <text x="630" y="343" font-size="10" fill="#333">overhead 매우 작음 (~수 %)</text>
+  <text x="630" y="358" font-size="10" fill="#333">brendan gregg style flamegraph</text>
+
+  <!-- MAT -->
+  <rect x="900" y="90" width="270" height="280" rx="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="1035" y="115" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">MAT (Eclipse)</text>
+  <text x="910" y="140" font-size="11" fill="#333"><tspan font-weight="bold">용도:</tspan> Heap dump 분석</text>
+  <text x="910" y="160" font-size="11" fill="#333"><tspan font-weight="bold">언제:</tspan></text>
+  <text x="920" y="178" font-size="10" fill="#333">• OOM 사후 분석</text>
+  <text x="920" y="194" font-size="10" fill="#333">• 메모리 누수 추적</text>
+  <text x="920" y="210" font-size="10" fill="#333">• 큰 객체 식별</text>
+  <text x="910" y="232" font-size="11" fill="#333"><tspan font-weight="bold">사용:</tspan></text>
+  <text x="920" y="248" font-size="10" fill="#666" font-family="monospace">jcmd PID GC.heap_dump</text>
+  <text x="920" y="263" font-size="10" fill="#666" font-family="monospace">  /tmp/heap.hprof</text>
+  <text x="920" y="285" font-size="10" fill="#666" font-family="monospace">mat /tmp/heap.hprof</text>
+  <text x="910" y="310" font-size="11" fill="#7b1fa2"><tspan font-weight="bold">핵심 뷰:</tspan></text>
+  <text x="920" y="328" font-size="10" fill="#333">Leak Suspects</text>
+  <text x="920" y="343" font-size="10" fill="#333">Dominator Tree</text>
+  <text x="920" y="358" font-size="10" fill="#333">GC Roots</text>
+
+  <!-- jcmd -->
+  <rect x="30" y="400" width="1140" height="270" rx="10" stroke="#1e1e1e" fill="#fafafa" stroke-width="2"/>
+  <text x="600" y="425" font-size="14" fill="#1e1e1e" text-anchor="middle" font-weight="bold">jcmd — Live JVM 다용도 명령</text>
+
+  <text x="50" y="450" font-size="11" fill="#1e1e1e" font-weight="bold">서브커맨드 매핑:</text>
+
+  <text x="50" y="475" font-size="10" fill="#333" font-family="monospace">jcmd PID help</text>
+  <text x="280" y="475" font-size="10" fill="#666">전체 명령 목록</text>
+
+  <text x="50" y="495" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.version</text>
+  <text x="280" y="495" font-size="10" fill="#666">JVM 버전</text>
+
+  <text x="50" y="515" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.flags</text>
+  <text x="280" y="515" font-size="10" fill="#666">현재 적용된 JVM 옵션</text>
+
+  <text x="50" y="535" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.native_memory summary</text>
+  <text x="380" y="535" font-size="10" fill="#666">NMT — 각 영역 메모리 (시작 시 -XX:NativeMemoryTracking)</text>
+
+  <text x="50" y="555" font-size="10" fill="#333" font-family="monospace">jcmd PID GC.heap_dump /tmp/h.hprof</text>
+  <text x="380" y="555" font-size="10" fill="#666">Heap dump 생성</text>
+
+  <text x="50" y="575" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.metaspace summary</text>
+  <text x="380" y="575" font-size="10" fill="#666">Metaspace 사용량</text>
+
+  <text x="50" y="595" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.classloader_stats</text>
+  <text x="380" y="595" font-size="10" fill="#666">ClassLoader별 통계 (누수 진단)</text>
+
+  <text x="50" y="615" font-size="10" fill="#333" font-family="monospace">jcmd PID Compiler.codecache</text>
+  <text x="380" y="615" font-size="10" fill="#666">Code Cache 상태</text>
+
+  <text x="50" y="635" font-size="10" fill="#333" font-family="monospace">jcmd PID Thread.print</text>
+  <text x="380" y="635" font-size="10" fill="#666">jstack과 같음 — 전체 thread dump</text>
+
+  <text x="50" y="655" font-size="10" fill="#333" font-family="monospace">jcmd PID JFR.start name=r duration=60s</text>
+  <text x="380" y="655" font-size="10" fill="#666">JFR 시작</text>
+
+  <text x="610" y="475" font-size="10" fill="#333" font-family="monospace">jcmd PID PerfCounter.print</text>
+  <text x="900" y="475" font-size="10" fill="#666">JVM perf counter</text>
+
+  <text x="610" y="495" font-size="10" fill="#333" font-family="monospace">jcmd PID GC.run</text>
+  <text x="900" y="495" font-size="10" fill="#666">System.gc() 강제</text>
+
+  <text x="610" y="515" font-size="10" fill="#333" font-family="monospace">jcmd PID GC.heap_info</text>
+  <text x="900" y="515" font-size="10" fill="#666">Heap 상세 정보</text>
+
+  <text x="610" y="535" font-size="10" fill="#333" font-family="monospace">jcmd PID Compiler.queue</text>
+  <text x="900" y="535" font-size="10" fill="#666">컴파일 큐 상태 (warmup 진단)</text>
+
+  <text x="610" y="555" font-size="10" fill="#333" font-family="monospace">jcmd PID Compiler.directives_print</text>
+  <text x="900" y="555" font-size="10" fill="#666">현재 적용 compile directive</text>
+
+  <text x="610" y="575" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.symbols</text>
+  <text x="900" y="575" font-size="10" fill="#666">Symbol Table</text>
+
+  <text x="610" y="595" font-size="10" fill="#333" font-family="monospace">jcmd PID VM.stringtable</text>
+  <text x="900" y="595" font-size="10" fill="#666">String pool</text>
+
+  <text x="610" y="615" font-size="10" fill="#333" font-family="monospace">jcmd PID Thread.dump_to_file /tmp/t.txt</text>
+  <text x="900" y="615" font-size="10" fill="#666">Thread dump 파일로</text>
+
+  <text x="610" y="635" font-size="10" fill="#333" font-family="monospace">jcmd PID ManagementAgent.start</text>
+  <text x="900" y="635" font-size="10" fill="#666">JMX 활성화 (live)</text>
+
+  <text x="610" y="655" font-size="10" fill="#333" font-family="monospace">jcmd PID GC.class_histogram</text>
+  <text x="900" y="655" font-size="10" fill="#666">현재 클래스별 인스턴스 수</text>
+</svg>

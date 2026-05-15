@@ -6,6 +6,41 @@
 
 ---
 
+## 🗺️ JVM 라이프사이클 안에서 이 챕터의 위치
+
+이 챕터는 클래스 라이프사이클의 **마지막 두 단계** — Initialization(`<clinit>`)과 Unloading(ClassLoader 회수)을 다룬다.
+
+![class lifecycle](./_excalidraw/04-class-lifecycle.svg)
+
+```
+   .java ──javac──► .class
+                       │
+                       ▼
+                   Loading                                  → [02-classloader-hierarchy](./02-classloader-hierarchy.md)
+                       │
+                       ▼
+                   Linking (Verify, Prepare, Resolve)       → [03-linking](./03-linking.md)
+                       │
+                       ▼  ★ 이 챕터 (전반) ★
+                   Initialization (<clinit>)
+                       │
+                       ▼
+                   Usage (메서드 호출, 객체 생성)
+                       │
+                       ▼  ★ 이 챕터 (후반) ★
+                   Unloading (ClassLoader unreachable → CLD chunk free)
+```
+
+**이전 챕터와의 연결**:
+- ← [01-classfile-format](./01-classfile-format.md): `<clinit>`는 javac가 ClassFile에 합성한 메서드.
+- ← [02-classloader-hierarchy](./02-classloader-hierarchy.md): Unloading의 주체는 ClassLoader (CLD 단위 회수).
+- ← [03-linking](./03-linking.md): Linking이 끝나야 Initialization 시작.
+
+**관련된 다른 챕터**:
+- → [02-runtime-data-areas/02-metaspace](../02-runtime-data-areas/02-metaspace-and-class-space.md): ClassLoader 누수의 5대 패턴 + Metaspace에서 chunk가 어떻게 free되는지.
+
+---
+
 ## 📍 학습 목표
 
 1. Initialization이 트리거되는 6가지 조건을 외운다.
@@ -324,6 +359,20 @@ new C();
 ```
 
 > 함정: `IWithoutDefault.y`를 직접 읽을 때만 초기화. 단순히 implements만 하면 X.
+
+---
+
+### 🗺️ 여기까지가 챕터 전반 (Initialization). 다음은 후반 (Unloading).
+
+> 1~4️⃣까지가 클래스가 **태어나 사용되는 단계**였다면, 이제 클래스가 **죽는 단계**로 넘어간다.
+>
+> ```
+> Loading ──► Linking ──► [★ Init: 방금까지 ★] ──► Use ──► [★ Unload: 지금부터 ★]
+> ```
+>
+> Unloading은 ClassLoader unreachable과 직결. Metaspace의 chunk가 free되는 메커니즘은 [02-runtime-data-areas/02-metaspace](../02-runtime-data-areas/02-metaspace-and-class-space.md)와 같이 읽으면 그림이 완성된다.
+
+---
 
 ## 5️⃣ Class Unload — 클래스의 죽음
 

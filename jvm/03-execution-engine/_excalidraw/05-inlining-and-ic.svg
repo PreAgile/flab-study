@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="820" fill="#ffffff"/>
+  <text x="30" y="40" font-size="24" fill="#1e1e1e" font-weight="bold">Inlining + Inline Cache (IC) — 가장 강력한 최적화의 핵심</text>
+  <text x="30" y="63" font-size="13" fill="#666">"Inlining is the mother of optimizations" — JIT의 모든 최적화 효과를 키우는 단일 최강 기법</text>
+
+  <!-- Inlining decision flow -->
+  <rect x="30" y="90" width="555" height="700" rx="10" ry="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="307" y="120" font-size="18" fill="#2e7d32" text-anchor="middle" font-weight="bold">Inlining 휴리스틱</text>
+
+  <rect x="60" y="145" width="495" height="170" rx="6" ry="6" stroke="#2e7d32" fill="#ffffff" stroke-width="1"/>
+  <text x="80" y="170" font-size="13" fill="#2e7d32" font-weight="bold">결정 단계:</text>
+  <text x="80" y="195" font-size="11" fill="#333">1. callee 크기 ≤ MaxInlineSize (기본 35 bytes)? → inline</text>
+  <text x="80" y="213" font-size="11" fill="#333">2. callee가 hot이고 ≤ FreqInlineSize (기본 325 bytes)? → inline</text>
+  <text x="80" y="231" font-size="11" fill="#333">3. caller 누적 크기 ≤ DesiredMethodLimit (기본 8KB)?</text>
+  <text x="80" y="249" font-size="11" fill="#333">4. inline 깊이 ≤ MaxInlineLevel (기본 9)?</text>
+  <text x="80" y="267" font-size="11" fill="#333">5. IC가 monomorphic 또는 bimorphic?</text>
+  <text x="80" y="285" font-size="11" fill="#333">6. callee가 native/synchronized/throws? 케이스별</text>
+  <text x="80" y="305" font-size="11" fill="#c62828">→ 모두 통과해야 inline 됨</text>
+
+  <rect x="60" y="335" width="495" height="160" rx="6" ry="6" stroke="#2e7d32" fill="#fff9c4" stroke-width="1"/>
+  <text x="80" y="358" font-size="13" fill="#1b5e20" font-weight="bold">왜 inlining이 "the mother of optimizations"인가:</text>
+  <text x="80" y="380" font-size="11" fill="#333">1. <tspan font-weight="bold">호출 overhead 제거</tspan> (prologue/epilogue, parameter passing)</text>
+  <text x="80" y="398" font-size="11" fill="#333">2. <tspan font-weight="bold">cross-method 최적화 활성화</tspan> — constant propagation, dead code 제거</text>
+  <text x="80" y="416" font-size="11" fill="#333">3. <tspan font-weight="bold">Escape Analysis 활성화</tspan> — 함수 경계 안에 객체 가둠 → Scalar Replacement</text>
+  <text x="80" y="434" font-size="11" fill="#333">4. <tspan font-weight="bold">Type sharpening</tspan> — caller의 type 정보로 callee의 instanceof 결정</text>
+  <text x="80" y="452" font-size="11" fill="#333">5. <tspan font-weight="bold">Loop opts 확장</tspan> — inline된 loop에 unroll, vectorization 적용</text>
+  <text x="80" y="475" font-size="11" fill="#1b5e20" font-style="italic">→ Inlining이 막히면 위 모든 최적화 효과 ↓</text>
+
+  <rect x="60" y="515" width="495" height="265" rx="6" ry="6" stroke="#2e7d32" fill="#ffffff" stroke-width="1"/>
+  <text x="80" y="538" font-size="13" fill="#2e7d32" font-weight="bold">PrintInlining 메시지 해석:</text>
+  <text x="80" y="560" font-size="11" fill="#333" font-family="monospace">"inline (hot)"</text>
+  <text x="80" y="578" font-size="11" fill="#666">  → 정상 inline (자주 호출 + 크기 조건 통과)</text>
+  <text x="80" y="600" font-size="11" fill="#333" font-family="monospace">"too big"</text>
+  <text x="80" y="618" font-size="11" fill="#666">  → callee 크기 > 한계 (MaxInlineSize/FreqInlineSize)</text>
+  <text x="80" y="640" font-size="11" fill="#333" font-family="monospace">"callee is too large"</text>
+  <text x="80" y="658" font-size="11" fill="#666">  → callee가 거대 — 메서드 분할 검토</text>
+  <text x="80" y="680" font-size="11" fill="#333" font-family="monospace">"hot method too big"</text>
+  <text x="80" y="698" font-size="11" fill="#666">  → hot하지만 FreqInlineSize 초과</text>
+  <text x="80" y="720" font-size="11" fill="#333" font-family="monospace">"already compiled into a big method"</text>
+  <text x="80" y="738" font-size="11" fill="#666">  → caller 누적 크기 한계 도달</text>
+  <text x="80" y="760" font-size="11" fill="#333" font-family="monospace">"polymorphic" / "megamorphic"</text>
+  <text x="80" y="778" font-size="11" fill="#666">  → IC가 다양한 type → inlining 못 결정</text>
+
+  <!-- Inline Cache 4단계 -->
+  <rect x="615" y="90" width="555" height="700" rx="10" ry="10" stroke="#c62828" fill="#fff3e0" stroke-width="2"/>
+  <text x="892" y="120" font-size="18" fill="#c62828" text-anchor="middle" font-weight="bold">Inline Cache (IC) 4단계 진화</text>
+
+  <!-- Monomorphic -->
+  <rect x="640" y="145" width="510" height="100" rx="6" ry="6" stroke="#2e7d32" fill="#e8f5e9" stroke-width="1.5"/>
+  <text x="660" y="168" font-size="13" fill="#2e7d32" font-weight="bold">① Monomorphic — 가장 빠름 ★</text>
+  <text x="660" y="188" font-size="11" fill="#333" font-family="monospace">if (a.klass == FooImpl) jump FooImpl.foo();</text>
+  <text x="660" y="204" font-size="11" fill="#333" font-family="monospace">else call IC_miss_handler;</text>
+  <text x="660" y="222" font-size="11" fill="#333">호출 사이트에서 한 type만 본 상태. klass check 1번 + 직접 jump.</text>
+  <text x="660" y="238" font-size="11" fill="#2e7d32" font-style="italic">→ C2가 이 상태에서 callee를 caller로 inline 가능</text>
+
+  <!-- Bimorphic -->
+  <rect x="640" y="260" width="510" height="100" rx="6" ry="6" stroke="#ef6c00" fill="#fff3e0" stroke-width="1.5"/>
+  <text x="660" y="283" font-size="13" fill="#ef6c00" font-weight="bold">② Bimorphic — 2개 구현체</text>
+  <text x="660" y="303" font-size="11" fill="#333" font-family="monospace">if (a.klass == FooImpl) jump FooImpl.foo();</text>
+  <text x="660" y="319" font-size="11" fill="#333" font-family="monospace">else if (a.klass == BarImpl) jump BarImpl.foo();</text>
+  <text x="660" y="335" font-size="11" fill="#333" font-family="monospace">else call IC_miss_handler;</text>
+  <text x="660" y="353" font-size="11" fill="#ef6c00" font-style="italic">→ C2는 둘 다 inline (조건부) — 약간 느림</text>
+
+  <!-- Polymorphic -->
+  <rect x="640" y="375" width="510" height="100" rx="6" ry="6" stroke="#f57f17" fill="#fff8e1" stroke-width="1.5"/>
+  <text x="660" y="398" font-size="13" fill="#f57f17" font-weight="bold">③ Polymorphic — 3개 정도</text>
+  <text x="660" y="418" font-size="11" fill="#333">branch table — type별 분기. inline 불가.</text>
+  <text x="660" y="436" font-size="11" fill="#333">vtable lookup보다는 빠르지만 monomorphic 대비 ~2~3× 느림.</text>
+  <text x="660" y="454" font-size="11" fill="#f57f17" font-style="italic">→ Stream API의 일반적 lambda 시그니처가 자주 빠지는 함정</text>
+
+  <!-- Megamorphic -->
+  <rect x="640" y="490" width="510" height="100" rx="6" ry="6" stroke="#c62828" fill="#ffcdd2" stroke-width="1.5"/>
+  <text x="660" y="513" font-size="13" fill="#c62828" font-weight="bold">④ Megamorphic — 다양한 type ★ 운영 함정 ★</text>
+  <text x="660" y="533" font-size="11" fill="#333">vtable / itable lookup. 일반 가상 dispatch.</text>
+  <text x="660" y="549" font-size="11" fill="#333">Monomorphic 대비 ~5~10× 느림. <tspan fill="#c62828" font-weight="bold">inline 불가</tspan>.</text>
+  <text x="660" y="567" font-size="11" fill="#333">C2의 모든 cross-method 최적화 차단.</text>
+  <text x="660" y="585" font-size="11" fill="#c62828" font-style="italic">→ P99 spike의 흔한 원인</text>
+
+  <!-- CHA -->
+  <rect x="640" y="605" width="510" height="170" rx="6" ry="6" stroke="#c62828" fill="#ffffff" stroke-width="1.5"/>
+  <text x="660" y="628" font-size="13" fill="#c62828" font-weight="bold">CHA (Class Hierarchy Analysis) — IC와 함께</text>
+  <text x="660" y="648" font-size="11" fill="#333">현재 로드된 클래스 계층 분석:</text>
+  <text x="660" y="666" font-size="11" fill="#333">  "현재 이 인터페이스의 구현체가 1개뿐"이면 monomorphic 으로 간주.</text>
+  <text x="660" y="684" font-size="11" fill="#333">  → 강제 inline 가능 (speculation).</text>
+  <text x="660" y="702" font-size="11" fill="#333">  → 새 구현체가 로드되면 <tspan fill="#c62828" font-weight="bold">Deopt</tspan></text>
+  <text x="660" y="720" font-size="11" fill="#333">  → C2 코드 폐기 + 재컴파일.</text>
+  <text x="660" y="740" font-size="11" fill="#c62828" font-style="italic">→ 운영: Spring AOP/Hibernate proxy가 새 클래스 로드</text>
+  <text x="660" y="758" font-size="11" fill="#c62828" font-style="italic">  → 멀쩡하던 메서드가 deopt → P99 spike</text>
+</svg>

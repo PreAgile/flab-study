@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c62828"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="820" fill="#ffffff"/>
+
+  <text x="30" y="40" font-size="24" fill="#1e1e1e" font-weight="bold">Tiered Compilation — 5단계 점진 승격 + Compile Broker</text>
+  <text x="30" y="63" font-size="13" fill="#666">호출 카운터 + 안정 profile + 컴파일 큐 상태가 다음 tier 진입을 결정. 동적 임계 조정.</text>
+
+  <!-- Tier flow (왼쪽에서 오른쪽) -->
+  <g>
+    <!-- Tier 0 -->
+    <rect x="40" y="100" width="180" height="120" rx="10" ry="10" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+    <text x="130" y="125" font-size="15" fill="#ef6c00" text-anchor="middle" font-weight="bold">Tier 0</text>
+    <text x="130" y="143" font-size="13" fill="#ef6c00" text-anchor="middle">Interpreter</text>
+    <text x="130" y="167" font-size="11" fill="#333" text-anchor="middle">Template Interpreter</text>
+    <text x="130" y="183" font-size="11" fill="#333" text-anchor="middle">+ MDO 수집</text>
+    <text x="130" y="199" font-size="11" fill="#333" text-anchor="middle">~1500회 도달 시</text>
+    <text x="130" y="213" font-size="11" fill="#333" text-anchor="middle">Tier 3로 승격</text>
+
+    <!-- Tier 3 -->
+    <rect x="290" y="100" width="180" height="120" rx="10" ry="10" stroke="#d84315" fill="#ffe0b2" stroke-width="2"/>
+    <text x="380" y="125" font-size="15" fill="#d84315" text-anchor="middle" font-weight="bold">Tier 3</text>
+    <text x="380" y="143" font-size="13" fill="#d84315" text-anchor="middle">C1 + Profiling</text>
+    <text x="380" y="167" font-size="11" fill="#333" text-anchor="middle">HIR/LIR IR</text>
+    <text x="380" y="183" font-size="11" fill="#333" text-anchor="middle">profiling instrumented</text>
+    <text x="380" y="199" font-size="11" fill="#333" text-anchor="middle">컴파일 ~수 ms</text>
+    <text x="380" y="213" font-size="11" fill="#333" text-anchor="middle">→ Profiled segment</text>
+
+    <!-- Tier 4 -->
+    <rect x="540" y="100" width="180" height="120" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+    <text x="630" y="125" font-size="15" fill="#c62828" text-anchor="middle" font-weight="bold">Tier 4</text>
+    <text x="630" y="143" font-size="13" fill="#c62828" text-anchor="middle">C2 (Server)</text>
+    <text x="630" y="167" font-size="11" fill="#333" text-anchor="middle">Sea-of-Nodes IR</text>
+    <text x="630" y="183" font-size="11" fill="#333" text-anchor="middle">공격적 최적화</text>
+    <text x="630" y="199" font-size="11" fill="#333" text-anchor="middle">컴파일 ~수십~수백 ms</text>
+    <text x="630" y="213" font-size="11" fill="#333" text-anchor="middle">→ Non-profiled segment</text>
+
+    <!-- Tier 1, 2 (보조) -->
+    <rect x="790" y="100" width="180" height="120" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+    <text x="880" y="125" font-size="15" fill="#7b1fa2" text-anchor="middle" font-weight="bold">Tier 1, 2</text>
+    <text x="880" y="145" font-size="13" fill="#7b1fa2" text-anchor="middle">C1 변형 (보조)</text>
+    <text x="880" y="167" font-size="11" fill="#333" text-anchor="middle">Tier 1: C1, profiling 없음</text>
+    <text x="880" y="183" font-size="11" fill="#333" text-anchor="middle">Tier 2: C1, 제한적 profiling</text>
+    <text x="880" y="201" font-size="11" fill="#333" text-anchor="middle">C2 큐 가득 차거나</text>
+    <text x="880" y="215" font-size="11" fill="#333" text-anchor="middle">C2 실패 시 fallback</text>
+
+    <!-- arrow flow -->
+    <path d="M 220,160 L 290,160" stroke="#1e1e1e" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+    <text x="255" y="150" font-size="10" fill="#333" text-anchor="middle">~1500</text>
+
+    <path d="M 470,160 L 540,160" stroke="#1e1e1e" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+    <text x="505" y="150" font-size="10" fill="#333" text-anchor="middle">~10000</text>
+
+    <path d="M 720,160 L 790,160" stroke="#7b1fa2" stroke-width="1.5" fill="none" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
+    <text x="755" y="150" font-size="10" fill="#7b1fa2" text-anchor="middle">fallback</text>
+  </g>
+
+  <!-- Compile Broker (중앙) -->
+  <rect x="40" y="280" width="930" height="240" rx="10" ry="10" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+  <text x="505" y="310" font-size="16" fill="#283593" text-anchor="middle" font-weight="bold">Compile Broker — Task 큐 + CompilerThread 풀</text>
+
+  <!-- Task queue diagram -->
+  <rect x="70" y="335" width="280" height="160" rx="6" ry="6" stroke="#283593" fill="#ffffff" stroke-width="1.5"/>
+  <text x="210" y="358" font-size="13" fill="#283593" text-anchor="middle" font-weight="bold">CompileQueue (Tier 3, Tier 4 별도)</text>
+
+  <rect x="85" y="375" width="60" height="30" stroke="#d84315" fill="#ffe0b2" stroke-width="1"/>
+  <text x="115" y="395" font-size="10" fill="#333" text-anchor="middle">T3 task</text>
+  <rect x="155" y="375" width="60" height="30" stroke="#d84315" fill="#ffe0b2" stroke-width="1"/>
+  <text x="185" y="395" font-size="10" fill="#333" text-anchor="middle">T3 task</text>
+  <rect x="225" y="375" width="60" height="30" stroke="#c62828" fill="#ffcdd2" stroke-width="1"/>
+  <text x="255" y="395" font-size="10" fill="#333" text-anchor="middle">T4 task</text>
+  <rect x="295" y="375" width="40" height="30" stroke="#999" fill="#fafafa" stroke-width="1"/>
+  <text x="315" y="395" font-size="9" fill="#666" text-anchor="middle">...</text>
+
+  <text x="85" y="430" font-size="11" fill="#333">우선순위 큐: 호출 빈도 + 예상 이득 + 시간</text>
+  <text x="85" y="448" font-size="11" fill="#333">Tier 3 큐와 Tier 4 큐 분리</text>
+  <text x="85" y="466" font-size="11" fill="#333">큐 가득 차면 임계 동적 ↑ (요청 줄임)</text>
+  <text x="85" y="484" font-size="11" fill="#333">기아 발생 시 임계 동적 ↓ (요청 늘림)</text>
+
+  <!-- CompilerThread pool -->
+  <rect x="380" y="335" width="280" height="160" rx="6" ry="6" stroke="#283593" fill="#ffffff" stroke-width="1.5"/>
+  <text x="520" y="358" font-size="13" fill="#283593" text-anchor="middle" font-weight="bold">CompilerThread × N (-XX:CICompilerCount)</text>
+
+  <rect x="400" y="378" width="80" height="30" stroke="#d84315" fill="#ffe0b2" stroke-width="1"/>
+  <text x="440" y="398" font-size="10" fill="#333" text-anchor="middle">C1 thread #1</text>
+  <rect x="490" y="378" width="80" height="30" stroke="#d84315" fill="#ffe0b2" stroke-width="1"/>
+  <text x="530" y="398" font-size="10" fill="#333" text-anchor="middle">C1 thread #2</text>
+  <rect x="580" y="378" width="60" height="30" stroke="#999" fill="#fafafa" stroke-width="1"/>
+  <text x="610" y="398" font-size="9" fill="#666" text-anchor="middle">...</text>
+
+  <rect x="400" y="418" width="80" height="30" stroke="#c62828" fill="#ffcdd2" stroke-width="1"/>
+  <text x="440" y="438" font-size="10" fill="#333" text-anchor="middle">C2 thread #1</text>
+  <rect x="490" y="418" width="80" height="30" stroke="#c62828" fill="#ffcdd2" stroke-width="1"/>
+  <text x="530" y="438" font-size="10" fill="#333" text-anchor="middle">C2 thread #2</text>
+  <rect x="580" y="418" width="60" height="30" stroke="#999" fill="#fafafa" stroke-width="1"/>
+  <text x="610" y="438" font-size="9" fill="#666" text-anchor="middle">...</text>
+
+  <text x="395" y="470" font-size="11" fill="#333">각 thread는 Java thread가 아닌 OS thread</text>
+  <text x="395" y="487" font-size="11" fill="#333">기본 개수: log2(cpu_count) + 1</text>
+
+  <!-- Result placement -->
+  <rect x="690" y="335" width="260" height="160" rx="6" ry="6" stroke="#00695c" fill="#e0f2f1" stroke-width="1.5"/>
+  <text x="820" y="358" font-size="13" fill="#00695c" text-anchor="middle" font-weight="bold">Code Cache에 nmethod 설치</text>
+
+  <text x="705" y="380" font-size="11" fill="#333">1. Compile 완료 → nmethod 생성</text>
+  <text x="705" y="398" font-size="11" fill="#333">2. Method._code 필드를 새 nmethod로 patch</text>
+  <text x="705" y="416" font-size="11" fill="#333">3. 다음 호출부터 native code</text>
+  <text x="705" y="434" font-size="11" fill="#333">4. 옛 (낮은 tier) nmethod는</text>
+  <text x="715" y="452" font-size="11" fill="#333">not_entrant 표시 → Sweeper 회수</text>
+  <text x="705" y="475" font-size="11" fill="#c62828" font-weight="bold">★ 다음 호출은 새 entry로 atomic transition</text>
+
+  <!-- Decision policy (하단) -->
+  <rect x="40" y="555" width="1140" height="245" rx="10" ry="10" stroke="#6a1b9a" fill="#f3e5f5" stroke-width="2"/>
+  <text x="610" y="585" font-size="16" fill="#6a1b9a" text-anchor="middle" font-weight="bold">TieredThresholdPolicy — 다음 tier 결정 로직</text>
+
+  <text x="60" y="612" font-size="12" fill="#333" font-weight="bold">기본 흐름 (TieredThresholdPolicy::call_event):</text>
+  <rect x="60" y="620" width="540" height="160" stroke="#6a1b9a" fill="#ffffff" stroke-width="1"/>
+  <text x="75" y="640" font-size="11" fill="#1e1e1e" font-family="monospace">int i = method-&gt;invocation_count();</text>
+  <text x="75" y="655" font-size="11" fill="#1e1e1e" font-family="monospace">int b = method-&gt;backedge_count();</text>
+  <text x="75" y="670" font-size="11" fill="#1e1e1e" font-family="monospace">double k = scale_for_load();   // 큐 길이 따라 임계 조정</text>
+  <text x="75" y="685" font-size="11" fill="#1e1e1e" font-family="monospace"></text>
+  <text x="75" y="700" font-size="11" fill="#1565c0" font-family="monospace">if (current_tier == Tier 0):</text>
+  <text x="85" y="715" font-size="11" fill="#1e1e1e" font-family="monospace">  if (i &gt;= Tier3Threshold * k) return Tier 3;</text>
+  <text x="75" y="732" font-size="11" fill="#1565c0" font-family="monospace">if (current_tier == Tier 3):</text>
+  <text x="85" y="747" font-size="11" fill="#1e1e1e" font-family="monospace">  if (i &gt;= Tier4Threshold * k &amp;&amp; profile_stable())</text>
+  <text x="85" y="762" font-size="11" fill="#1e1e1e" font-family="monospace">    return Tier 4;</text>
+  <text x="75" y="777" font-size="11" fill="#1565c0" font-family="monospace">return current_tier;  // 현 tier 유지</text>
+
+  <text x="640" y="612" font-size="12" fill="#333" font-weight="bold">동적 임계 조정 — load-based scaling:</text>
+  <rect x="640" y="620" width="525" height="160" stroke="#6a1b9a" fill="#ffffff" stroke-width="1"/>
+  <text x="655" y="640" font-size="11" fill="#333">큐 짧음 (CompilerThread idle) → k = 1.0</text>
+  <text x="655" y="657" font-size="11" fill="#333">  → 정상 임계로 컴파일 요청 빨리 처리</text>
+  <text x="655" y="678" font-size="11" fill="#333">큐 길음 (요청 폭주) → k = 2.0 ~ 5.0</text>
+  <text x="655" y="695" font-size="11" fill="#333">  → 임계를 높여 새 요청을 줄임 (큐 안정)</text>
+  <text x="655" y="716" font-size="11" fill="#333">컴파일 실패 (Code Cache full 등) → 컴파일 비활성</text>
+  <text x="655" y="733" font-size="11" fill="#333">  → 영구 인터프리터 모드 (UseCodeCacheFlushing 시도)</text>
+  <text x="655" y="754" font-size="11" fill="#c62828" font-weight="bold">→ 같은 임계여도 부하 따라 동적 변동</text>
+  <text x="655" y="773" font-size="11" fill="#c62828" font-style="italic">  운영: warmup이 느려 보이면 큐 상태 의심</text>
+</svg>

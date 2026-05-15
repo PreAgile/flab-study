@@ -5,6 +5,34 @@
 
 ---
 
+## 🗺️ JVM 라이프사이클 안에서 이 챕터의 위치
+
+이 챕터는 클래스 라이프사이클 5단계 중 **Loading** — `.class` bytes를 메모리로 가져와 `InstanceKlass`로 변환하는 단계의 **주체(누가)** 를 다룬다.
+
+![class lifecycle](./_excalidraw/04-class-lifecycle.svg)
+
+```
+   .java  ──javac──►  .class
+                          │
+                          ▼  ★ 이 챕터 ★ — ClassLoader가 .class를 어떻게 찾고, 누가 부모이고, 위임 모델
+                      Loading
+                          │
+                          ▼
+                      Linking (Verify, Prepare, Resolve)  → [03-linking](./03-linking.md)
+                          │
+                          ▼
+                      Initialization (<clinit>)            → [04-initialization-and-unload](./04-initialization-and-unload.md)
+                          │
+                          ▼
+                      Usage → Unloading
+```
+
+**이전 챕터와의 연결**:
+- ← [01-classfile-format](./01-classfile-format.md): 이 챕터의 **입력**(`.class` 파일의 구조)이 무엇인지.
+- → 이 챕터의 **출력**: `defineClass`가 만든 `InstanceKlass` — Metaspace에 저장됨. 풀버전은 [02-runtime-data-areas/02-metaspace](../02-runtime-data-areas/02-metaspace-and-class-space.md).
+
+---
+
 ## 📍 학습 목표
 
 1. JDK 9 이전(3계층)과 이후(Bootstrap/Platform/App) ClassLoader 변화를 안다.
@@ -413,6 +441,18 @@ JDK 15+. **Hidden Class**:
 | **ASM** | `ClassWriter` → byte[] → 직접 `defineClass` |
 | **Javassist** | 소스 텍스트로 메서드 정의 + 컴파일 |
 | **Spring AOP** | JDK Dynamic Proxy (인터페이스만) 또는 CGLib (클래스도) |
+
+---
+
+## 🗺️ 잠깐 — 우리는 라이프사이클 어디인가? (Reminder)
+
+> 4단계로 내려가기 전에 다시 한 번. 지금까지 본 위임 모델·findClass·defineClass는 모두 **Loading** 단계의 일이다.
+>
+> ```
+> .class ──[★ Loading: ClassLoader가 찾아 메모리로 ★]──► Linking ──► Init ──► Use ──► Unload
+> ```
+>
+> 다음 4단계는 HotSpot 내부에서 이 Loading이 어떻게 구현되어 있는지(C++ 코드 레벨)다. Linking·Init은 [03-linking](./03-linking.md), [04-initialization-and-unload](./04-initialization-and-unload.md)에서.
 
 ---
 

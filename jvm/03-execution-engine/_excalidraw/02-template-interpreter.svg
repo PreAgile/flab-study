@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" width="1200" height="820" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1565c0"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="820" fill="#ffffff"/>
+
+  <text x="30" y="40" font-size="24" fill="#1e1e1e" font-weight="bold">Template Interpreter — JVM 시작 시 native template 생성 + 런타임 dispatch</text>
+  <text x="30" y="65" font-size="13" fill="#666">일반 switch-case 인터프리터 대비 2~3배 빠름. dispatch가 indirect jump + threaded code로 inlined.</text>
+
+  <!-- LEFT: Generation Phase -->
+  <rect x="30" y="100" width="500" height="320" rx="10" ry="10" stroke="#283593" fill="#e8eaf6" stroke-width="2"/>
+  <text x="280" y="130" font-size="16" fill="#283593" text-anchor="middle" font-weight="bold">[Phase A] JVM 시작 시 — Template Generation</text>
+
+  <rect x="60" y="155" width="200" height="70" rx="6" ry="6" stroke="#283593" fill="#ffffff" stroke-width="1.5"/>
+  <text x="160" y="180" font-size="13" fill="#283593" text-anchor="middle" font-weight="bold">TemplateInterpreterGenerator</text>
+  <text x="160" y="200" font-size="11" fill="#333" text-anchor="middle">templateInterpreterGenerator.cpp</text>
+  <text x="160" y="216" font-size="11" fill="#333" text-anchor="middle">~200개 opcode 순회</text>
+
+  <path d="M 270,190 L 330,190" stroke="#1e1e1e" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="300" y="180" font-size="10" fill="#333" text-anchor="middle">각 opcode</text>
+
+  <rect x="340" y="155" width="170" height="70" rx="6" ry="6" stroke="#d84315" fill="#ffe0b2" stroke-width="1.5"/>
+  <text x="425" y="180" font-size="13" fill="#d84315" text-anchor="middle" font-weight="bold">native asm 생성</text>
+  <text x="425" y="200" font-size="11" fill="#333" text-anchor="middle">(MacroAssembler API)</text>
+  <text x="425" y="216" font-size="11" fill="#333" text-anchor="middle">~수십 instructions/opcode</text>
+
+  <text x="60" y="252" font-size="12" fill="#333" font-weight="bold">생성된 template 예시 (iadd):</text>
+  <rect x="60" y="262" width="450" height="100" stroke="#999" fill="#fafafa" stroke-width="1"/>
+  <text x="70" y="282" font-size="11" fill="#1565c0" font-family="monospace">; iadd: stack의 두 int를 더해 다시 push</text>
+  <text x="70" y="297" font-size="11" fill="#1e1e1e" font-family="monospace">  pop  eax              ; top → eax</text>
+  <text x="70" y="312" font-size="11" fill="#1e1e1e" font-family="monospace">  pop  ebx              ; 다음 → ebx</text>
+  <text x="70" y="327" font-size="11" fill="#1e1e1e" font-family="monospace">  add  eax, ebx         ; eax += ebx</text>
+  <text x="70" y="342" font-size="11" fill="#1e1e1e" font-family="monospace">  push eax              ; 결과 push</text>
+  <text x="70" y="357" font-size="11" fill="#c62828" font-family="monospace">  jmp  [dispatch_table+next_op*8]   ★ inline dispatch</text>
+
+  <text x="60" y="385" font-size="12" fill="#333">→ 생성 완료 후 <tspan font-weight="bold" fill="#00695c">Code Cache의 Non-method segment</tspan>에 영구 저장</text>
+  <text x="60" y="403" font-size="12" fill="#333">→ <tspan font-weight="bold">dispatch_table[opcode]</tspan> = template의 native 주소</text>
+
+  <!-- RIGHT: Execution Phase -->
+  <rect x="570" y="100" width="600" height="320" rx="10" ry="10" stroke="#00695c" fill="#e0f2f1" stroke-width="2"/>
+  <text x="870" y="130" font-size="16" fill="#00695c" text-anchor="middle" font-weight="bold">[Phase B] 실행 — Threaded Dispatch</text>
+
+  <text x="590" y="160" font-size="12" fill="#333">예: bytecode가 [iload_1, iload_2, iadd, istore_3] 순서일 때</text>
+
+  <!-- bytecode stream -->
+  <rect x="590" y="175" width="80" height="40" stroke="#2e7d32" fill="#e8f5e9" stroke-width="1"/>
+  <text x="630" y="200" font-size="12" fill="#1b5e20" text-anchor="middle">iload_1</text>
+  <rect x="675" y="175" width="80" height="40" stroke="#2e7d32" fill="#e8f5e9" stroke-width="1"/>
+  <text x="715" y="200" font-size="12" fill="#1b5e20" text-anchor="middle">iload_2</text>
+  <rect x="760" y="175" width="80" height="40" stroke="#2e7d32" fill="#e8f5e9" stroke-width="1"/>
+  <text x="800" y="200" font-size="12" fill="#1b5e20" text-anchor="middle" font-weight="bold">iadd</text>
+  <rect x="845" y="175" width="80" height="40" stroke="#2e7d32" fill="#e8f5e9" stroke-width="1"/>
+  <text x="885" y="200" font-size="12" fill="#1b5e20" text-anchor="middle">istore_3</text>
+
+  <text x="755" y="240" font-size="11" fill="#c62828" text-anchor="middle" font-weight="bold">PC ↑ (현재 iadd 실행)</text>
+
+  <!-- dispatch table -->
+  <rect x="590" y="260" width="240" height="140" stroke="#283593" fill="#ffffff" stroke-width="1.5"/>
+  <text x="710" y="280" font-size="13" fill="#283593" text-anchor="middle" font-weight="bold">dispatch_table[256]</text>
+  <text x="710" y="297" font-size="10" fill="#666" text-anchor="middle">(JVM 시작 시 한 번 채워짐)</text>
+  <line x1="590" y1="305" x2="830" y2="305" stroke="#283593" stroke-width="1"/>
+  <text x="610" y="322" font-size="11" fill="#333" font-family="monospace">[0x15 iload]  → 0xA12FC8</text>
+  <text x="610" y="340" font-size="11" fill="#333" font-family="monospace">[0x1B iload_1] → 0xA13040</text>
+  <text x="610" y="358" font-size="11" fill="#c62828" font-family="monospace" font-weight="bold">[0x60 iadd]   → 0xA13380 ★</text>
+  <text x="610" y="376" font-size="11" fill="#333" font-family="monospace">[0x3C istore_1] → 0xA13680</text>
+  <text x="610" y="394" font-size="11" fill="#666" font-family="monospace">...</text>
+
+  <!-- arrow from PC to dispatch -->
+  <path d="M 800,215 C 800,245 720,250 720,260" stroke="#c62828" fill="none" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="660" y="248" font-size="10" fill="#c62828">opcode lookup</text>
+
+  <!-- template box -->
+  <rect x="870" y="260" width="280" height="140" stroke="#d84315" fill="#ffe0b2" stroke-width="1.5"/>
+  <text x="1010" y="280" font-size="13" fill="#d84315" text-anchor="middle" font-weight="bold">iadd template @ 0xA13380</text>
+  <line x1="870" y1="290" x2="1150" y2="290" stroke="#d84315" stroke-width="1"/>
+  <text x="880" y="307" font-size="10" fill="#333" font-family="monospace">pop  eax</text>
+  <text x="880" y="322" font-size="10" fill="#333" font-family="monospace">pop  ebx</text>
+  <text x="880" y="337" font-size="10" fill="#333" font-family="monospace">add  eax, ebx</text>
+  <text x="880" y="352" font-size="10" fill="#333" font-family="monospace">push eax</text>
+  <text x="880" y="370" font-size="10" fill="#c62828" font-family="monospace" font-weight="bold">jmp [dispatch+next*8]</text>
+  <text x="880" y="390" font-size="10" fill="#666" font-family="monospace">↑ 다음 명령으로 즉시 점프</text>
+
+  <path d="M 830,330 L 870,330" stroke="#1e1e1e" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- bottom: profile collection -->
+  <rect x="30" y="445" width="1140" height="170" rx="10" ry="10" stroke="#6a1b9a" fill="#f3e5f5" stroke-width="2"/>
+  <text x="600" y="475" font-size="16" fill="#6a1b9a" text-anchor="middle" font-weight="bold">[병행 작업] Profile 수집 — MDO (Method Data Object)</text>
+
+  <rect x="60" y="495" width="240" height="100" stroke="#6a1b9a" fill="#ffffff" stroke-width="1.5"/>
+  <text x="180" y="520" font-size="13" fill="#6a1b9a" text-anchor="middle" font-weight="bold">Invocation Counter</text>
+  <text x="180" y="540" font-size="11" fill="#333" text-anchor="middle">메서드 호출마다 +1</text>
+  <text x="180" y="557" font-size="11" fill="#333" text-anchor="middle">임계 도달 → Tier 3 컴파일</text>
+  <text x="180" y="577" font-size="11" fill="#333" text-anchor="middle">(Tier3InvocationThreshold)</text>
+
+  <rect x="320" y="495" width="240" height="100" stroke="#6a1b9a" fill="#ffffff" stroke-width="1.5"/>
+  <text x="440" y="520" font-size="13" fill="#6a1b9a" text-anchor="middle" font-weight="bold">Backedge Counter</text>
+  <text x="440" y="540" font-size="11" fill="#333" text-anchor="middle">loop back-edge마다 +1</text>
+  <text x="440" y="557" font-size="11" fill="#333" text-anchor="middle">임계 도달 → OSR 컴파일</text>
+  <text x="440" y="577" font-size="11" fill="#333" text-anchor="middle">(긴 loop 진입 메서드용)</text>
+
+  <rect x="580" y="495" width="240" height="100" stroke="#6a1b9a" fill="#ffffff" stroke-width="1.5"/>
+  <text x="700" y="520" font-size="13" fill="#6a1b9a" text-anchor="middle" font-weight="bold">Type Profile</text>
+  <text x="700" y="540" font-size="11" fill="#333" text-anchor="middle">invokevirtual call site별</text>
+  <text x="700" y="557" font-size="11" fill="#333" text-anchor="middle">실제 receiver 클래스 기록</text>
+  <text x="700" y="577" font-size="11" fill="#333" text-anchor="middle">C2의 inlining 결정 입력</text>
+
+  <rect x="840" y="495" width="300" height="100" stroke="#6a1b9a" fill="#ffffff" stroke-width="1.5"/>
+  <text x="990" y="520" font-size="13" fill="#6a1b9a" text-anchor="middle" font-weight="bold">Branch Profile</text>
+  <text x="990" y="540" font-size="11" fill="#333" text-anchor="middle">if/switch의 taken/not taken</text>
+  <text x="990" y="557" font-size="11" fill="#333" text-anchor="middle">"이 분기는 95% true" 같은 통계</text>
+  <text x="990" y="577" font-size="11" fill="#333" text-anchor="middle">C2의 speculation 결정 입력</text>
+
+  <!-- bottom note -->
+  <rect x="30" y="635" width="1140" height="160" rx="10" ry="10" stroke="#999" fill="#fafafa" stroke-width="1"/>
+  <text x="50" y="660" font-size="14" fill="#1e1e1e" font-weight="bold">핵심 통찰:</text>
+  <text x="50" y="683" font-size="12" fill="#333">① <tspan font-weight="bold">Template = pre-generated native asm</tspan>. 일반 switch interpreter의 "case 0x60: { handle_iadd(); break; }"가 indirect call + return overhead를 가지는 반면,</text>
+  <text x="50" y="700" font-size="12" fill="#333">  template은 <tspan font-weight="bold">직접 점프</tspan> + <tspan font-weight="bold">register-based stack 조작</tspan>으로 dispatch overhead를 최소화. instruction cache locality도 좋음.</text>
+  <text x="50" y="722" font-size="12" fill="#333">② <tspan font-weight="bold">threaded dispatch</tspan>: 각 template의 마지막 명령이 "다음 opcode lookup + jump". 별도 dispatch loop 없음 — control flow가 인라인.</text>
+  <text x="50" y="744" font-size="12" fill="#333">③ <tspan font-weight="bold">MDO에 profile 누적</tspan> → Tier 3/4 컴파일 시 C1/C2가 이 데이터로 inlining, speculation 결정. <tspan font-style="italic">인터프리터는 "느린 실행기"가 아니라 "profiler 겸 실행기"</tspan>.</text>
+  <text x="50" y="766" font-size="12" fill="#333">④ 운영: <tspan font-weight="bold">-Xint</tspan>(인터프리터 only) → JIT 없음, 5~10× 느림. 디버깅·재현 용도. 실서비스에서는 JIT 못 돌 때(Code Cache full, deopt 폭주) 사실상 비슷한 상태 도달.</text>
+  <text x="50" y="785" font-size="12" fill="#333">⑤ async-profiler가 인터프리터 frame을 native frame으로 잘못 해석하는 경우 있음 — <tspan font-style="italic">JIT 단계별 stack trace 정확도 차이</tspan>.</text>
+</svg>

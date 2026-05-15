@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1e1e1e"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1200" height="760" fill="#ffffff"/>
+  <text x="30" y="40" font-size="24" fill="#1e1e1e" font-weight="bold">Escape Analysis — 객체가 메서드 밖으로 나가나?</text>
+  <text x="30" y="63" font-size="13" fill="#666">3가지 escape 종류 + Scalar Replacement / Lock Elision. C2의 핵심 메모리 최적화.</text>
+
+  <!-- Three escape types -->
+  <rect x="30" y="90" width="370" height="370" rx="10" ry="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="215" y="120" font-size="16" fill="#2e7d32" text-anchor="middle" font-weight="bold">NoEscape</text>
+  <text x="215" y="140" font-size="11" fill="#666" text-anchor="middle">메서드 안에서만 사용</text>
+
+  <rect x="50" y="160" width="330" height="120" rx="6" ry="6" stroke="#2e7d32" fill="#ffffff" stroke-width="1"/>
+  <text x="60" y="180" font-size="11" fill="#333" font-family="monospace">void foo() {</text>
+  <text x="80" y="197" font-size="11" fill="#333" font-family="monospace">Point p = new Point(1, 2);</text>
+  <text x="80" y="214" font-size="11" fill="#333" font-family="monospace">int x = p.x;</text>
+  <text x="80" y="231" font-size="11" fill="#333" font-family="monospace">int y = p.y;</text>
+  <text x="80" y="248" font-size="11" fill="#333" font-family="monospace">use(x + y);</text>
+  <text x="60" y="265" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <rect x="50" y="295" width="330" height="155" rx="6" ry="6" stroke="#2e7d32" fill="#fff9c4" stroke-width="1"/>
+  <text x="215" y="315" font-size="13" fill="#1b5e20" text-anchor="middle" font-weight="bold">최적화: Scalar Replacement ★</text>
+  <text x="60" y="335" font-size="11" fill="#333">→ p 객체 안 만듦. x, y를 직접 register/stack에.</text>
+  <text x="60" y="353" font-size="11" fill="#333">→ Heap allocation 0회. GC 부담 없음.</text>
+  <text x="60" y="371" font-size="11" fill="#333">→ Synchronization 무시 (Lock Elision).</text>
+  <text x="60" y="395" font-size="11" fill="#2e7d32" font-weight="bold">최적화 후:</text>
+  <text x="60" y="413" font-size="11" fill="#333" font-family="monospace">void foo() {</text>
+  <text x="80" y="430" font-size="11" fill="#333" font-family="monospace">  int x_scalar = 1; int y_scalar = 2;</text>
+  <text x="80" y="445" font-size="11" fill="#333" font-family="monospace">  use(x_scalar + y_scalar);  // = 3</text>
+  <text x="60" y="460" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <!-- ArgEscape -->
+  <rect x="415" y="90" width="370" height="370" rx="10" ry="10" stroke="#ef6c00" fill="#fff3e0" stroke-width="2"/>
+  <text x="600" y="120" font-size="16" fill="#ef6c00" text-anchor="middle" font-weight="bold">ArgEscape</text>
+  <text x="600" y="140" font-size="11" fill="#666" text-anchor="middle">다른 메서드로 전달, 그러나 그 메서드에서 escape 안 함</text>
+
+  <rect x="435" y="160" width="330" height="120" rx="6" ry="6" stroke="#ef6c00" fill="#ffffff" stroke-width="1"/>
+  <text x="445" y="180" font-size="11" fill="#333" font-family="monospace">void foo() {</text>
+  <text x="465" y="197" font-size="11" fill="#333" font-family="monospace">Point p = new Point(1, 2);</text>
+  <text x="465" y="214" font-size="11" fill="#333" font-family="monospace">log(p);  // log()가 inline되어 분석 가능</text>
+  <text x="445" y="231" font-size="11" fill="#333" font-family="monospace">}</text>
+  <text x="445" y="255" font-size="11" fill="#333" font-family="monospace">void log(Point p) {</text>
+  <text x="465" y="272" font-size="11" fill="#333" font-family="monospace">  print(p.x); print(p.y);</text>
+
+  <rect x="435" y="295" width="330" height="155" rx="6" ry="6" stroke="#ef6c00" fill="#fff9c4" stroke-width="1"/>
+  <text x="600" y="315" font-size="13" fill="#bf360c" text-anchor="middle" font-weight="bold">최적화: 조건부 (callee inline 여부)</text>
+  <text x="445" y="335" font-size="11" fill="#333">log()가 inline되면 → NoEscape로 승격</text>
+  <text x="445" y="353" font-size="11" fill="#333">→ Scalar Replacement 가능</text>
+  <text x="445" y="376" font-size="11" fill="#333">log()가 inline 안 되면 → GlobalEscape 가능성</text>
+  <text x="445" y="394" font-size="11" fill="#333">→ Heap allocation 그대로</text>
+  <text x="445" y="418" font-size="11" fill="#bf360c" font-weight="bold">Inlining의 가치 ★</text>
+  <text x="445" y="437" font-size="11" fill="#333">→ EA 정확도는 inlining에 직접 의존</text>
+
+  <!-- GlobalEscape -->
+  <rect x="800" y="90" width="370" height="370" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="985" y="120" font-size="16" fill="#c62828" text-anchor="middle" font-weight="bold">GlobalEscape</text>
+  <text x="985" y="140" font-size="11" fill="#666" text-anchor="middle">heap 또는 static 필드로 escape</text>
+
+  <rect x="820" y="160" width="330" height="120" rx="6" ry="6" stroke="#c62828" fill="#ffffff" stroke-width="1"/>
+  <text x="830" y="180" font-size="11" fill="#333" font-family="monospace">static List&lt;Point&gt; cache;</text>
+  <text x="830" y="200" font-size="11" fill="#333" font-family="monospace">void foo() {</text>
+  <text x="850" y="217" font-size="11" fill="#333" font-family="monospace">Point p = new Point(1, 2);</text>
+  <text x="850" y="234" font-size="11" fill="#333" font-family="monospace">cache.add(p);  ← static 필드로</text>
+  <text x="850" y="251" font-size="11" fill="#333" font-family="monospace">return;</text>
+  <text x="830" y="268" font-size="11" fill="#333" font-family="monospace">}</text>
+
+  <rect x="820" y="295" width="330" height="155" rx="6" ry="6" stroke="#c62828" fill="#ffcdd2" stroke-width="1"/>
+  <text x="985" y="315" font-size="13" fill="#b71c1c" text-anchor="middle" font-weight="bold">최적화: 거의 없음</text>
+  <text x="830" y="335" font-size="11" fill="#333">→ Heap allocation 그대로</text>
+  <text x="830" y="353" font-size="11" fill="#333">→ GC 부담 그대로</text>
+  <text x="830" y="371" font-size="11" fill="#333">→ Synchronization 유지</text>
+  <text x="830" y="395" font-size="11" fill="#c62828" font-weight="bold">운영 의미:</text>
+  <text x="830" y="413" font-size="11" fill="#333">EA가 객체를 도와줄 수 없음.</text>
+  <text x="830" y="431" font-size="11" fill="#333">캐시/static 보관 코드는 allocation 비용</text>
+  <text x="830" y="449" font-size="11" fill="#333">감수 — pool 사용 고려.</text>
+
+  <!-- Bottom -->
+  <rect x="30" y="485" width="1140" height="265" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="600" y="515" font-size="16" fill="#1565c0" text-anchor="middle" font-weight="bold">EA가 가능하게 하는 3가지 최적화</text>
+
+  <rect x="60" y="535" width="350" height="200" rx="6" ry="6" stroke="#1565c0" fill="#ffffff" stroke-width="1"/>
+  <text x="235" y="558" font-size="13" fill="#1565c0" text-anchor="middle" font-weight="bold">① Scalar Replacement</text>
+  <text x="80" y="580" font-size="11" fill="#333">객체의 field들을 별도 scalar 변수로 분해.</text>
+  <text x="80" y="598" font-size="11" fill="#333">→ Register 또는 stack slot 사용.</text>
+  <text x="80" y="616" font-size="11" fill="#333">→ Heap allocation 완전 회피.</text>
+  <text x="80" y="638" font-size="11" fill="#1565c0" font-weight="bold">효과:</text>
+  <text x="80" y="656" font-size="11" fill="#333">• GC 부담 0 (allocation 없음)</text>
+  <text x="80" y="674" font-size="11" fill="#333">• Heap 접근 → register 접근 (10x 빠름)</text>
+  <text x="80" y="692" font-size="11" fill="#333">• Allocation rate ↓ (Young GC 빈도 ↓)</text>
+  <text x="80" y="715" font-size="11" fill="#1565c0" font-style="italic">→ "implicit stack allocation"</text>
+
+  <rect x="425" y="535" width="350" height="200" rx="6" ry="6" stroke="#1565c0" fill="#ffffff" stroke-width="1"/>
+  <text x="600" y="558" font-size="13" fill="#1565c0" text-anchor="middle" font-weight="bold">② Lock Elision</text>
+  <text x="445" y="580" font-size="11" fill="#333">NoEscape 객체의 synchronized 제거.</text>
+  <text x="445" y="600" font-size="11" fill="#333" font-family="monospace">StringBuffer sb = new SB();</text>
+  <text x="445" y="617" font-size="11" fill="#333" font-family="monospace">sb.append("a"); sb.append("b");</text>
+  <text x="445" y="640" font-size="11" fill="#1565c0" font-weight="bold">최적화 후:</text>
+  <text x="445" y="658" font-size="11" fill="#333">synchronized 블록 제거 → CAS/mutex 0</text>
+  <text x="445" y="676" font-size="11" fill="#333">StringBuffer가 StringBuilder처럼 동작.</text>
+  <text x="445" y="700" font-size="11" fill="#1565c0" font-style="italic">→ 옛 StringBuffer 코드도 빠르게</text>
+  <text x="445" y="715" font-size="11" fill="#1565c0" font-style="italic">  (단, NoEscape 분석되어야)</text>
+
+  <rect x="790" y="535" width="350" height="200" rx="6" ry="6" stroke="#1565c0" fill="#ffffff" stroke-width="1"/>
+  <text x="965" y="558" font-size="13" fill="#1565c0" text-anchor="middle" font-weight="bold">③ Lock Coarsening</text>
+  <text x="810" y="580" font-size="11" fill="#333">인접 synchronized 블록 통합.</text>
+  <text x="810" y="600" font-size="11" fill="#333" font-family="monospace">sync(lock) { a(); }</text>
+  <text x="810" y="617" font-size="11" fill="#333" font-family="monospace">sync(lock) { b(); }</text>
+  <text x="810" y="640" font-size="11" fill="#1565c0" font-weight="bold">최적화 후:</text>
+  <text x="810" y="658" font-size="11" fill="#333" font-family="monospace">sync(lock) { a(); b(); }</text>
+  <text x="810" y="678" font-size="11" fill="#333">→ lock/unlock 횟수 절반</text>
+  <text x="810" y="700" font-size="11" fill="#1565c0" font-style="italic">→ Lock contention 영향 일부 줄임</text>
+  <text x="810" y="715" font-size="11" fill="#1565c0" font-style="italic">  (단, 단일 메서드 안에서만)</text>
+</svg>

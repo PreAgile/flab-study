@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="600" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">Direct Memory — Off-heap NIO + Cleaner</text>
+  <text x="30" y="62" font-size="13" fill="#666">Heap 밖 native memory. -XX:MaxDirectMemorySize. Cleaner가 PhantomReference로 free.</text>
+
+  <rect x="30" y="90" width="555" height="490" rx="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="307" y="115" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">DirectByteBuffer 구조</text>
+
+  <rect x="50" y="140" width="240" height="100" stroke="#1565c0" fill="#ffffff"/>
+  <text x="170" y="160" font-size="12" fill="#1565c0" text-anchor="middle" font-weight="bold">Java Heap</text>
+  <text x="60" y="180" font-size="11" fill="#333">DirectByteBuffer obj:</text>
+  <text x="70" y="198" font-size="10" fill="#333" font-family="monospace">address: long</text>
+  <text x="70" y="214" font-size="10" fill="#333" font-family="monospace">capacity: int</text>
+  <text x="70" y="230" font-size="10" fill="#333" font-family="monospace">Cleaner: PhantomRef</text>
+
+  <path d="M 290,190 L 360,190" stroke="#c62828" stroke-width="2" fill="none" marker-end="url(#arr)"/>
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="strokeWidth" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c62828"/>
+    </marker>
+  </defs>
+  <text x="325" y="180" font-size="10" fill="#666">address</text>
+
+  <rect x="360" y="140" width="200" height="100" stroke="#c62828" fill="#ffcdd2"/>
+  <text x="460" y="160" font-size="12" fill="#c62828" text-anchor="middle" font-weight="bold">Native Memory</text>
+  <text x="370" y="185" font-size="11" fill="#333" text-anchor="start">malloc된 buffer</text>
+  <text x="370" y="203" font-size="11" fill="#333" text-anchor="start">(예: 1MB)</text>
+  <text x="370" y="221" font-size="11" fill="#333" text-anchor="start">사용자 데이터</text>
+
+  <text x="50" y="275" font-size="12" fill="#1565c0" font-weight="bold">Cleaner 흐름:</text>
+  <text x="60" y="293" font-size="11" fill="#333">1. DirectByteBuffer 생성 시:</text>
+  <text x="70" y="309" font-size="11" fill="#333">  • UNSAFE.allocateMemory(size) → P</text>
+  <text x="70" y="325" font-size="11" fill="#333">  • Cleaner.create(buf, free(P))</text>
+  <text x="60" y="345" font-size="11" fill="#333">2. buf가 unreachable:</text>
+  <text x="70" y="361" font-size="11" fill="#333">  • GC가 Cleaner enqueue</text>
+  <text x="70" y="377" font-size="11" fill="#333">  • Reference Handler thread가 clean()</text>
+  <text x="60" y="397" font-size="11" fill="#333">3. UNSAFE.freeMemory(P)</text>
+
+  <text x="50" y="430" font-size="11" fill="#c62828" font-weight="bold">한계: GC와 native free 사이 지연</text>
+  <text x="50" y="448" font-size="11" fill="#333">짧은 시간 DirectByteBuffer 폭주 시:</text>
+  <text x="50" y="466" font-size="11" fill="#333">  • Heap의 객체는 GC됐지만</text>
+  <text x="50" y="484" font-size="11" fill="#333">  • Native 메모리는 잠시 살아있음</text>
+  <text x="50" y="502" font-size="11" fill="#c62828">  • → OOM: Direct buffer memory</text>
+
+  <text x="50" y="535" font-size="11" fill="#1565c0">Bits.reserveMemory:</text>
+  <text x="50" y="553" font-size="10" fill="#666">한계 초과 시 System.gc() 강제 → Cleaner 트리거.</text>
+  <text x="50" y="571" font-size="10" fill="#c62828">-XX:+DisableExplicitGC 켜면 무력화 → 위험.</text>
+
+  <!-- Zero-copy I/O -->
+  <rect x="615" y="90" width="555" height="490" rx="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="892" y="115" font-size="14" fill="#2e7d32" text-anchor="middle" font-weight="bold">Zero-copy I/O — Direct Buffer의 가치</text>
+
+  <text x="635" y="145" font-size="12" fill="#c62828" font-weight="bold">[일반 Heap Buffer로 read]</text>
+  <text x="645" y="163" font-size="11" fill="#333">디스크 → 커널 page cache (DMA)</text>
+  <text x="645" y="181" font-size="11" fill="#333">         → JVM Heap 복사 (CPU 비용)</text>
+  <text x="645" y="199" font-size="11" fill="#c62828">총 메모리 복사: 2회</text>
+
+  <text x="635" y="230" font-size="12" fill="#2e7d32" font-weight="bold">[Direct Buffer로 read]</text>
+  <text x="645" y="248" font-size="11" fill="#333">디스크 → Direct Buffer (DMA 직접)</text>
+  <text x="645" y="266" font-size="11" fill="#333">         사용자 코드 직접 접근</text>
+  <text x="645" y="284" font-size="11" fill="#2e7d32">총 메모리 복사: 1회 ★</text>
+
+  <text x="635" y="320" font-size="12" fill="#2e7d32" font-weight="bold">Netty/Kafka가 채택한 이유:</text>
+  <text x="645" y="338" font-size="11" fill="#333">고처리량 I/O = memory copy 비용 ↓ 필수.</text>
+  <text x="645" y="356" font-size="11" fill="#333">단, 할당 비용 ↑ (malloc ~수 us vs TLAB ~3 cycle).</text>
+  <text x="645" y="374" font-size="11" fill="#333">→ 풀링 (PooledByteBufAllocator).</text>
+
+  <text x="635" y="410" font-size="12" fill="#c62828" font-weight="bold">5대 누수 패턴:</text>
+  <text x="645" y="428" font-size="11" fill="#333">1. Cleaner 트리거 지연</text>
+  <text x="645" y="446" font-size="11" fill="#333">2. MappedByteBuffer 해제 불가</text>
+  <text x="645" y="464" font-size="11" fill="#333">3. Netty release() 누락</text>
+  <text x="645" y="482" font-size="11" fill="#333">4. JNI 직접 native malloc</text>
+  <text x="645" y="500" font-size="11" fill="#333">5. -XX:+DisableExplicitGC + 폭주</text>
+
+  <text x="635" y="535" font-size="11" fill="#c62828" font-weight="bold">진단:</text>
+  <text x="645" y="553" font-size="10" fill="#333" font-family="monospace">BufferPoolMXBean.getMemoryUsed()</text>
+  <text x="645" y="571" font-size="10" fill="#333" font-family="monospace">-Dio.netty.leakDetection.level=PARANOID</text>
+</svg>

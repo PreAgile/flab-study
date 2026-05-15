@@ -67,11 +67,11 @@
 | # | 파일 | 핵심 질문 | 상태 |
 |---|---|---|---|
 | 01 | [01-heap-and-tlab.md](./01-heap-and-tlab.md) | "Heap은 어떻게 나뉘고, TLAB은 왜 필요한가, Humongous는 무엇인가" | ✅ |
-| 02 | 02-metaspace-and-class-space.md | "Metaspace는 Heap 밖에 있는데 어떻게 동작하나, PermGen은 왜 죽었나" | ⏳ |
-| 03 | 03-stack-pc-native.md | "Per-Thread 영역의 정확한 구조, Stack Frame 안에 뭐가 있나" | ⏳ |
-| 04 | 04-code-cache.md | "JIT 결과는 어디에 저장되고, full이 되면 무슨 일이 일어나나" | ⏳ |
-| 05 | 05-direct-memory.md | "DirectBuffer는 왜 쓰고, 어떻게 누수되나" | ⏳ |
-| 06 | 06-gc-bookkeeping-and-others.md | "Card Table, RSet, Mark Bitmap이 차지하는 메모리" | ⏳ |
+| 02 | [02-metaspace-and-class-space.md](./02-metaspace-and-class-space.md) | "Metaspace는 Heap 밖에 있는데 어떻게 동작하나, PermGen은 왜 죽었나" | ✅ |
+| 03 | [03-stack-pc-native.md](./03-stack-pc-native.md) | "Per-Thread 영역의 정확한 구조, Stack Frame 안에 뭐가 있나, Virtual Thread는 어떻게 다른가" | ✅ |
+| 04 | [04-code-cache.md](./04-code-cache.md) | "JIT 결과는 어디에 저장되고, full이 되면 무슨 일이 일어나나" | ✅ |
+| 05 | [05-direct-memory.md](./05-direct-memory.md) | "DirectBuffer는 왜 쓰고, 어떻게 누수되나" | ✅ |
+| 06 | [06-gc-bookkeeping-and-others.md](./06-gc-bookkeeping-and-others.md) | "Card Table, RSet, Mark Bitmap이 차지하는 메모리" | ✅ |
 
 ---
 

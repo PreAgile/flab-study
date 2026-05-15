@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="600" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">GraalVM — 3 in 1: Graal JIT + Native Image + Truffle</text>
+  <text x="30" y="62" font-size="13" fill="#666">한 plat에 3가지 다른 도구. 각자 목적이 다름.</text>
+
+  <!-- 3 components -->
+  <rect x="30" y="90" width="370" height="490" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="215" y="115" font-size="14" fill="#1565c0" text-anchor="middle" font-weight="bold">① Graal JIT — C2 대체</text>
+
+  <text x="50" y="140" font-size="11" fill="#333">Java로 작성된 JIT 컴파일러.</text>
+  <text x="50" y="158" font-size="11" fill="#333">HotSpot의 JVMCI를 통해 plugin.</text>
+  <text x="50" y="180" font-size="12" fill="#1565c0" font-weight="bold">특징:</text>
+  <text x="50" y="198" font-size="11" fill="#333">• Java로 작성 (C2는 C++)</text>
+  <text x="50" y="216" font-size="11" fill="#333">• 더 유연 / 진보된 알고리즘</text>
+  <text x="50" y="234" font-size="11" fill="#333">• Partial Escape Analysis</text>
+  <text x="50" y="252" font-size="11" fill="#333">• 더 공격적 inlining 휴리스틱</text>
+  <text x="50" y="270" font-size="11" fill="#333">• Custom intrinsics 쉬움</text>
+
+  <text x="50" y="298" font-size="12" fill="#1565c0" font-weight="bold">옵션:</text>
+  <text x="50" y="316" font-size="11" fill="#333" font-family="monospace">  -XX:+UnlockExperimentalVMOptions</text>
+  <text x="50" y="333" font-size="11" fill="#333" font-family="monospace">  -XX:+UseJVMCICompiler</text>
+
+  <text x="50" y="360" font-size="12" fill="#1565c0" font-weight="bold">실측 (Oracle):</text>
+  <text x="50" y="378" font-size="11" fill="#333">일부 워크로드 C2 대비 10~30% 빠름</text>
+  <text x="50" y="395" font-size="11" fill="#333">(Stream API, lambda heavy)</text>
+
+  <text x="50" y="425" font-size="12" fill="#c62828" font-weight="bold">단점:</text>
+  <text x="50" y="443" font-size="11" fill="#333">• 컴파일 시간 ↑ (Java JIT의 JIT)</text>
+  <text x="50" y="461" font-size="11" fill="#333">• 일부 워크로드 C2가 더 빠름</text>
+  <text x="50" y="479" font-size="11" fill="#333">• production 적용 신중</text>
+
+  <text x="50" y="510" font-size="11" fill="#1565c0" font-weight="bold">현재 상태:</text>
+  <text x="50" y="528" font-size="11" fill="#333">JDK 17~21에서 사용 가능</text>
+  <text x="50" y="546" font-size="11" fill="#333">GraalVM CE/EE 별도 배포</text>
+
+  <!-- Native Image -->
+  <rect x="415" y="90" width="370" height="490" rx="10" ry="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="600" y="115" font-size="14" fill="#2e7d32" text-anchor="middle" font-weight="bold">② Native Image (SVM) — AOT</text>
+
+  <text x="435" y="140" font-size="11" fill="#333">Java 코드를 native executable로 AOT.</text>
+  <text x="435" y="158" font-size="11" fill="#333">JVM 없이 실행 가능.</text>
+  <text x="435" y="180" font-size="12" fill="#2e7d32" font-weight="bold">특징:</text>
+  <text x="435" y="198" font-size="11" fill="#333">• 빌드 시 모든 코드 AOT 컴파일</text>
+  <text x="435" y="216" font-size="11" fill="#333">• Closed-world 가정 (모든 class 미리 알려짐)</text>
+  <text x="435" y="234" font-size="11" fill="#333">• Startup ~수십 ms (vs JVM 수 초)</text>
+  <text x="435" y="252" font-size="11" fill="#333">• Footprint 10~30% (vs JVM)</text>
+  <text x="435" y="270" font-size="11" fill="#333">• Container friendly</text>
+
+  <text x="435" y="298" font-size="12" fill="#2e7d32" font-weight="bold">사용 예:</text>
+  <text x="435" y="316" font-size="11" fill="#333" font-family="monospace">  native-image MyApp</text>
+  <text x="435" y="333" font-size="11" fill="#333" font-family="monospace">  → myapp (native executable)</text>
+
+  <text x="435" y="360" font-size="12" fill="#c62828" font-weight="bold">제약:</text>
+  <text x="435" y="378" font-size="11" fill="#333">• Reflection — 빌드 시 명시 필요</text>
+  <text x="435" y="395" font-size="11" fill="#333">• Dynamic class loading — 제한적</text>
+  <text x="435" y="413" font-size="11" fill="#333">• JNI native 코드 — 빌드 통합 필요</text>
+  <text x="435" y="431" font-size="11" fill="#333">• Peak throughput JVM 대비 약간 ↓</text>
+  <text x="435" y="449" font-size="11" fill="#333">• Build 시간 매우 김 (~수 분)</text>
+
+  <text x="435" y="480" font-size="11" fill="#2e7d32" font-weight="bold">적합 워크로드:</text>
+  <text x="435" y="498" font-size="11" fill="#333">• Serverless (cold start)</text>
+  <text x="435" y="516" font-size="11" fill="#333">• CLI tools</text>
+  <text x="435" y="534" font-size="11" fill="#333">• Microservice (cold start ↓)</text>
+  <text x="435" y="552" font-size="11" fill="#333">• Container memory 제한적</text>
+
+  <!-- Truffle -->
+  <rect x="800" y="90" width="370" height="490" rx="10" ry="10" stroke="#7b1fa2" fill="#f3e5f5" stroke-width="2"/>
+  <text x="985" y="115" font-size="14" fill="#7b1fa2" text-anchor="middle" font-weight="bold">③ Truffle — Polyglot Framework</text>
+
+  <text x="820" y="140" font-size="11" fill="#333">다른 언어를 Java 가상 머신에 구현.</text>
+  <text x="820" y="158" font-size="11" fill="#333">Self-optimizing interpreter framework.</text>
+  <text x="820" y="180" font-size="12" fill="#7b1fa2" font-weight="bold">지원 언어:</text>
+  <text x="820" y="198" font-size="11" fill="#333">• JavaScript (GraalJS)</text>
+  <text x="820" y="216" font-size="11" fill="#333">• Python (GraalPy)</text>
+  <text x="820" y="234" font-size="11" fill="#333">• Ruby (TruffleRuby)</text>
+  <text x="820" y="252" font-size="11" fill="#333">• R (FastR)</text>
+  <text x="820" y="270" font-size="11" fill="#333">• LLVM IR (Sulong, C/C++ 등)</text>
+  <text x="820" y="288" font-size="11" fill="#333">• WebAssembly</text>
+
+  <text x="820" y="318" font-size="12" fill="#7b1fa2" font-weight="bold">특징:</text>
+  <text x="820" y="336" font-size="11" fill="#333">• 한 process에서 여러 언어 mix</text>
+  <text x="820" y="354" font-size="11" fill="#333">• Graal JIT으로 native 수준 성능</text>
+  <text x="820" y="372" font-size="11" fill="#333">• Inter-language 호출 zero-overhead</text>
+
+  <text x="820" y="402" font-size="12" fill="#7b1fa2" font-weight="bold">사용 예:</text>
+  <text x="820" y="420" font-size="11" fill="#333">• Java + JS 통합 (Nashorn 대체)</text>
+  <text x="820" y="438" font-size="11" fill="#333">• Python 라이브러리를 Java에서</text>
+  <text x="820" y="456" font-size="11" fill="#333">• Database stored procedure</text>
+
+  <text x="820" y="486" font-size="12" fill="#c62828" font-weight="bold">한계:</text>
+  <text x="820" y="504" font-size="11" fill="#333">• 일반 운영보다 특수 use case</text>
+  <text x="820" y="522" font-size="11" fill="#333">• GraalVM 환경 필요</text>
+  <text x="820" y="540" font-size="11" fill="#333">• 메모리 footprint 큼</text>
+</svg>

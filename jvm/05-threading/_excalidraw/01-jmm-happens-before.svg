@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" font-family="-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo','Pretendard','Noto Sans KR','Malgun Gothic','Helvetica Neue',Helvetica,Arial,sans-serif">
+  <rect x="0" y="0" width="1200" height="700" fill="#ffffff"/>
+  <text x="30" y="40" font-size="22" fill="#1e1e1e" font-weight="bold">JMM — Happens-Before 13 규칙</text>
+  <text x="30" y="62" font-size="13" fill="#666">"A happens-before B" = A의 결과가 B에서 보임. JLS §17.4. 모든 동시성 정확성의 기반.</text>
+
+  <!-- 13 rules -->
+  <rect x="30" y="90" width="1140" height="380" rx="10" ry="10" stroke="#1565c0" fill="#e3f2fd" stroke-width="2"/>
+  <text x="600" y="118" font-size="16" fill="#1565c0" text-anchor="middle" font-weight="bold">13가지 happens-before 관계</text>
+
+  <text x="50" y="148" font-size="12" fill="#1565c0" font-weight="bold">기본 관계 (5개):</text>
+  <text x="60" y="168" font-size="11" fill="#333">1. <tspan font-weight="bold">Program Order</tspan> — 같은 thread 안에서 코드 순서 (단, reordering 가능)</text>
+  <text x="60" y="186" font-size="11" fill="#333">2. <tspan font-weight="bold">Monitor Lock</tspan> — unlock → 같은 monitor의 lock</text>
+  <text x="60" y="204" font-size="11" fill="#333">3. <tspan font-weight="bold">Volatile</tspan> — volatile write → volatile read of same variable</text>
+  <text x="60" y="222" font-size="11" fill="#333">4. <tspan font-weight="bold">Thread Start</tspan> — Thread.start() → started thread의 모든 액션</text>
+  <text x="60" y="240" font-size="11" fill="#333">5. <tspan font-weight="bold">Thread Join</tspan> — terminating thread의 모든 액션 → Thread.join() 후</text>
+
+  <text x="50" y="270" font-size="12" fill="#1565c0" font-weight="bold">파생 관계 (8개):</text>
+  <text x="60" y="290" font-size="11" fill="#333">6. <tspan font-weight="bold">Transitivity</tspan> — A hb B, B hb C → A hb C</text>
+  <text x="60" y="308" font-size="11" fill="#333">7. <tspan font-weight="bold">Thread Interrupt</tspan> — interrupt() → 다른 thread의 InterruptedException 발생</text>
+  <text x="60" y="326" font-size="11" fill="#333">8. <tspan font-weight="bold">Constructor Finish</tspan> — 객체 생성자 종료 → finalize() 시작 (final fields 안전)</text>
+  <text x="60" y="344" font-size="11" fill="#333">9. <tspan font-weight="bold">final fields</tspan> — constructor 안의 final write → constructor 종료 후 read</text>
+  <text x="60" y="362" font-size="11" fill="#333">10. <tspan font-weight="bold">Lock free 동기화</tspan> — CAS, volatile, AtomicXxx 통한 동기화</text>
+  <text x="60" y="380" font-size="11" fill="#333">11. <tspan font-weight="bold">External actions</tspan> — File I/O, network I/O 등</text>
+  <text x="60" y="398" font-size="11" fill="#333">12. <tspan font-weight="bold">Thread Default Action</tspan> — 모든 read는 어떤 write를 봄</text>
+  <text x="60" y="416" font-size="11" fill="#333">13. <tspan font-weight="bold">Synchronized actions</tspan> — synchronized, volatile, lock-free 모두 happens-before</text>
+
+  <text x="50" y="448" font-size="11" fill="#1565c0" font-style="italic">→ JLS §17.4.5 — 이 모든 관계가 객체의 reorder 허용 범위를 정의</text>
+
+  <!-- Reordering example -->
+  <rect x="30" y="490" width="555" height="195" rx="10" ry="10" stroke="#c62828" fill="#ffcdd2" stroke-width="2"/>
+  <text x="307" y="515" font-size="14" fill="#c62828" text-anchor="middle" font-weight="bold">Reordering의 함정 (single thread vs multi)</text>
+
+  <text x="50" y="540" font-size="11" fill="#333" font-family="monospace">// Thread 1</text>
+  <text x="50" y="555" font-size="11" fill="#333" font-family="monospace">x = 1;            // ①</text>
+  <text x="50" y="570" font-size="11" fill="#333" font-family="monospace">ready = true;     // ②</text>
+
+  <text x="300" y="540" font-size="11" fill="#333" font-family="monospace">// Thread 2</text>
+  <text x="300" y="555" font-size="11" fill="#333" font-family="monospace">if (ready)        // ③</text>
+  <text x="300" y="570" font-size="11" fill="#333" font-family="monospace">    print(x);     // ④ x = 0 or 1?</text>
+
+  <text x="50" y="610" font-size="11" fill="#c62828" font-weight="bold">컴파일러/CPU가 ①② 순서 reorder 가능</text>
+  <text x="50" y="628" font-size="11" fill="#333">→ Thread 2가 ready=true 보고 x=0 읽을 수 있음 (불가능해 보이지만 발생!)</text>
+  <text x="50" y="650" font-size="11" fill="#1565c0" font-weight="bold">해결: ready를 volatile로 선언</text>
+  <text x="50" y="668" font-size="11" fill="#333">→ ① happens-before ②, ② happens-before ③ (transitivity로 ① hb ③) → x=1 보장</text>
+
+  <!-- Practical rules -->
+  <rect x="615" y="490" width="555" height="195" rx="10" ry="10" stroke="#2e7d32" fill="#e8f5e9" stroke-width="2"/>
+  <text x="892" y="515" font-size="14" fill="#2e7d32" text-anchor="middle" font-weight="bold">시니어가 실제 외워야 할 4가지</text>
+
+  <text x="635" y="542" font-size="11" fill="#333">1. <tspan font-weight="bold">volatile write → volatile read</tspan>의 happens-before</text>
+  <text x="635" y="558" font-size="10" fill="#666">  → publication/visibility 보장의 가장 단순한 방법</text>
+  <text x="635" y="580" font-size="11" fill="#333">2. <tspan font-weight="bold">unlock → lock</tspan>의 happens-before</text>
+  <text x="635" y="596" font-size="10" fill="#666">  → synchronized 블록 안의 모든 변경이 다른 thread에 보임</text>
+  <text x="635" y="618" font-size="11" fill="#333">3. <tspan font-weight="bold">Thread.start → 시작된 thread</tspan></text>
+  <text x="635" y="634" font-size="10" fill="#666">  → 부모 thread의 모든 작업이 새 thread에 보임</text>
+  <text x="635" y="654" font-size="11" fill="#333">4. <tspan font-weight="bold">final fields</tspan> publication 안전</text>
+  <text x="635" y="670" font-size="10" fill="#666">  → 생성자 끝난 후 final field는 안전히 노출 (Immutable의 기반)</text>
+</svg>
