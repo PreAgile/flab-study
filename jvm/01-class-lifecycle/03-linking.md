@@ -162,14 +162,15 @@
 
 ## 2️⃣ Verification — 안전성 증명
 
-### 4 Pass 구조
+### 3 Pass 구조
 
 | Pass | 시점 | 검증 항목 | 실패 시 |
 |---|---|---|---|
 | **1** | Loading 직후 | ClassFile 구조 (magic, version, CP 형식) | `ClassFormatError` |
 | **2** | Loading 직후 | 의미적 일관성 (final 클래스 상속 금지 등) | `VerifyError` |
-| **3** | Linking 단계 | ★ Bytecode 검증 ★ | `VerifyError` |
-| **4** | Resolution 시 | 심볼릭 참조 검증 | `NoSuchFieldError`, ... |
+| **3** | Linking 단계 | ★ Bytecode 검증 (타입 안전성) ★ | `VerifyError` |
+
+> JVMS의 verification 범위는 **위 3 Pass(=bytecode/type safety)** 까지다. "심볼릭 참조가 실제로 존재하는지" 같은 검사는 verification이 아니라 **다음 단계인 Resolution**에서 일어난다. 둘은 자주 묶여 설명되지만 JVMS는 별개 단계로 분리한다 — 이 문서도 그 경계를 그대로 유지한다.
 
 ### Pass 1: ClassFile Format
 
@@ -184,6 +185,96 @@
 ```
 
 실패: 파싱 중 즉시 `ClassFormatError`.
+
+<details>
+<summary><b>각 항목이 정확히 뭘 보는 건가? — 처음 보는 사람을 위한 용어 풀이</b> (펼치기)</summary>
+
+#### `magic == 0xCAFEBABE` — "이 파일이 진짜 .class 파일인가"
+
+- `.class` 파일의 **가장 첫 4바이트는 무조건 `CA FE BA BE`** 로 시작한다. 이를 **매직 넘버(magic number)** 라고 부른다.
+- 의미: "내가 `.class` 파일이오"라는 자기 선언. JVM은 이걸 보고 "아, 자바 클래스 파일이구나" 확인한 뒤에야 다음 바이트를 해석한다.
+- 다른 파일(jpg, exe 등)도 각자 매직 넘버를 가진다 — 예: PNG는 `89 50 4E 47`, ZIP은 `50 4B 03 04`.
+- `0xCAFEBABE`는 사실 단어 장난. 자바 만든 팀이 1990년대 카페에서 회의하다가 "CAFE BABE"(예쁜 카페 손님 = "babe") 의미로 박은 농담. 깊은 의미는 없고 **외부에서 잘못 만든 파일·전송 중 깨진 파일을 거르는 첫 관문**이라는 역할만 기억하면 된다.
+- 만약 다른 값이면 → `ClassFormatError` 즉시. 파싱을 시도조차 안 함.
+
+#### `major_version`이 지원 범위 안 — "이 JVM이 이해할 수 있는 버전인가"
+
+- `.class` 파일의 5~6번째 바이트는 minor, 7~8번째 바이트는 **major version**.
+- major version은 자바 버전에 1:1로 대응: JDK 8 → 52, JDK 11 → 55, JDK 17 → 61, JDK 21 → 65.
+- JVM은 자기보다 **나중에 컴파일된 클래스**는 실행 못 함 → JDK 17로 컴파일한 클래스를 JDK 11로 돌리면 `UnsupportedClassVersionError`.
+- 반대로 옛 버전은 거의 항상 잘 돌아감(상위 호환).
+
+#### CP가 뭔가 — `ConstantPool`(상수 풀)
+
+- **CP = ConstantPool**. `.class` 파일 안에 들어 있는 **"이 클래스가 참조하는 모든 이름·문자열·숫자·타입의 사전"**.
+- 자바 코드 `String s = "hello"; System.out.println(s);` 한 줄이 만드는 CP 예시:
+  ```
+  CP[1] = CONSTANT_Class    "java/lang/System"
+  CP[2] = CONSTANT_Fieldref "java/lang/System.out:Ljava/io/PrintStream;"
+  CP[3] = CONSTANT_Class    "java/io/PrintStream"
+  CP[4] = CONSTANT_Methodref "java/io/PrintStream.println:(Ljava/lang/String;)V"
+  CP[5] = CONSTANT_String   #6
+  CP[6] = CONSTANT_Utf8     "hello"
+  CP[7] = CONSTANT_Utf8     "java/lang/System"
+  ...
+  ```
+- 비유: 문서 안에 같은 단어가 여러 번 나오면 매번 풀어 쓰는 대신 **각 단어에 번호를 붙인 뒤 번호만 본문에 박는 방식**. 클래스 파일 크기 줄이고, 같은 이름을 여러 번 참조할 때 효율적.
+- bytecode가 클래스·메서드·필드를 부를 때는 항상 **CP 인덱스 번호**로 가리킨다. 예: `invokevirtual #4` = "CP의 4번 항목이 가리키는 메서드 호출".
+
+#### CP의 모든 tag가 유효 — "각 사전 항목의 종류표가 맞나"
+
+- CP의 각 항목은 **첫 바이트에 tag(종류 식별자)** 가 박혀 있다. JVMS §4.4가 정의한 tag 종류:
+  ```
+  1  = Utf8           (문자열 데이터)
+  3  = Integer        (int 상수)
+  4  = Float
+  5  = Long
+  6  = Double
+  7  = Class          (클래스 참조)
+  8  = String         (String 상수)
+  9  = Fieldref       (필드 참조)
+  10 = Methodref      (메서드 참조)
+  11 = InterfaceMethodref
+  12 = NameAndType
+  15 = MethodHandle   (JDK 7+)
+  16 = MethodType     (JDK 7+)
+  17 = Dynamic        (JDK 11+)
+  18 = InvokeDynamic  (JDK 7+)
+  19 = Module         (JDK 9+)
+  20 = Package        (JDK 9+)
+  ```
+- "tag가 유효" = 첫 바이트 값이 위 표에 있는 번호인지. 예를 들어 `99` 같은 정의되지 않은 tag가 박혀 있으면 `ClassFormatError`.
+- 또한 tag별로 뒤따라야 할 바이트 구조가 정해져 있다(예: Methodref는 항상 4바이트 — class_index 2바이트 + name_and_type_index 2바이트). 그게 맞는지도 같이 본다.
+
+#### CP 인덱스가 범위 안 (1 ~ count-1) — "참조 번호가 사전에 실제로 있는 번호인가"
+
+- 한 CP 항목은 자주 **다른 CP 항목을 가리킨다** (위 예에서 `CP[5] CONSTANT_String → #6`처럼). 이때 가리키는 숫자가 CP 인덱스.
+- CP의 항목 수가 `constant_pool_count`. 유효한 인덱스는 **`1 ~ count-1`** — 인덱스 0은 예약(사용 금지), `count`는 항목 개수+1이라 그 자체로는 인덱스가 아님.
+- 만약 어떤 항목이 "CP[9999]를 봐"라고 가리키는데 사전 길이가 100이면? → 잘못된 참조 → `ClassFormatError`.
+- 비유: 사전에 100개 단어밖에 없는데 "9999번 단어 봐"라고 적혀 있으면 무효한 책. 그걸 거르는 검사.
+
+> **Long/Double 함정**: tag 5(Long), 6(Double)은 **CP 슬롯 2개**를 차지한다(역사적 유물). 그래서 `CP[5] = Long`이면 `CP[6]`은 비어 있고 다음 유효 인덱스는 `CP[7]`. Pass 1은 이 규칙도 같이 검사한다.
+
+#### attributes의 length 일관성 — "각 부속 정보의 크기가 실제 데이터와 맞나"
+
+- ClassFile은 본체 외에 여러 **attribute**(부속 정보)를 가진다. 각 attribute는 다음 구조:
+  ```
+  attribute_name_index (2바이트) — CP의 어떤 Utf8을 가리킴 (이름)
+  attribute_length     (4바이트) — 뒤에 따라올 데이터 바이트 수
+  info[attribute_length] — 실제 데이터
+  ```
+- 예: `Code` attribute 길이가 100바이트라고 적혀 있는데 실제로 50바이트만 들어 있으면 깨진 파일.
+- 흔한 attribute: `Code`(메서드 바이트코드), `LineNumberTable`(디버깅용), `StackMapTable`(verification용), `SourceFile`(원본 .java 이름), `Signature`(제네릭 타입 정보), `ConstantValue`(static final 상수 값).
+- 이 검사는 "선언한 길이"와 "실제 데이터 크기"가 맞는지 본다. 안 맞으면 파싱이 다음 위치를 못 찾아 그 뒤 전부 깨짐 → `ClassFormatError`.
+
+#### 각 method의 Code attribute 존재 — "메서드는 코드를 들고 있어야 한다"
+
+- `.class` 안의 각 method는 `Code` attribute 안에 **실제 bytecode + max_stack + max_locals + exception table** 을 담는다.
+- `abstract` 또는 `native` 메서드만 예외 — 구현이 없으니 Code attribute도 없다.
+- 일반 메서드가 Code attribute 없이 나오거나, abstract 메서드가 Code attribute를 들고 있으면 모순 → `ClassFormatError`.
+- 이 검사는 "메서드 선언과 실제 코드 유무가 일치하는가"를 본다.
+
+</details>
 
 ### Pass 2: Semantic Checks
 
@@ -205,6 +296,121 @@
 3. 모든 instruction이 받는 타입이 올바름 (예: `iadd`는 stack 위에 int 둘이 있어야 함).
 4. 메서드 종료 시 stack이 비어있거나 반환 타입과 맞음.
 5. 모든 분기 대상이 유효한 instruction 시작 위치.
+
+<details>
+<summary><b>"opcode"가 정확히 뭐고, 바이트코드는 CPU에서 어떻게 실행되는가</b> (펼치기)</summary>
+
+흔한 오해부터 정정: 자바 바이트코드는 **물리 CPU가 직접 알아듣는 명령어가 아니다.** **JVM이라는 가상 머신(virtual machine)이 알아듣는 명령어 셋**이고, opcode는 그 명령어 한 종류를 가리키는 식별 번호다.
+
+#### Opcode 정의
+
+**opcode = "Operation Code"의 줄임말**. JVM 명령어 한 종류를 가리키는 **1바이트(0~255) 숫자**.
+
+JVMS §6에 정의된 opcode 예시(총 ~200개):
+
+| opcode | 값(hex) | 의미 |
+|---|---|---|
+| `iconst_0` | `0x03` | stack에 int 0 push |
+| `bipush` | `0x10` | 다음 1바이트를 int로 stack에 push |
+| `iadd` | `0x60` | stack 위 int 두 개 pop → 더하기 → 결과 push |
+| `invokevirtual` | `0xB6` | 다음 2바이트가 가리키는 메서드 호출 (virtual dispatch) |
+| `return` | `0xB1` | 메서드 종료 |
+| `getfield` | `0xB4` | 객체의 필드 값을 stack에 push |
+
+#### 바이트코드의 실제 구조 = opcode + operand 시퀀스
+
+```java
+int sum = 1 + 42;
+```
+가 컴파일되면:
+```
+03            ← iconst_1     (1을 stack에 push)
+10 2A         ← bipush 42    (0x2A = 42를 stack에 push)
+60            ← iadd         (두 int 더해서 stack에 push)
+3C            ← istore_1     (stack 값을 local var #1에 저장)
+```
+각 줄의 첫 바이트가 opcode, 뒤가 operand. 위 항목 1 "모든 instruction이 valid opcode"는 **이 첫 바이트들이 모두 JVMS가 정의한 유효 값**(0x00 ~ 약 0xCA 사이)인지를 본다. `0xFE`, `0xFF`(reserved), `0xCA`(breakpoint, 디버거 전용) 같은 게 일반 .class에 박혀 있으면 `VerifyError`.
+
+#### 바이트코드 → 물리 CPU까지의 흐름
+
+```
+.class (바이트코드, opcode 시퀀스)
+       │  ← 이걸 물리 CPU(x86/ARM)는 이해 못 함
+       │     "JVM이라는 가상 CPU의 명령어"이기 때문
+       ▼
+   ★ JVM ★ ← 가상 CPU 역할. 바이트코드를 받아 실제 CPU가 할 일로 번역
+       │
+       ▼
+물리 CPU 명령어 (x86: mov, add, jmp ... / ARM: mov, ldr, b ...)
+```
+
+자바의 "한 번 컴파일하면 어느 OS·CPU에서든 돌아간다(write once, run anywhere)"가 가능한 이유 — **바이트코드라는 중간 표현**을 두고 각 플랫폼은 JVM만 따로 구현하면 됨. .class 자체는 x86이든 ARM이든 RISC-V든 동일.
+
+JVM이 바이트코드를 물리 CPU 명령으로 바꾸는 두 가지 경로:
+
+##### ① Interpreter — 한 명령어씩 해석 (시작 빠름, 실행은 느림)
+
+개념적으로는 거대한 switch 문:
+
+```cpp
+while (true) {
+    uint8_t op = bytecode[pc++];
+    switch (op) {
+        case 0x60:  // iadd
+            int b = stack.pop();
+            int a = stack.pop();
+            stack.push(a + b);   // ← 이 C++ 코드가 이미 x86 add로 컴파일돼 있음
+            break;
+        case 0xB6:  // invokevirtual
+            // ... vtable dispatch
+            break;
+        // ... 모든 opcode에 대해 case
+    }
+}
+```
+
+각 opcode마다 미리 컴파일된 C++ 핸들러가 있어, JVM이 바이트코드를 읽으며 해당 핸들러를 실행 → 그 안의 C++가 이미 물리 CPU 명령으로 컴파일된 상태라 결과적으로 CPU가 실행.
+
+HotSpot의 실제 인터프리터는 위 switch 대신 **Template Interpreter** — opcode별로 미리 만들어둔 어셈블리 조각을 jump table로 호출하는 최적화된 형태. 본질은 같다.
+
+##### ② JIT Compiler — 통째로 네이티브 코드로 번역 (워밍업 필요, 이후 빠름)
+
+자주 실행되는 "hot" 메서드를 발견하면 JVM은 그 메서드의 바이트코드를 통째로 **물리 CPU 어셈블리로 번역**해 메모리에 적재. 이후 호출부터는 인터프리터 없이 그 네이티브 코드를 직접 실행.
+
+```
+바이트코드 (총 4 opcode)         JIT 결과 (x86 어셈블리)
+03                              mov  eax, 1
+10 2A                            mov  ebx, 42
+60                               add  eax, ebx
+3C                               mov  [rsp+4], eax
+```
+
+원래 4개의 opcode를 인터프리터 switch로 해석하던 게 4개의 x86 명령으로 직역됨 → 인터프리터 오버헤드 사라짐.
+
+> HotSpot은 두 경로를 모두 갖는다 = **혼합 모드(mixed mode)**. 처음엔 인터프리터로 시작 → 자주 도는 메서드만 JIT 컴파일 → 워밍업 끝나면 거의 모든 hot path가 네이티브로 실행되는 상태.
+
+#### 정리 — "opcode로 CPU에 입력시킨다"의 정확한 그림
+
+"opcode가 CPU 명령어"가 아니라:
+> **JVM이** 바이트코드의 각 opcode를 보고, **그 opcode에 해당하는 동작을 물리 CPU 명령(인터프리터의 C++ 핸들러 또는 JIT가 번역한 네이티브 코드)으로 변환해서** CPU가 실행하게 한다.
+
+- **opcode** = "무슨 동작을 해야 하는지 알려주는 식별 번호"
+- **JVM** = "그 번호를 보고 실제 CPU 명령을 발행하는 통역사"
+- **CPU** = 통역사가 발행한 실제 명령을 실행하는 물리 하드웨어
+
+세 역할이 분리돼 있다.
+
+#### 곁가지 — 왜 굳이 stack machine인가
+
+JVM의 opcode 거의 모두가 **stack을 push/pop하는 형태**(`iadd`, `bipush`, `iload`). 왜?
+
+- **레지스터 머신**(x86 등): CPU마다 레지스터 개수·이름이 다르다 → 바이트코드를 어느 CPU에도 못 박음.
+- **stack machine**: 추상화된 "스택"만 가정 → CPU 종속성 0.
+- 단점: 실제 실행 시엔 레지스터 머신보다 느림. 그래서 JIT가 stack 연산을 다시 CPU 레지스터로 매핑해 컴파일하는 게 큰 일.
+
+이 "stack machine 가정" 덕분에 자바 바이트코드는 30년째 같은 포맷으로 호환된다.
+
+</details>
 
 #### Type System
 
@@ -296,9 +502,7 @@ Frame 2 (offset 16):  same_frame
 
 Verifier가 12와 16에 도달 시 현재 상태와 명시된 frame을 비교 → 일치하면 OK.
 
-### Pass 4: Symbolic Reference Verification
-
-Resolution 단계와 같이 일어남. 다음 챕터(Resolution)에서 다룸.
+> **"Pass 4"는 없다**: 옛 교재에서 종종 "Pass 4: Symbolic Reference Verification" 식으로 표현되지만, JVMS는 심볼릭 참조 해소를 verification이 아닌 **Resolution 단계**에 둔다. 본 문서는 그 경계를 그대로 따른다 — 심볼릭 참조 관련 검사는 아래 §4 Resolution에서.
 
 ---
 
@@ -360,11 +564,15 @@ Resolution = symbolic → direct 변환.
 
 ### Lazy Resolution
 
-JVMS는 두 옵션 허용:
-1. **Eager**: Linking 시점에 모두 resolve.
-2. **Lazy**: 그 reference를 처음 사용할 때 resolve.
+JVMS는 **resolution이 일어나는 정확한 시점에 자유도**를 둔다(§5.4 "may be performed when the reference is first used, or eagerly"). 즉 구현체 재량 — 참조 종류와 JVM 구현에 따라 다르다.
 
-HotSpot은 **lazy**. 이유: startup 시간 + 메모리.
+- 이론적으로 가능한 두 극단:
+  1. **Eager**: Linking 시점에 모든 심볼릭 참조를 미리 resolve.
+  2. **Lazy**: 그 참조가 실제로 처음 사용될 때 resolve.
+- **HotSpot은 대체로 lazy**. 이유: startup 시간 단축 + 사용 안 되는 참조에 메모리·시간 안 씀.
+- 예외적으로 일부 케이스(예: 클래스 hierarchy를 결정짓는 super 참조)는 lazy로 둘 수 없어 더 일찍 resolve된다.
+
+> "JVMS가 eager/lazy 두 옵션을 둘 다 명시적으로 허용한다"보다는, **JVMS는 시점을 못 박지 않았고 HotSpot은 그 자유도 안에서 lazy 전략을 택했다**고 이해하는 게 더 정확하다.
 
 ### 첫 사용 시점
 
@@ -382,8 +590,25 @@ HotSpot은 **lazy**. 이유: startup 시간 + 메모리.
 | reference 타입 | 단계 |
 |---|---|
 | **Class** | 1. CP에서 클래스 이름 가져옴. 2. 그 클래스의 ClassLoader가 로드 (트리거 가능). 3. 접근 권한 검사. |
-| **Field** | 1. Field의 owner class resolve. 2. 그 클래스에서 (이름, 타입) 매칭 필드 검색. 3. 부모/인터페이스 탐색 가능. 4. 접근 권한 검사. |
-| **Method** | 1. Method의 owner class resolve. 2. 그 클래스 + 부모에서 (이름, 시그니처) 검색. 3. 인터페이스도 검색 (invokeinterface). 4. 접근 권한 검사. |
+| **Field** | 1. Field의 owner class resolve. 2. 그 클래스에서 (이름, 타입) 매칭 필드 검색. 3. 못 찾으면 super interfaces → super class 순으로 탐색. 4. 접근 권한 검사. |
+| **Method** | 1. Method의 owner class resolve. 2. **호출 opcode별로 검색 규칙이 다름** (아래 표). 3. 접근 권한 검사. |
+
+#### Method resolution: invoke opcode별 검색 규칙
+
+JVMS §5.4.3.3 / §5.4.3.4 — `invoke*`마다 "어디서 메서드를 찾는가"와 "어디서 dispatch를 결정하는가"가 다르다.
+
+| Opcode | 사용 위치 | 검색 단계 (JVMS §5.4.3.3 / §5.4.3.4) | dispatch |
+|---|---|---|---|
+| **`invokestatic`** | static 메서드 호출 | 1) owner class에서 정확한 (이름, 시그니처) 검색. 2) 못 찾으면 super interface도 탐색(§5.4.3.3). 3) 클래스에서 정의된 게 아니면 `IncompatibleClassChangeError`. | 컴파일/resolve 시점에 메서드 확정 (static binding). |
+| **`invokespecial`** | `<init>`, `super.method()`, private | 1) owner class + supers에서 정확한 메서드 검색. 2) 특히 `super.x()`는 현재 클래스의 직계 super에서 시작해 위로 올라감. 3) interface default 호출이면 §5.4.3.4의 interface method resolution. | 컴파일 시점 확정 (static binding). |
+| **`invokevirtual`** | 일반 instance 메서드 (class 타입 reference) | 1) owner class에서 정확한 메서드 검색 → 없으면 super class 사슬을 위로 탐색. 2) 그래도 없으면 super interfaces에서 가장 구체적인 non-abstract 메서드 검색. | **런타임 dispatch**: 실제 객체의 runtime class에서 시작해 같은 시그니처의 가장 구체적 메서드를 호출(vtable 사용). |
+| **`invokeinterface`** | interface 타입 reference로 메서드 호출 | 1) owner는 반드시 interface. 2) 그 interface + super interfaces 사슬에서 검색. 3) 못 찾으면 `Object`의 public 메서드도 검색 대상에 포함. | **런타임 dispatch**: 실제 객체의 runtime class에서 시작해 itable로 dispatch. |
+
+핵심 차이 한 줄 요약:
+- **`invokestatic` / `invokespecial`**: 검색 결과 = 호출될 메서드 (static binding).
+- **`invokevirtual` / `invokeinterface`**: resolution은 "어떤 메서드 시그니처를 부를지" 결정, 실제 어느 클래스의 구현이 실행될지는 **런타임에 인스턴스 타입을 보고 다시 결정**(dynamic dispatch).
+
+> "그 클래스 + 부모에서 검색" 정도로 묶으면 invokestatic의 interface 검색, invokevirtual의 super-interface fallback(JDK 8의 default method 결과), invokespecial의 시작점 차이 같은 디테일이 사라진다. 운영에서 `IncompatibleClassChangeError`나 `AbstractMethodError`가 튀어나오는 원인이 이 opcode별 규칙에 박혀 있다.
 
 ### Caching: ResolvedReference
 
@@ -398,12 +623,14 @@ HotSpot은 **lazy**. 이유: startup 시간 + 메모리.
 
 | 에러 | 시나리오 |
 |---|---|
-| `NoClassDefFoundError` | 클래스 자체를 찾을 수 없음 |
-| `NoSuchFieldError` | 필드 이름/타입이 클래스에 없음 |
-| `NoSuchMethodError` | 메서드 시그니처가 없음 |
-| `IllegalAccessError` | private/package 가시성 위반 |
-| `IncompatibleClassChangeError` | 메서드를 호출했는데 그 메서드가 static/instance가 바뀌었거나 인터페이스 ↔ 클래스 변경 |
-| `AbstractMethodError` | abstract 메서드를 직접 호출 시도 (이론상 안 일어나지만 클래스 hierarchy 변경 시) |
+| `NoClassDefFoundError` | resolution/loading 자체가 실패했거나, **이전에 그 클래스의 초기화가 실패**해서 이후 접근이 전부 막힌 경우의 후속 증상. 즉 "지금 찾는 중 못 찾음" + "예전에 망가져서 더는 못 씀" 둘 다 포함. (반면 `ClassNotFoundException`은 reflection `Class.forName` 같은 명시 검색에서 클래스를 못 찾았을 때.) |
+| `NoSuchFieldError` | 필드 이름/타입이 owner 클래스(및 super 사슬)에 없음 — 컴파일과 런타임 클래스 버전 불일치의 전형. |
+| `NoSuchMethodError` | 메서드 (이름, 시그니처)가 검색 규칙대로 찾았는데 없음 — 라이브러리 버전 불일치의 전형. |
+| `IllegalAccessError` | private/package/protected 가시성 위반. 또는 JPMS의 모듈 캡슐화 위반. |
+| `IncompatibleClassChangeError` | static ↔ instance 변경, class ↔ interface 변경, sealed 위반, 메서드 검색 결과가 opcode가 기대하는 형태와 다른 경우 등. |
+| `AbstractMethodError` | resolution은 통과했지만 실제 dispatch 시 구현이 없는 abstract 메서드만 남아있을 때 (보통 라이브러리 hierarchy 변경 후 재컴파일 누락). |
+
+> 특히 `NoClassDefFoundError`는 운영에서 가장 오해되는 에러다. 스택을 보면 "지금 X를 못 찾았다"처럼 보이지만, 진짜 원인은 **그 이전 어딘가에서 X의 `<clinit>`이 예외로 실패**해서 X가 영구적으로 "초기화 실패" 상태가 된 케이스가 많다. 진단 시 항상 **첫 번째로 발생한 `ExceptionInInitializerError` 스택**을 먼저 찾아야 한다.
 
 ### Resolution 함정: 컴파일 시 vs 실행 시 불일치
 
@@ -567,20 +794,145 @@ void LinkResolver::resolve_method(LinkInfo& result, Bytecodes::Code code, TRAPS)
 
 ### vtable / itable 구축
 
-Resolution 후 Method가 자주 호출되면, JVM은 클래스의 **vtable**(virtual method table)과 **itable**(interface method table)을 구축.
+Resolution은 "어떤 시그니처를 부를지"까지만 결정한다. **실제 어느 클래스의 구현 코드가 실행될지를 즉석에서 고르는 동작 = dispatch**. vtable/itable은 그 dispatch를 매번 검색 없이 O(1)로 끝내기 위해 InstanceKlass에 미리 박아두는 자료구조다.
+
+#### 먼저: dispatch가 뭔가
+
+```java
+Animal a = new Dog();
+a.bark();                  // ← 어느 클래스의 bark()가 실행될까?
+                           //   참조 타입은 Animal, 실제 객체는 Dog → Dog.bark
+                           //   이걸 결정하는 동작이 dispatch.
+```
+
+| 종류 | 결정 시점 | opcode | 예 |
+|---|---|---|---|
+| **Static dispatch** | 컴파일·resolve 시점에 호출 메서드 확정 | `invokestatic`, `invokespecial` | static, `<init>`, `super.foo()`, private |
+| **Dynamic dispatch (= virtual dispatch)** | 런타임에 실제 객체 타입을 보고 결정 | `invokevirtual`, `invokeinterface` | 보통의 instance 메서드, interface 메서드 |
+
+dispatch를 호출마다 "부모 사슬 따라 메서드 검색"으로 하면 O(N). 그래서 클래스를 만들 때 미리 dispatch 결과를 표로 굳혀 둔다 → vtable, itable.
+
+#### vtable (Virtual Method Table)
+
+**정의**: 한 클래스의 인스턴스에서 dynamic dispatch될 수 있는 **메서드들의 함수 포인터 배열**. C++(Stroustrup, 1980년대)에서 유래.
+
+```
+Object.vtable
+  [0] Object.equals
+  [1] Object.hashCode
+  [2] Object.toString
+  [3] Object.getClass
+  ...
+
+Animal extends Object:
+  [0] Object.equals          ← override 안 함 → 부모 것 그대로 상속
+  [1] Object.hashCode
+  [2] Animal.toString        ← Animal이 override → 같은 슬롯에 자기 포인터로 덮어씀
+  [3] Object.getClass
+  [4] Animal.bark            ← Animal이 새로 추가한 슬롯
+  [5] Animal.eat
+
+Dog extends Animal:
+  [0] Object.equals
+  [1] Object.hashCode
+  [2] Animal.toString        ← Dog가 override 안 함 → 그대로 상속
+  [3] Object.getClass
+  [4] Dog.bark               ← ★ Dog가 override → 같은 슬롯[4]에 자기 포인터 ★
+  [5] Animal.eat
+  [6] Dog.fetch              ← Dog가 새로 추가
+```
+
+**핵심 규칙**: 같은 시그니처의 부모 메서드와 자식 override는 **반드시 같은 인덱스**를 차지. 그래야 호출자(`Animal a` 타입으로 컴파일된 코드)가 "vtable[4] 불러"만 알면, 실제 객체가 Animal이든 Dog든 알아서 올바른 포인터가 잡힌다.
+
+**호출 흐름**:
+```
+a.bark() where a: Animal = new Dog()
+  1. javac가 컴파일 시 Animal.bark의 vtable 인덱스 = 4를 박는다
+  2. 런타임: a → 실제 객체의 헤더 → Dog의 InstanceKlass → vtable[4] = Dog.bark 포인터
+  3. jump → Dog.bark 실행
+```
+검색 없이 **인덱스 한 번 → O(1)**.
+
+#### itable (Interface Method Table)
+
+**정의**: 인터페이스 메서드 dispatch 전용 테이블. **(인터페이스, 메서드) → 함수 포인터** 매핑.
+
+**왜 vtable로 안 되나** — vtable의 핵심 가정 "같은 시그니처는 부모-자식 사이에 같은 인덱스"가 인터페이스에서 깨진다:
+1. 한 클래스가 여러 인터페이스를 implement → 인터페이스끼리 같은 인덱스에 다른 메서드가 있으면 충돌.
+2. 같은 인터페이스를 여러 클래스가 implement → 클래스마다 인터페이스 메서드의 vtable 위치가 달라질 수 있음 → 호출자가 인덱스를 못 정함.
+
+해결: **인덱스 대신 (interface, method) 쌍을 키**로 메서드 포인터를 찾는다.
+
+```
+Dog.itable:
+  ┌─────────────────────────────────────────────┐
+  │ Walkable interface 구역                       │
+  │   [0] Walkable.walk     → Dog.walk 포인터     │
+  │   [1] Walkable.stop     → Dog.stop 포인터     │
+  ├─────────────────────────────────────────────┤
+  │ Trainable interface 구역                      │
+  │   [0] Trainable.train   → Dog.train 포인터    │
+  │   [1] Trainable.reward  → Dog.reward 포인터   │
+  └─────────────────────────────────────────────┘
+```
+
+**호출 흐름**:
+```
+w.walk() where w: Walkable = new Dog()
+  1. w → Dog의 InstanceKlass → itable
+  2. itable에서 "Walkable" 구역을 찾는다 (검색)
+  3. 그 구역의 walk 인덱스에서 Dog.walk 포인터 꺼냄
+  4. jump
+```
+vtable보다 **인터페이스 구역 찾는 한 단계가 더 든다** → 약간 느림. 단, JIT의 inline cache로 거의 0에 가깝게 만든다(아래).
+
+#### vtable vs itable 한 줄 비교
+
+| 항목 | vtable | itable |
+|---|---|---|
+| 용도 | `invokevirtual` (클래스 타입 dispatch) | `invokeinterface` (인터페이스 타입 dispatch) |
+| 키 | 정수 인덱스 1개 | (interface, 메서드 인덱스) 쌍 |
+| 검색 | O(1), 인덱스 한 번 | O(인터페이스 수) — 인터페이스 구역 찾기 |
+| 부모 상속 | 부모 vtable을 복사해 확장 | 각 인터페이스 구역을 따로 채움 |
+
+#### Inline Cache — itable이 실전에서 사실상 vtable만큼 빠른 이유
+
+JIT는 각 호출 사이트마다 **최근 dispatch 결과를 캐싱**:
+
+```
+첫 호출:   w.walk()  →  itable 검색  →  Dog.walk  (캐시: "type=Dog → Dog.walk")
+두 번째:   w.walk()  →  캐시 적중. type 확인만 하고 바로 점프. itable 검색 생략.
+```
+
+- **Monomorphic** (한 타입만 들어옴): 캐시 적중 → 거의 vtable과 동일 속도. JIT가 인라인까지 시도.
+- **Bimorphic** (두 타입): 두 캐시 슬롯 비교 → 적중 시 점프. 여전히 빠름.
+- **Megamorphic** (3개+ 타입): 캐시 포기 → 매번 itable 풀스캔. **인라인도 못 함 → 성능 급락**.
+
+> **운영 관점**: hot path에 `List`·`Collection` 같은 인터페이스 타입으로 너무 다양한 구현(ArrayList, LinkedList, HashSet 어댑터 등)을 섞어 받으면 megamorphic이 된다. JIT 로그(`-XX:+PrintInlining`)에 `callee is megamorphic, inlining cancelled`가 찍히면 바로 그 자리.
+
+#### HotSpot 안에서의 실제 모습
 
 ```cpp
-// instanceKlass.hpp
+// instanceKlass.hpp (개략)
 class InstanceKlass : public Klass {
-  // ...
-  int _vtable_len;
-  int _itable_len;
-  // 실제 vtable/itable은 InstanceKlass 객체 메모리 뒤에 inline
+  int _vtable_len;       // vtable 슬롯 개수
+  int _itable_len;       // itable 항목 수
+  // 실제 vtable[]과 itable[]은 InstanceKlass 메모리 바로 뒤에 inline
 };
 ```
 
-- vtable: 인덱스로 O(1) 접근, invokevirtual에서 사용
-- itable: (interface, method) 쌍 검색, invokeinterface에서 사용 + inline cache로 최적화
+InstanceKlass 객체의 메모리 레이아웃:
+```
+[InstanceKlass 본체][vtable 슬롯들][itable 슬롯들][nonstatic_oop_maps]...
+```
+
+한 InstanceKlass에 vtable·itable·GC oop map까지 모두 inline으로 붙어있는 게 HotSpot이 dispatch와 GC를 모두 빠르게 처리하는 비결.
+
+#### 한 줄 요약
+
+> **vtable**: "이 시그니처를 부르면 어느 함수가 실행될지를 **인덱스 한 번**으로 찾는 표".
+> **itable**: "이 인터페이스의 이 시그니처를 부르면 어느 함수가 실행될지를 **(인터페이스, 메서드) 쌍**으로 찾는 표".
+> 둘 다 Resolution이 "어떤 시그니처를 부를지"를 결정한 다음, **실제 어느 구현으로 갈지를 즉석에서 결정하는 dispatch 도구**다.
 
 ---
 
@@ -600,9 +952,9 @@ Type inference 알고리즘 표준화. JVMS §4.10.2.
 
 ### Java 6 (2006) — StackMapTable + Split Verifier
 
-- **StackMapTable** attribute 도입.
-- 두 종류 verifier: **old type inference** (compatibility) + **new type checker** (StackMapTable 기반).
-- `-target 1.6` 컴파일 시 javac가 StackMapTable 생성.
+- **StackMapTable** attribute 도입 (Code attribute의 sub-attribute).
+- 두 종류 verifier가 공존: **old type inference**(compatibility 경로) + **new type checker**(StackMapTable 기반, fail-fast).
+- JDK 6부터 **new verifier가 도입되고 StackMapTable 기반 검증이 일반화**됐다. 다만 "어떤 `-target` 조합이면 정확히 StackMapTable이 생긴다"는 식의 단정은 컴파일러·옵션 조합마다 예외가 있어 피한다 — JDK 7부터 빠지면 verify 실패로 강제된다(다음 항목).
 
 ### Java 7 (2011) — StackMapTable 필수
 
@@ -619,9 +971,9 @@ Interface default method 도입과 함께 invokespecial의 의미 확장:
 
 같은 nest 안의 private 메서드를 invokevirtual로 직접 호출 가능. resolution 단계에서 NestHost/NestMembers 확인.
 
-### Java 13+ — Dynamic Class-File Constants (JEP 309 — 실제로는 11에 들어감)
+### Java 11 (2018) — Dynamic Class-File Constants (JEP 309)
 
-`CONSTANT_Dynamic` (CP tag 17): condy. invokedynamic 같은 메커니즘으로 상수도 동적 계산.
+`CONSTANT_Dynamic` (CP tag 17, "condy") 도입. invokedynamic과 유사한 부트스트랩 메커니즘으로 **상수도 런타임에 동적 계산**할 수 있게 됨. ClassFile 포맷 변경이라 JEP는 Java 11에서 ClassFile 버전 55에 정식 반영됐다.
 
 ### Java 17 — Sealed Class Resolution
 
@@ -635,7 +987,7 @@ Resolution 시 PermittedSubclasses 확인 — 허용 안 된 클래스가 sealed
 
 **예상 답변**:
 > Verification, Preparation, Resolution.
-> - **Verification**: bytecode의 타입 안전성을 검증. 4 Pass로 구성. JDK 6+에서는 StackMapTable로 가속.
+> - **Verification**: ClassFile 구조 → 의미적 일관성 → bytecode 타입 안전성의 3 Pass로 구성. JDK 6+에서는 StackMapTable로 가속. (심볼릭 참조 해소는 verification이 아니라 Resolution 단계의 일.)
 > - **Preparation**: static 필드에 default 값(0, null, false) 할당. 사용자 코드 실행 X.
 > - **Resolution**: 심볼릭 참조를 직접 참조로 변환. lazy + caching.
 
