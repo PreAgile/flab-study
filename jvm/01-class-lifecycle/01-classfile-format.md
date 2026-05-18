@@ -37,6 +37,18 @@
 
 전체 JVM 아키텍처에서 이 챕터는 `ClassLoader 서브시스템`의 입력 단계 (00-overview 3편 4대 서브시스템 그림 참조).
 
+### 🎯 책임 경계 — 이 챕터의 주체는 **javac**다
+
+> 라이프사이클 4개 챕터에서 **누가 무엇을 책임지는지**는 [README.md의 책임 경계 표](./README.md#-가장-헷갈리는-한-가지--누가-무엇을-하는가-책임-경계)에 박혀있다. 여기서는 그중 **javac 부분만** 다룬다.
+
+| 이 챕터가 다루는 것 (javac의 책임) | 이 챕터가 다루지 않는 것 |
+|---|---|
+| `.class` 파일 포맷 (CAFEBABE, CP, attribute, descriptor) | ClassLoader가 어떻게 읽어들이나 → **02장** |
+| `<clinit>` 메서드가 **합성되어 .class에 박히는 시점** | `<clinit>`이 **실행되는 시점/락 절차** → **04장** |
+| ConstantValue 인라이닝, 메서드 디스크립터, BootstrapMethods | Verification/Resolution이 실제로 도는 시점 → **03장** |
+
+핵심 한 줄: **javac는 `.class`를 만들고 끝. 락도 안 잡고, `Class` 객체도 안 만들고, `<clinit>`을 실행하지도 않는다.** 그 모든 일은 런타임에 **ClassLoader(02장)와 JVM 본체(03·04장)**의 몫.
+
 ---
 
 ## 📍 학습 목표 — 운영 관점으로

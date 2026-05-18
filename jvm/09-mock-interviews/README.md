@@ -405,6 +405,82 @@ public void deregisterDrivers() {
 
 </details>
 
+### Q1-5. 🟡 JVM 시작 시 모든 클래스가 자동으로 초기화되나? 그렇지 않다면 왜 그렇게 설계됐나?
+
+<details>
+<summary>답</summary>
+
+**아니오. JVM은 lazy initialization 모델** — 트리거가 와야만 `<clinit>` 실행. 트리거가 없으면 영원히 init 안 함.
+
+JVM 시작 시 자동 init되는 건 단 세 부류:
+1. Bootstrap CL이 로드하는 `java.lang.Object`, `java.lang.String` 등 핵심 부트 클래스.
+2. `main` 메서드를 가진 클래스 (트리거 #5 — JVM 시작 시 main).
+3. 그 외엔 main 실행 중 6가지 트리거 중 하나가 일어나야 init.
+
+**Lazy로 설계된 이유**:
+1. **Startup 가속**: classpath의 수만 개 클래스를 모두 init하면 startup이 수십 초~수 분.
+2. **자원 절약**: 안 쓰는 클래스의 static block까지 실행하면 DB connect, 파일 열기 등 낭비.
+3. **Metaspace 보호**: 안 쓰는 클래스를 미리 로드/init하면 Metaspace 폭발.
+4. **JLS §12.4.1 표현**: "immediately before the first occurrence" — 트리거 직전에 init, 트리거 없으면 영구히 안 함.
+
+**부수 효과 (production 함정)**:
+- Static block에 환경변수 검증 로직 넣어도, 그 클래스를 실제로 안 쓰면 검증 안 됨 → 첫 트래픽에서 `ExceptionInInitializerError`로 발견.
+- "Loaded ≠ Initialized" — 클래스가 메모리에 올라와 있어도 `<clinit>`은 아직 안 돈 상태가 정상.
+
+> 출처: `04-initialization-and-unload.md` §1, §3, §7
+
+</details>
+
+### Q1-6. 🔴 배포 직후 P99 latency가 3초까지 튀었다가 30초 후 200ms로 안정화된다. 진단과 해결책 전체 흐름을 말해라.
+
+<details>
+<summary>답</summary>
+
+**원인 — 첫 트래픽이 받는 cold-start 비용**:
+```
+첫 호출 비용 = Loading + Linking + Initialization(<clinit>) + JIT 컴파일 + 캐시 미스
+```
+- P50에는 거의 안 보임 (평균은 안정 상태가 압도). P99/P99.9에 첫 N개 요청의 init/JIT 비용이 그대로 뜸.
+- 핵심: JVM은 **lazy init** — hot path 클래스의 `<clinit>`가 첫 요청에서야 실행됨. static block의 DB pool 초기화, config 로드, Hibernate session factory 빌드 등이 거기서 일어남.
+
+**진단 도구**:
+```bash
+# 1. 클래스 init 타이밍 — 어떤 클래스가 첫 요청 path에서 init되는지
+java -Xlog:class+init=info:file=init.log MyApp
+
+# 2. JIT 컴파일 이벤트 (어떤 메서드가 언제 C1/C2로 승격)
+java -XX:+PrintCompilation MyApp
+
+# 3. JFR로 통합 수집 + JMC 분석
+java -XX:StartFlightRecording=filename=warmup.jfr,duration=60s MyApp
+# JMC → jdk.ClassLoad, jdk.ClassDefine, jdk.Compilation 이벤트
+```
+
+**해결책 (단계별)**:
+
+| 기법 | 효과 | 비용/리스크 |
+|------|------|-----------|
+| Synthetic traffic + readinessProbe 분리 | 가장 안전, 트래픽 받기 전 워밍업 끝 | 워밍업 스크립트 관리 |
+| Spring `ApplicationRunner` eager init | 주요 빈 dummy call, 간단 | startup 시간 ↑ |
+| AppCDS (`-XX:ArchiveClassesAtExit`) | Loading/Linking 단계 archive, startup -20~40% | init은 여전히 lazy |
+| GraalVM Native Image | Cold start ~0, init 비용 0 | reflection 제약, 빌드 시간 ↑ |
+| CRaC (JDK 21+) | 안정 상태 snapshot 후 restore — startup 수ms | 파일/네트워크 핸들 재구성 필요 |
+
+**시니어 의사결정 트리**:
+- 스파이크 수십 ms → 무시.
+- 모놀리스 + 잦은 재배포 → Synthetic traffic.
+- FaaS/Serverless → GraalVM Native Image 또는 CRaC.
+- Spring Boot 일반 → AppCDS + ApplicationRunner.
+
+**함정 (Eager init이 위험한 이유)**:
+1. Static block에서 외부 의존성 접근 → 외부 시스템 죽으면 앱 부팅 자체 불가.
+2. `<clinit>` 한 번뿐 — 워밍업 실패 시 `ExceptionInInitializerError` → 그 클래스는 영구 broken (이후 모든 접근 `NoClassDefFoundError`).
+3. 순환 의존: 여러 클래스를 동시에 트리거하면 서로 다른 스레드가 서로의 init lock 대기 → 데드락.
+
+> 출처: `04-initialization-and-unload.md` §7 (JVM 워밍업), 꼬리 Q8, Q9
+
+</details>
+
 ---
 
 ## Ch 02. Runtime Data Areas (`02-runtime-data-areas/`)

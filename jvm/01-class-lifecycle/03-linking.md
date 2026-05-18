@@ -38,6 +38,30 @@
 - ← [02-classloader-hierarchy](./02-classloader-hierarchy.md): Linking의 입력(`InstanceKlass`)을 만든 주체.
 - → [04-initialization-and-unload](./04-initialization-and-unload.md): Linking이 끝난 뒤 `<clinit>`이 실행되는 단계.
 
+### 🎯 책임 경계 — Linking은 **JVM 본체**가 한다 (ClassLoader 아님)
+
+> 4개 챕터 전체의 책임 경계는 [README.md의 책임 경계 표](./README.md#-가장-헷갈리는-한-가지--누가-무엇을-하는가-책임-경계)에 박혀있다. 여기서는 **Linking의 주체와 락 관계**를 명확히 한다.
+
+| 단계 | 주체 | 락 사용 | 비고 |
+|---|---|---|---|
+| Loading (앞 챕터) | **ClassLoader** | ClassLoader 자기 락 (parallel CL) | `defineClass()`까지 |
+| **Verification** (이 챕터) | **JVM 본체** | 락 없음 | Loading 직후 자동 |
+| **Preparation** (이 챕터) | **JVM 본체** | 락 없음 | static 필드를 **타입 default**로 (`int=0`, `ref=null`) |
+| **Resolution** (이 챕터) | **JVM 본체** | 락 없음 (단, lazy + ResolvedReference 캐시는 atomic) | 심볼릭 → 직접, 첫 사용 시점 |
+| Initialization (다음 챕터) | **JVM Initializer** | ★ **per-Class init lock + 12-step** | `<clinit>` 실행 |
+
+#### 자주 헷갈리는 두 가지
+
+1. **"Verification이 타입 안전성을 증명한다"는 말은 정적 증명이지, 락이 필요한 일이 아니다**
+   Verification은 바이트코드를 **데이터로 읽어 분석**할 뿐 실행은 안 한다. 동시성 이슈가 없으므로 락도 없다. JLS 12.4.2의 12-step 락은 여기 등장하지 않는다.
+
+2. **Preparation의 "default 값"과 Initialization의 "진짜 값"은 다른 단계**
+   - Preparation: `static int x;`의 메모리를 확보하고 `0`으로 채움. **타입 default**.
+   - Initialization: `<clinit>`을 돌려 `x = 42;`로 교체. **의미 있는 값**.
+   - 그래서 Active Use가 init을 강제하는 진짜 이유는 "타입 안전성"이 아니라 **"default 0/null로는 비즈니스 로직이 깨지기 때문"** ([04장의 Active vs Passive Use](./04-initialization-and-unload.md) 참조).
+
+핵심 한 줄: **Linking은 ClassLoader가 끝낸 뒤 JVM 본체가 이어받는 단계. 락은 안 잡고, `<clinit>`도 안 돌린다. 다음 단계인 Initialization에서 비로소 락이 등장한다.**
+
 ---
 
 ## 📍 학습 목표

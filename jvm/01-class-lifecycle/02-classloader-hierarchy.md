@@ -37,6 +37,30 @@
 - ← [01-classfile-format](./01-classfile-format.md): 이 챕터의 **입력**(`.class` 파일의 구조)이 무엇인지.
 - → 이 챕터의 **출력**: `defineClass`가 만든 `InstanceKlass` — Metaspace에 저장됨. 풀버전은 [02-runtime-data-areas/02-metaspace](../02-runtime-data-areas/02-metaspace-and-class-space.md).
 
+### 🎯 책임 경계 — ClassLoader는 "Loading까지만" 한다
+
+> 4개 챕터 전체의 책임 경계는 [README.md의 책임 경계 표](./README.md#-가장-헷갈리는-한-가지--누가-무엇을-하는가-책임-경계)에 박혀있다. 여기서는 **ClassLoader의 책임 범위**를 명확히 못박는다.
+
+| ClassLoader가 하는 일 | ClassLoader가 **안 하는** 일 |
+|---|---|
+| `.class` 바이트 찾기 (디스크/네트워크/jar) | Verification(타입 안전성 증명) → **JVM 본체**가 함 → 03장 |
+| `defineClass()` 호출 → `Class` 객체 생성 | Preparation(static 필드 default 세팅) → **JVM 본체** → 03장 |
+| 부모 위임 (parent delegation) | Resolution(심볼릭 → 직접 레퍼런스) → **JVM 본체** → 03장 |
+| `loadClass()`의 자기 락 (parallel-capable일 때 per-class name 락) | **`<clinit>` 실행, JLS 12.4.2 12-step init lock** → **JVM Initializer** → 04장 |
+
+#### 자주 헷갈리는 두 가지
+
+1. **"ClassLoader.loadClass()가 끝났다" ≠ "클래스가 초기화됐다"**
+   `loadClass()`는 Loading만 보장. 클래스가 **Class 객체로 메모리에 올라와 있어도, 누가 Active Use(`new`, `getstatic` 등)를 트리거하기 전까진 `<clinit>`은 안 돈다**.
+   → `Class.forName(name, false, loader)`가 동작하는 근본 이유.
+
+2. **ClassLoader가 쓰는 락 ≠ Initialization 락**
+   - ClassLoader 자기 락 (parallel CL): `loadClass(name)` 호출의 동시성 보호 — **이름 단위** 락
+   - Initialization 락 (`InstanceKlass._init_lock`): `<clinit>` 실행 게이트 — **Class 객체 단위** 락, JVM이 잡음, 04장에서 다룸
+   둘은 완전히 다른 락, 다른 시점에 등장.
+
+핵심 한 줄: **ClassLoader는 "어디서 가져오나"를 책임지고, "어떻게 검증·초기화하나"는 JVM 본체가 책임진다.**
+
 ---
 
 ## 📍 학습 목표
