@@ -116,6 +116,38 @@ Java Heap (-Xmx로 제어)
 
 이 가설이 모든 generational GC의 기반. 이게 통하는 워크로드(웹 서버, 마이크로서비스)에서 매우 효율적.
 
+### 왜 Young은 Copying, Old는 Mark-Sweep인가 — "청소"의 두 철학
+
+> **이사 비유**:
+> - **Mark-Sweep (Old gen 방식)**: 방 안을 돌아다니며 쓰레기를 **하나하나 찾아 버린다**. 살아있는 물건은 그대로 두고. → 비용 ∝ 쓰레기 수.
+> - **Copying (Young gen 방식)**: 살릴 물건 몇 개만 **새 방으로 들고 나간다**. 원래 방? **통째로 폭파**. 안에 뭐가 있었는지 신경 안 씀. → 비용 ∝ 살릴 물건 수.
+
+세대별로 알고리즘이 다른 이유:
+
+| | Young (살아있는 게 1~20%) | Old (살아있는 게 80~95%) |
+|---|---|---|
+| 죽은 객체 비율 | 매우 높음 (80~99%) | 낮음 (5~20%) |
+| Copying 쓰면? | 죽은 다수를 **아예 안 만짐** → 압도적 효율 | 살아있는 다수를 거의 다 복사 → 비효율 |
+| Mark-Sweep 쓰면? | 죽은 다수를 일일이 free list 등록 → 낭비 | 살아있는 건 그대로, 죽은 것만 처리 → 효율 |
+| 선택 | **Copying** | **Mark-Sweep (+ Compact)** |
+
+**핵심 반전 — Copying GC는 죽은 객체를 "지우지" 않는다**:
+
+```
+Copying GC의 동작:
+  1. 살아있는 소수를 다른 영역(S0↔S1)으로 옮긴다
+  2. 원래 영역(Eden)은 "없는 셈" 친다 — top 포인터를 start로 되돌림
+  3. 죽은 객체의 비트는 그대로 남아있음
+  4. 다음 new 호출 시 그 위에 덮어써질 뿐
+
+→ 죽은 객체에 대해 GC가 한 일 = 0. 만지지도 않음.
+```
+
+> "청소를 잘하는 것"이 아니라 "**청소 안 해도 되게 만드는 것**"이 Copying의 본질.
+> 살아있는 소수만 안전한 곳으로 대피시킨 다음, 원래 영역은 통째로 리셋.
+
+**대신 단점**: 메모리를 2배 써야 함 (복사 대상 공간 S0/S1 필요). 하지만 Young만 작게 잡으면 부담 적음 — 그래서 Survivor 영역은 Young의 10%씩만.
+
 ### 왜 TLAB가 필요한가 — 동시 할당 충돌 회피
 
 ```
@@ -176,36 +208,59 @@ Young Generation 100%
 - `-XX:SurvivorRatio=8` → Eden : S0 : S1 = 8 : 1 : 1
 - `-XX:NewSize`, `-XX:MaxNewSize` — Young 크기 직접 지정
 
-### Minor GC 흐름 (Copying Algorithm)
+### Minor GC 흐름 (Copying Algorithm) — 단계별 추적
 
 ```
 [GC 직전]
-Eden:  ●●●●●●●● (가득)
-S0:    ○○○○○○○○ (live objects)
-S1:    □□□□□□□□ (empty)
-Old:   ████████ (일부 사용)
+Eden:  [A][B][C][D][E][F][G][H]      ← 8개 중 B, E만 살아있음 (참조됨)
+                                       나머지 A,C,D,F,G,H는 dead (참조 없음)
+S0:    [X][Y]                          ← 이전 GC에서 옮겨온 살아있는 애들 (active)
+S1:    [              ]                ← 비어있음 (대기조)
+Old:   ████████                        ← 일부 사용
 
-       │
-       │ Minor GC 시작
+       │ Minor GC 시작 (STW)
        ▼
 
-[GC 진행 중]
-- Eden과 S0의 live 객체를 모두 S1로 복사
-- age 카운터 +1
-- age > MaxTenuringThreshold 면 S1 대신 Old로 promote
+[Step 1] Root에서 출발해 "살아있는 객체"만 추적 (Mark)
+         - GC Root (스택 로컬, static 필드, JNI 참조 등)에서 reachable 추적
+         - Eden의 B, E / S0의 X, Y 가 살아있다고 판정
+         - 나머지(A,C,D,F,G,H)는 추적조차 안 함 ★ 죽은 객체는 비용 0
 
-       │
+[Step 2] 살아있는 애들을 S1에 복사 (Copy)
+         - 새 주소에 복사본 생성, 모든 참조도 새 주소로 갱신
+         - age 카운터 +1
+         - age > MaxTenuringThreshold 면 S1 대신 Old로 promote
+S1:    [B'][E'][X'][Y']
+
+[Step 3] Eden과 S0를 통째로 "버림" (Reclaim)
+         - 죽은 객체 A,C,D,F,G,H는 명시적으로 지우지 않음 ★
+         - top 포인터를 start로 되돌리는 것만으로 "빈 공간" 선언
+         - 다음 new 호출 시 죽은 객체 비트 위에 그대로 덮어써짐
+
+       │ STW 끝, 사용자 코드 재개
        ▼
 
 [GC 직후]
-Eden:  □□□□□□□□ (싹 비움, 즉시 재사용 가능)
-S0:    □□□□□□□□ (이번엔 비움)
-S1:    ◆◆◆◆◆◆◆◆ (다음 GC까지 active)
-Old:   ████████◇◇ (promote된 객체 추가)
+Eden:  [                      ]       ← top = start, 즉시 재사용 가능
+S0:    [                      ]       ← 비움
+S1:    [B'][E'][X'][Y']               ← 다음 GC까지 active
+Old:   ████████◇◇                     ← promote된 객체 추가
+
+→ 다음 Minor GC 때는 Eden + S1 → S0로 복사. S0/S1이 ping-pong으로 active 토글.
 ```
 
-**핵심**: Mark-Sweep 아닌 **Copying**. 살아있는 객체만 복사 → 비어진 영역은 통째로 reclaim.
-→ Young GC가 빠른 이유 (살아있는 객체가 적으니 copy 비용 작음).
+**핵심 정리**:
+
+| | Mark-Sweep (Old) | Copying (Young) |
+|---|---|---|
+| 죽은 객체 처리 | 하나하나 찾아 free list 등록 | **무시. 덮어써질 때 자연 소멸** |
+| 살아있는 객체 처리 | 원래 자리에 그대로 | **다른 영역으로 복사** |
+| 영역 재사용 | 죽은 자리만 부분적 (단편화 발생) | **영역 전체 통째 재사용** (단편화 0) |
+| 비용 기준 | 전체 객체 수 | 살아있는 객체 수 |
+| 추가 이점 | — | Compaction 자동 + 다음 할당이 bump-the-pointer로 가능 |
+
+→ Young GC가 빠른 이유: **살아있는 객체가 적으니 copy 비용 작고, 죽은 객체는 만지지도 않음**.
+→ Eden을 통째로 비울 수 있는 이유: 살아있는 애들을 S0/S1로 대피시켰으므로 원래 영역에 미련 없음.
 
 ### TLAB 내부 구조
 
