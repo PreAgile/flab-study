@@ -67,7 +67,7 @@
 
 ---
 
-## 2. 시스템 등장인물 (서버 4 + 인프라 3)
+## 2. 시스템 아키텍처 (서버 4 + 인프라 3)
 
 명칭은 모두 역할 기반으로 일반화합니다.
 
@@ -98,7 +98,7 @@
 ### ② 중계 서버 (Mediator / Orchestrator)
 - **역할 (현재)**: API 서버 ↔ 스크래퍼 사이의 **HTTP 패스스루**.
 - **역할 (To-Be)**: 워크플로 **오케스트레이터** — 한 댓글 작업의 라이프사이클을 큐로 조립.
-- **스택**: FastAPI + SQLAlchemy
+- **스택**: FastAPI + PonyORM
 - **마이그레이션 후 추가 책임**: 배치 서버 잡(백필·집계·블라인드 필터 등) 흡수.
 
 ### ③ 스크래퍼 서버 (Scraper Worker)
@@ -112,8 +112,8 @@
 
 ### ④ 배치 서버 (Batch Worker)
 - **역할**: 정기 잡 — 리뷰 백필, 점수 집계, 블라인드 단어 필터링 등.
-- **스택**: FastAPI 기반 (스케줄러 + 워커)
-- **방향**: **중계 서버로 흡수 예정** — 운영을 한 곳에서 보기 위함.
+- **스택**: shell script + Python
+- **방향**: **중계 서버로 흡수 예정** — 이유 ? 운영을 한 곳에서 보기 위함.
 
 ### Aurora MySQL (공유 RDB) — **이 글의 중심 인물**
 - **세 서버(API · 중계 · 배치)가 같은 클러스터·같은 스키마를 공유**.
@@ -123,7 +123,7 @@
 
 ### (To-Be) RabbitMQ
 - durable queue + publisher confirm + DLQ + idempotency key
-- 4개의 핵심 큐: `reply.request`, `scrape.request`, `scrape.complete`, `reply.complete`
+- 4개의 핵심 큐: `baemin`, `yogiyo`, `ddangyo`, `cpeats`, `naver`, `mukkebi`
 
 ### Redis
 - 현재도 그룹별 진행률·실패 통계 캐시로 사용 중 (`user:job:stats:{groupId}` 등)
