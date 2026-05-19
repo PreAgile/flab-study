@@ -137,6 +137,293 @@ JVM Process Memory
 
 ---
 
+## 🎬 통합 흐름 한 눈에 — 코드가 메모리 어디를 어떻게 거치는가
+
+> 영역별로 따로 보면 흩어져 보인다. 이 섹션은 **모든 영역을 한 화면에** + **코드 한 줄이 어디를 거치는지** 화살표로 추적한다.
+
+### Part 1: 전체 메모리 지도 (1장)
+
+```
+═══════════════════════════════════════════════════════════════════════════════
+                  JVM Process Memory — 모든 영역 한 그림
+═══════════════════════════════════════════════════════════════════════════════
+
+╔═══════════════════════ SHARED (모든 스레드 공유) ══════════════════════════╗
+║   ※ JVM 시작 시 OS로부터 큰 덩어리로 reserve. 안에서 동적으로 commit/free   ║
+║                                                                            ║
+║  ┌──────────── Java Heap ─────────────────────────────────────────┐       ║
+║  │  무엇:    new로 만든 객체, 배열, String Pool, Class 객체           │       ║
+║  │  채움:    bytecode `new` 명령마다 (TLAB → Eden)                  │       ║
+║  │  사용:    필드 접근, 메서드 dispatch, 객체 간 참조                  │       ║
+║  │  비움:    GC (Young → Old → Full)                                │       ║
+║  │  옵션:    -Xms, -Xmx                                              │       ║
+║  │  특징:    수명이 호출과 무관 → 참조 살아 있으면 유지                 │       ║
+║  └────────────────────────────────────────────────────────────────┘       ║
+║                                                                            ║
+║  ┌──────────── Metaspace ─────────────────────────────────────────┐       ║
+║  │  무엇:    Klass 메타, bytecode, Constant Pool, vtable,            │       ║
+║  │          static 필드의 "값 그 자체" (primitive)                    │       ║
+║  │  채움:    ClassLoader가 .class 파일을 load할 때                    │       ║
+║  │  사용:    메서드 dispatch, 필드 lookup, 인터프리터가 bytecode 읽음   │       ║
+║  │  비움:    ClassLoader가 unload될 때 (보통 평생 유지됨)              │       ║
+║  │  옵션:    -XX:MaxMetaspaceSize                                    │       ║
+║  │  특징:    한 번 로드되면 거의 안 변함 → GC 거의 안 함                │       ║
+║  └────────────────────────────────────────────────────────────────┘       ║
+║                                                                            ║
+║  ┌──────────── Code Cache ────────────────────────────────────────┐       ║
+║  │  무엇:    JIT가 컴파일한 native 기계어 + Interpreter template       │       ║
+║  │          + JNI stub + Adapter                                    │       ║
+║  │  채움:    메서드 호출 수 > JIT threshold (C1≈1500, C2≈10000)       │       ║
+║  │  사용:    Hot 메서드 호출 시 bytecode 대신 ★ 이걸 직접 jump          │       ║
+║  │  비움:    Code Cache flushing, ClassLoader unload                 │       ║
+║  │  옵션:    -XX:ReservedCodeCacheSize (기본 240MB)                  │       ║
+║  │  특징:    실행 가능 메모리 (W^X 페이지 권한)                         │       ║
+║  └────────────────────────────────────────────────────────────────┘       ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+╔══════════════════════ PER-THREAD (스레드 1개당 1세트) ════════════════════╗
+║   ※ 스레드 생성 시 OS가 thread stack 1MB 통째로 mmap, 종료 시 회수          ║
+║                                                                            ║
+║  Thread #1                                                                 ║
+║  ┌──────────── OS Thread Stack (★ 물리적으로 1개) ─────────────┐          ║
+║  │  ┌─ stack top (SP) ──────────────────────────────────┐    │          ║
+║  │  │ C Frame: JNI 함수             ┐ Native Method      │    │          ║
+║  │  │   (인자, 지역변수, return addr) ┘ Stack 영역 (논리적) │    │          ║
+║  │  ├──────────────────────────────────────────────────┤    │          ║
+║  │  │ Java Frame: callee             ┐                  │    │          ║
+║  │  │   ┌ Local Var Array (slot[])   │                  │    │          ║
+║  │  │   ├ Operand Stack ★ (push/pop) │ JVM Stack 영역    │    │          ║
+║  │  │   └ Frame Data (CP ref, retPC) │ (논리적)          │    │          ║
+║  │  ├──────────────────────────────────────────────────┤ │                  ║
+║  │  │ Java Frame: caller             │                  │    │          ║
+║  │  │   Local Var │ Operand Stack ★  ┘                  │    │          ║
+║  │  ├──────────────────────────────────────────────────┤    │          ║
+║  │  │ C Frame: JVM 부트스트랩                            │    │          ║
+║  │  └─ stack bottom ──────────────────────────────────┘    │          ║
+║  │                                                            │          ║
+║  │   ★ Operand Stack은 thread-level 아니라 Frame 내부 영역    │          ║
+║  └──────────────────────────────────────────────────────────┘          ║
+║                                                                            ║
+║  PC Register (8 bytes): 현재 실행 중인 bytecode offset                     ║
+║                        (native 메서드 중에는 undefined)                    ║
+║                                                                            ║
+║  Thread #2, #3 ... #N: 위 구조 그대로 반복                                 ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+총 RSS = Shared 합 + (per-thread 합 × 스레드 수) + GC bookkeeping + Direct Mem
+```
+
+---
+
+### Part 2: 코드 한 줄이 어디를 거치는가 — 추적
+
+예제:
+
+```java
+public class Demo {
+    static int counter = 0;                            // [A] static 초기화
+
+    public static void main(String[] args) {
+        User user = new User("Alice");                 // [B] 객체 생성
+        int sum = compute(1, 2);                       // [C] Java 메서드 호출
+        for (int i = 0; i < 100_000; i++) {
+            hotMethod();                               // [D] JIT 대상
+        }
+        System.out.println(user);                      // [E] JNI 거치는 I/O
+    }
+
+    static int compute(int a, int b) { return a + b; } // [C-impl]
+    static void hotMethod() { /* ... */ }              // [D-impl]
+}
+```
+
+#### [A] `static int counter = 0` — Metaspace
+
+```
+ClassLoader가 Demo.class 발견
+  ↓
+Metaspace에 Demo의 Klass 메타데이터 채움
+  ├─ method bytecode
+  ├─ constant pool
+  └─ ★ static 필드 슬롯 (counter = 0) ← 여기 들어감
+  ↓
+<clinit> 실행 → counter 슬롯에 0 저장 (Metaspace 내부)
+```
+
+★ **static primitive는 Heap이 아니라 Metaspace에 직접 산다.** static reference라면 참조는 Metaspace, 가리키는 객체는 Heap.
+
+#### [B] `User user = new User("Alice")` — Heap + Stack + Metaspace 동시
+
+```
+bytecode: new User
+  ↓
+① Heap에서 메모리 할당 (TLAB → Eden 영역)
+   → User 객체 헤더에 Klass 포인터 박힘 → Metaspace의 User Klass 가리킴
+② "Alice" 문자열 → Heap String Pool에서 lookup (or 생성)
+③ invokespecial <init> → JVM Stack에 <init> Frame push
+④ <init> 내부에서 this.name = "Alice" → Heap 객체의 필드에 참조 저장
+⑤ user 지역변수 → main Frame의 Local Var slot[1]에 참조 저장
+```
+
+★ **한 줄에 Heap + Metaspace + JVM Stack 3영역을 모두 건드림.**
+
+#### [C] `int sum = compute(1, 2)` — JVM Stack에서만
+
+```
+main Frame                            compute Frame (새로 push)
+┌──────────────────┐                  ┌──────────────────┐
+│ Operand Stack    │  invokestatic    │ Local Var        │
+│  [2]             │  ───────────→   │  slot[0] = 1 (a) │
+│  [1]             │  (인자 이동)      │  slot[1] = 2 (b) │
+└──────────────────┘                  ├──────────────────┤
+                                      │ Operand Stack    │
+                                      │  iload→iadd      │
+                                      │  → [3]           │
+                                      └──────────────────┘
+                                          │ ireturn
+                                          ↓
+main Frame                            (compute Frame pop)
+┌──────────────────┐
+│ Local Var        │
+│  slot[2] = 3     │  ← istore_2
+│ Operand Stack    │
+│  [3]             │  ← compute 반환값
+└──────────────────┘
+```
+
+★ **Heap도 Metaspace도 안 건드림. JVM Stack 안에서 전부 처리.** 이게 가장 빠른 코드 경로.
+
+#### [D] `hotMethod()` 10만 회 — Code Cache의 탄생
+
+```
+시점: 1회 ~ ~1,500회                  시점: ~1,500회 도달
+━━━━━━━━━━━━━━━━━━━━                ━━━━━━━━━━━━━━━━━━━━
+
+Interpreter가                         C1 JIT 트리거
+  Metaspace의 bytecode를                  ↓
+  한 명령씩 읽으며 실행                    백그라운드 컴파일 스레드가
+  PC Register: bytecode offset               native 기계어 생성
+                                            ↓
+                                       ★ Code Cache에 저장됨
+                                            ↓
+                                       Method 객체의 entry pointer 갱신
+                                            (Metaspace 안)
+
+시점: ~1,500회 이후                    시점: ~10,000회 도달
+━━━━━━━━━━━━━━━━━━━━━                ━━━━━━━━━━━━━━━━━━━━
+
+invokestatic hotMethod                C2 JIT 트리거
+  ↓                                        ↓
+Method entry pointer 따라감              더 최적화된 native 코드
+  ↓                                        ↓
+★ Code Cache의 native code로 jump      Code Cache 갱신 (C1 → C2)
+  ↓
+PC Register는 native pc 가리킴
+(더 이상 bytecode offset 아님)
+```
+
+★ **콜드 메서드는 영원히 인터프리트, 핫 메서드만 Code Cache에 들어감.**
+★ Method 객체는 Metaspace, native code는 Code Cache — **둘 다 가리키는 포인터 1개로 연결**.
+
+#### [E] `System.out.println(user)` — JNI로 Native Stack까지
+
+```
+println(user)                          (모두 Java 코드)
+  ↓ JVM Stack에 Frame push
+PrintStream.println
+  ↓
+BufferedWriter.write
+  ↓
+OutputStreamWriter.write
+  ↓
+FileOutputStream.writeBytes  ← ★ 여기서 native 메서드
+  ↓ JNI 진입
+[Native Method Stack 영역]
+JNI stub Frame push
+  ↓
+C Frame: Java_java_io_FileOutputStream_writeBytes push
+  ↓
+write(2) syscall → OS 커널
+```
+
+★ **PC Register: writeBytes 진입 순간부터 undefined.** Java 영역 밖이라.
+
+---
+
+### Part 3: 한 줄 요약표 — "왜 / 무엇 / 언제 / 어떻게"
+
+| 영역 | 무엇 (What) | 왜 (Why) | 언제 채움 (When fill) | 언제 사용 (When use) | 언제 비움 (When clear) | 옵션 |
+|---|---|---|---|---|---|---|
+| **Java Heap** | new 객체, 배열, String Pool, Class 객체 | 객체 수명이 호출 범위와 무관해야 함 | bytecode `new` 명령마다 | 필드 접근/dispatch | GC | `-Xmx` |
+| **Metaspace** | Klass 메타, bytecode, CP, static 값 | 클래스 정의는 인스턴스와 분리되어야 함 | ClassLoader.load 시 | 메서드 dispatch, 필드 lookup | CL 언로드 | `-XX:MaxMetaspaceSize` |
+| **Code Cache** | JIT native 기계어 | 인터프리터는 느림. Hot 메서드 가속 필요 | JIT threshold 넘으면 | Hot 메서드 호출 시 직접 jump | flush, CL 언로드 | `-XX:ReservedCodeCacheSize` |
+| **JVM Stack** | Java Frame (Local Var + Operand Stack + Frame Data) | 메서드 호출의 LIFO 구조가 본질적으로 stack | 스레드 생성 시 OS가 할당 | 메서드 호출/return 매번 | 메서드 return / 스레드 종료 | `-Xss` |
+| **Operand Stack** | bytecode 임시 피연산자 | JVM은 stack-based VM이라 명령이 push/pop으로 작동 | bytecode 실행 중 매 명령 | 산술/호출/리턴 모든 곳 | 명령마다 pop / Frame pop | `max_stack` (ClassFile) |
+| **PC Register** | 현재 bytecode offset (or native pc) | 스레드별 "현재 실행 위치" 필요 | 스레드 생성 시 | bytecode 1개 실행마다 갱신 | 스레드 종료 | (없음) |
+| **Native Stack** | C Frame (JNI 함수) | C는 Java Frame 모름 → 별도 호출 규약 | 스레드 생성 시 (JVM Stack과 같은 OS stack) | JNI 호출 시 | JNI return / 스레드 종료 | `-Xss` (공유) |
+
+---
+
+### Part 4: 라이프사이클 타임라인
+
+```
+시간 ─────────────────────────────────────────────────────────────────→
+
+JVM 시작                                                          JVM 종료
+│                                                                      │
+├─ [Shared 영역 reserve]                                                │
+│   ├─ Java Heap (예: 1GB)                                              │
+│   ├─ Metaspace                                                        │
+│   └─ Code Cache (240MB)                                               │
+│                                                                       │
+├─ [main thread 생성] → OS가 1MB stack + PC Register 할당                │
+│                                                                       │
+├─ [ClassLoader load]                                                   │
+│   └─ Demo.class → Metaspace에 메타 채움                                │
+│                                                                       │
+├─ [<clinit> 실행]                                                       │
+│   └─ static counter = 0 → Metaspace의 static 슬롯                     │
+│                                                                       │
+├─ [main() 호출] → JVM Stack에 main Frame push                          │
+│   │                                                                   │
+│   ├─ new User("Alice")    → Heap에 객체 할당                          │
+│   │                       → Metaspace의 Klass 가리킴                  │
+│   │                       → JVM Stack의 main Frame slot에 참조        │
+│   │                                                                   │
+│   ├─ compute(1, 2)        → JVM Stack 만 사용 (Heap/Meta 무관)        │
+│   │                                                                   │
+│   ├─ hotMethod 반복                                                    │
+│   │  ├─ 1~1500회:         Metaspace bytecode 인터프리트                │
+│   │  ├─ 1500회 시점:      C1 JIT → Code Cache 채움                    │
+│   │  ├─ 이후:             Code Cache 직접 실행                         │
+│   │  └─ 10000회 시점:     C2 JIT → Code Cache 갱신                    │
+│   │                                                                   │
+│   └─ println(user)        → JNI → Native Stack에 C Frame              │
+│                           → write syscall                             │
+│                                                                       │
+├─ [main() return] → main Frame pop                                     │
+│                                                                       │
+├─ [GC 발생 시] → unreachable 객체들 Heap에서 회수                       │
+│                                                                       │
+└─ [JVM shutdown] → 모든 영역 OS에 반환                                  │
+```
+
+---
+
+### Part 5: "왜 이렇게 나뉘어 있나" — 분리의 본질적 이유
+
+| 분리 | 이유 |
+|---|---|
+| **Heap ↔ Stack** | 객체 수명이 호출 범위와 다름 → 따로 관리 / Frame은 호출과 함께 생멸 |
+| **Heap ↔ Metaspace** | 인스턴스는 자주 생멸 (GC 대상) / 클래스 정의는 거의 안 변함 (GC 무의미) |
+| **Heap ↔ Code Cache** | Heap = 데이터 / Code Cache = **실행 가능 메모리** (페이지 권한이 다름) |
+| **Stack per-thread** | 함수 호출의 직렬화(lock contention) 회피 → 본질적으로 스레드별 |
+| **PC per-thread** | 멀티스레드 = "여러 곳을 동시 실행" → 각자의 현재 위치 필요 |
+| **JVM Stack ↔ Native Stack** | JVM Spec 논리적 분리 (실제론 같은 OS stack 공유) — Java/C 호출 규약 구분만 |
+| **Operand Stack ⊂ Frame** | 메서드 단위 LIFO 계산 공간 → Frame 부속물이 자연스러움 |
+
+---
+
 ## 🧠 2단계: 직관
 
 ### 핵심 비유
