@@ -341,6 +341,400 @@ Java 코드: System.loadLibrary("foo");
 
 **HotSpot 구현 디테일**: 실제로 HotSpot은 **JVM Stack과 Native Method Stack을 같은 OS thread stack에 통합**한다 — 두 영역의 경계는 논리적. JNI 호출 시 native frame이 JVM frame 위에 자연스럽게 쌓임.
 
+### 🎯 스택 3개의 통합 그림 — "물리적으론 스택 1개"
+
+#### 가장 흔한 오해
+
+"JVM Stack", "Native Method Stack", "Operand Stack" 이 3개 이름이 각각 별개의 메모리 영역인 것처럼 들린다. **실제로는 하나의 물리적 stack 안에 층위만 다른 데이터**.
+
+| Spec 용어 | 물리적 실체 |
+|---|---|
+| **JVM Stack** | OS thread stack의 **Java Frame들이 쌓이는 부분** |
+| **Native Method Stack** | OS thread stack의 **C Frame들이 쌓이는 부분** (★ 같은 stack) |
+| **Operand Stack** | 각 Java Frame **내부의** 작은 임시 계산 영역 (★ thread-level 아님) |
+
+→ 스레드 1개 = OS가 할당한 **stack 1개 (예: 1MB)**. 그 안에 Java Frame과 C Frame이 LIFO로 **섞여서** 쌓임. JVM Spec이 "이 영역은 JVM Stack, 저 영역은 Native Method Stack"이라 부를 뿐.
+
+#### 통합 그림 — 한 스레드의 stack 전체
+
+```
+스레드 1개 = OS가 할당한 stack 1MB (★ 물리적으로 1개의 연속 메모리)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[stack top — SP 가리킴, 새 호출이 여기로 push]
+┌──────────────────────────────────────────┐
+│ C Frame: greet (JNI native 함수)            │ ┐
+│ ├ 인자: JNIEnv*, jclass, jstring            │ │ "Native Method
+│ ├ 지역 변수                                   │ ├  Stack" 영역
+│ └ return addr → JNI stub                    │ │ (논리적)
+├──────────────────────────────────────────┤ │
+│ JNI stub Frame (Java↔Native 전환)            │ ┘
+├──────────────────────────────────────────┤
+│ Java Frame: Main.main(args)                 │ ┐
+│ ┌────────────────────────────────────┐  │ │
+│ │ Local Var Array                      │  │ │
+│ │  slot[0] = args   slot[1] = x        │  │ │
+│ ├────────────────────────────────────┤  │ │
+│ │ ★ Operand Stack ★                    │  │ │ "JVM Stack"
+│ │  (top) [...]                         │  │ ├  영역
+│ │        [...]                         │  │ │ (논리적)
+│ │  (bot) [...]                         │  │ │
+│ ├────────────────────────────────────┤  │ │ ★ Operand Stack은
+│ │ Frame Data                           │  │ │   별개 영역이 아니라
+│ │ ├ CP ref  ├ return PC  └ prev FP     │  │ │   Java Frame **내부**의
+│ └────────────────────────────────────┘  │ │   한 부분
+├──────────────────────────────────────────┤ │
+│ Java Frame: Main.<clinit> (static init)     │ ┘
+├──────────────────────────────────────────┤
+│ C Frame: JavaMain (JVM 진입 코드)             │ ┐
+├──────────────────────────────────────────┤ │ "Native Method
+│ C Frame: java launcher main()                │ ├  Stack" 영역
+├──────────────────────────────────────────┤ │ (다시)
+│ C Frame: _start, __libc_start_main           │ ┘
+└──────────────────────────────────────────┘
+[stack bottom — OS 할당 시작점]
+
+▲ 물리적 메모리는 연속된 1개. 점선 영역은 "논리적 분류"일 뿐.
+▲ Java Frame과 C Frame은 같은 stack에 LIFO로 섞여 쌓일 수 있음.
+▲ ★ Operand Stack은 thread-level이 아니라 Frame-level 영역.
+```
+
+#### 핵심 규칙 3가지
+
+1. **물리적 1개 stack** — OS가 thread 생성 시 1MB 정도를 한 번에 할당. 모든 frame이 이 안에 들어감.
+2. **Frame 종류는 2개** — Java Frame (HotSpot이 만듦, Operand Stack 포함) / C Frame (C 컴파일러가 만듦, 일반 stack frame).
+3. **Operand Stack은 Frame 부속물** — 각 Java Frame 안의 작은 LIFO 영역. bytecode 명령(iadd, iload 등)이 여기서만 작동.
+
+---
+
+#### 실행 추적 — 한 단계씩 토글로
+
+예제 코드:
+
+```java
+public class Main {
+    public static native void greet(String name);   // JNI
+    public static int add(int a, int b) { return a + b; }
+    public static void main(String[] args) {
+        int x = add(3, 4);
+        System.loadLibrary("nativelib");
+        greet("World");
+    }
+}
+```
+
+<details>
+<summary><b>Step 0: 프로그램 시작 — OS가 stack 1MB 할당</b></summary>
+
+```
+$ java Main 실행
+  ↓
+OS가 java 프로세스 + main thread 생성
+  ↓
+OS가 main thread용 stack 1MB 할당
+  (예: 가상주소 0x7fff_f000 ~ 0x7fff_0000)
+```
+
+stack 상태:
+```
+[stack top = 0x7fff_f000] ← SP 여기
+┌──────────────────────┐
+│                      │
+│     (비어 있음)        │
+│      1MB 공간          │
+│                      │
+└──────────────────────┘
+[stack bottom = 0x7fff_0000]
+```
+
+★ 아직 frame 0개. SP(stack pointer)가 top을 가리킴.
+★ stack은 **위에서 아래로 자람** (관례적 표현). 실제 메모리 주소는 감소 방향.
+
+</details>
+
+<details>
+<summary><b>Step 1: JVM 부트스트랩 — C frame들이 먼저 쌓임</b></summary>
+
+OS가 `_start` → `java` 런처의 C `main()` → JVM 초기화 → `JavaMain()`을 호출.
+
+```
+[stack top]
+┌──────────────────────────┐
+│ C Frame: JavaMain          │ ← JVM이 Java main 호출 직전
+├──────────────────────────┤
+│ C Frame: java launcher     │
+├──────────────────────────┤
+│ C Frame: _start            │
+└──────────────────────────┘
+[stack bottom]
+```
+
+★ 이 영역은 모두 "Native Method Stack" 영역 (논리적 분류).
+★ 평범한 C 함수 호출 prologue/epilogue로 쌓임. HotSpot 관여 안 함.
+
+</details>
+
+<details>
+<summary><b>Step 2: Main.main() 호출 — 첫 Java Frame push</b></summary>
+
+`JavaMain`이 Java `Main.main`을 찾아 호출하면서 **Java Frame**을 push.
+
+```
+[stack top]
+┌──────────────────────────────┐
+│ Java Frame: Main.main(args)   │ ← ★ 새 Java Frame
+│ ├ max_locals=2                │
+│ │  slot[0] = args (ref)       │
+│ │  slot[1] = x (아직 빈 칸)    │
+│ ├ max_stack=2                 │
+│ │  Operand Stack: []          │   ★ 비어있음
+│ └ Frame Data                  │
+│    ├ return PC → JavaMain     │
+│    └ prev FP                  │
+├──────────────────────────────┤
+│ C Frame: JavaMain              │
+├──────────────────────────────┤
+│ C Frames ...                   │
+└──────────────────────────────┘
+[stack bottom]
+```
+
+★ 여기서부터 "JVM Stack" 영역 시작.
+★ Frame 안에 Operand Stack이 보임 — Frame **안**의 한 부분.
+
+</details>
+
+<details>
+<summary><b>Step 3: add(3, 4) 호출 직전 — Operand Stack에 인자 push</b></summary>
+
+main의 bytecode 실행:
+```
+iconst_3       ; Operand Stack에 3 push
+iconst_4       ; Operand Stack에 4 push
+```
+
+```
+Java Frame: main(args)
+┌──────────────────────────────┐
+│ Local Var: [args, _]          │
+│ Operand Stack:                │
+│   (top) [4]                   │ ← iconst_4로 push됨
+│         [3]                   │ ← iconst_3로 push됨
+│   (bot)                       │
+└──────────────────────────────┘
+```
+
+★ Operand Stack에 인자를 쌓는 중. 아직 main Frame 하나뿐.
+★ 이건 **Frame 내부**의 Operand Stack — 전체 OS stack의 SP가 움직이는 게 아님.
+
+</details>
+
+<details>
+<summary><b>Step 4: add 호출 — 새 Java Frame push, 인자 자동 전달</b></summary>
+
+`invokestatic add` 명령:
+1. main의 Operand Stack에서 인자 2개 pop
+2. add용 새 Java Frame 생성 + push (★ 이때 OS stack의 SP도 이동)
+3. pop한 인자를 add의 Local Var에 넣음
+
+```
+[stack top]
+┌──────────────────────────────┐
+│ Java Frame: add(a=3, b=4)     │ ← ★ 새로 push
+│ ├ Local Var                   │
+│ │  slot[0] = 3 (a)            │   ← invokestatic이 자동으로 채움
+│ │  slot[1] = 4 (b)            │
+│ ├ Operand Stack: []           │
+│ └ Frame Data                  │
+│    └ return PC → main 다음 명령
+├──────────────────────────────┤
+│ Java Frame: main(args)        │
+│ ├ Operand Stack: []           │ ← ★ 비어짐 (인자가 add로 옮겨감)
+│ └ ...                         │
+├──────────────────────────────┤
+│ C Frames ...                   │
+└──────────────────────────────┘
+```
+
+★ 인자가 **caller의 Operand Stack → callee의 Local Var**로 자동 전달.
+★ Java Frame 2개가 같은 OS stack에 LIFO로 쌓임.
+
+</details>
+
+<details>
+<summary><b>Step 5: add 안에서 bytecode 실행 — Operand Stack에서 계산</b></summary>
+
+```
+iload_0    ; slot[0]=3을 Operand Stack에 push   → [3]
+iload_1    ; slot[1]=4을 push                   → [3,4]
+iadd       ; top 2개 pop, 더해서 push            → [7]
+ireturn    ; top 1개 pop, caller로 반환
+```
+
+iadd 직후 상태:
+```
+Java Frame: add(3, 4)
+┌──────────────────────────────┐
+│ Local Var: [3, 4]             │ ← 안 변함
+│ Operand Stack:                │
+│   (top) [7]                   │ ← iadd 결과
+│   (bot)                       │
+└──────────────────────────────┘
+```
+
+★ 산술은 **Operand Stack에서만** 발생. Local Var는 명시적 store 명령이 있어야 변함.
+
+</details>
+
+<details>
+<summary><b>Step 6: add return — Frame pop, 결과가 caller로 자동 이동</b></summary>
+
+`ireturn` 실행:
+1. add의 Operand Stack에서 7 pop
+2. **add Frame 통째로 pop** (사라짐, SP 이동)
+3. main의 Operand Stack에 7 push (★ JVM이 자동 처리)
+4. PC를 main의 return PC로 복원
+
+```
+[stack top]
+┌──────────────────────────────┐
+│ Java Frame: main(args)        │
+│ ├ Local Var: [args, _]        │
+│ ├ Operand Stack:              │
+│ │   (top) [7]                 │ ← add의 반환값
+│ └ ...                         │
+├──────────────────────────────┤
+│ C Frames ...                   │
+└──────────────────────────────┘
+```
+
+다음 명령:
+```
+istore_1   ; Operand top pop → slot[1]에 저장 (x = 7)
+```
+
+★ 반환값은 **callee Operand → caller Operand**로 자동 전달.
+★ 함수 호출/리턴의 모든 데이터 흐름이 **Operand Stack을 통해** 일어남.
+
+</details>
+
+<details>
+<summary><b>Step 7: greet("World") — JNI 호출, C Frame이 Java Frame 위에 쌓임</b></summary>
+
+bytecode:
+```
+ldc "World"            ; Operand Stack에 "World" 참조 push
+invokestatic greet     ; ★ native 메서드
+```
+
+`invokestatic`이 native임을 감지 → JNI 경로로 분기:
+
+```
+[stack top]
+┌──────────────────────────────┐
+│ C Frame: greet (native lib)   │ ← ★ C 함수 frame
+│ ├ JNIEnv*, jclass, jstring    │   (C 컴파일러 prologue로 push)
+│ ├ 지역 변수                    │
+│ └ return addr → JNI stub      │
+├──────────────────────────────┤
+│ JNI stub Frame                │ ← Java↔Native 전환 코드
+│  (예외 체크, JNIEnv 준비)      │
+├──────────────────────────────┤
+│ Java Frame: main(args)        │
+│ ├ Operand Stack: []           │ ← 인자("World") pop됨
+│ └ ...                         │
+├──────────────────────────────┤
+│ C Frames ...                   │
+└──────────────────────────────┘
+```
+
+★ 같은 OS thread stack에 **C Frame이 Java Frame 위에 자연스럽게 쌓임**.
+★ 이 순간부터 **PC Register는 undefined** — bytecode가 아닌 native instruction 실행 중.
+★ 여기 C Frame 영역이 "Native Method Stack"의 또 다른 부분.
+
+</details>
+
+<details>
+<summary><b>Step 8: native C 함수 실행 — 평범한 C 호출 메커니즘</b></summary>
+
+```c
+JNIEXPORT void JNICALL Java_Main_greet(
+    JNIEnv* env, jclass cls, jstring name) {
+    const char* str = (*env)->GetStringUTFChars(env, name, NULL);
+    printf("Hello, %s\n", str);          // 여기서 C frame 또 push/pop
+    (*env)->ReleaseStringUTFChars(env, name, str);
+}
+```
+
+`printf` 호출 시 또 C frame push, return 시 pop.
+
+★ Operand Stack 같은 거 없음. C는 register-based — 인자/리턴값을 CPU 레지스터로 전달.
+★ HotSpot 관여 안 함. OS thread stack을 평범한 C 함수처럼 사용.
+
+</details>
+
+<details>
+<summary><b>Step 9: native return → Java 복귀</b></summary>
+
+```
+1. C 함수 return → C frame pop (C 컴파일러의 epilogue)
+2. JNI stub이 정리 작업 (예외 전파, JNIEnv 해제)
+3. JNI stub frame pop
+4. PC Register를 main의 다음 bytecode로 복원
+```
+
+```
+[stack top]
+┌──────────────────────────────┐
+│ Java Frame: main(args)        │ ← 다시 활성
+│ └ 다음 bytecode부터 재개       │
+├──────────────────────────────┤
+│ C Frames ...                   │
+└──────────────────────────────┘
+```
+
+★ PC가 다시 의미 있는 값(bytecode offset)을 가짐.
+
+</details>
+
+<details>
+<summary><b>Step 10: main return → 스레드 종료</b></summary>
+
+```
+return (void)         ; main Frame pop
+  ↓
+JavaMain의 C 코드로 복귀
+  ↓
+JVM shutdown (GC 정리, JIT 종료, finalizer)
+  ↓
+모든 C Frame pop
+  ↓
+OS가 1MB stack 메모리 회수 (munmap)
+  ↓
+스레드 종료
+```
+
+★ stack은 마지막에 통째로 OS에 반환.
+
+</details>
+
+---
+
+#### 한 줄 모델
+
+> **한 스레드 = OS stack 1개. 그 위에 Java Frame(내부에 Operand Stack 포함)과 C Frame이 LIFO로 섞여 쌓임. "JVM Stack / Native Method Stack / Operand Stack"은 같은 stack을 다른 관점에서 부르는 이름.**
+
+#### "어디로 가서 어떻게 쌓이고 어떻게 마무리?"의 답
+
+| 질문 | 답 |
+|---|---|
+| 처음 실행 시 stack은? | OS가 thread 생성 시 1MB 통째로 할당 |
+| 어디에 쌓이는가? | 그 1MB 안. Java Frame이든 C Frame이든 같은 stack |
+| 어떻게 실행? | bytecode는 Java Frame의 Operand Stack에서 push/pop으로 계산. native는 C 호출 규약대로 |
+| 함수 호출 시 인자 전달? | caller Operand Stack → callee Local Var (Java→Java) / Operand Stack → CPU 레지스터 (Java→C) |
+| 함수 리턴 시? | callee Frame pop, 반환값을 caller Operand Stack으로 자동 이동 |
+| 마무리? | main return → JVM shutdown → 모든 frame pop → OS가 stack 회수 |
+
 ### Virtual Thread의 stack 모델 (JDK 21+)
 
 ```
