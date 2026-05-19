@@ -1021,6 +1021,322 @@ java -XX:MaxMetaspaceSize=128m -Xlog:class+unload LeakDemo
 
 ---
 
+## 📎 부록 — Native 메모리·mmap 의 정체 + Metaspace 와 GC 의 정확한 관계
+
+> 본문에서 "Metaspace 는 native 메모리" 와 "Metaspace 는 GC 대상이 아니지만 같이 처리됨" 이라는 두 표현이 자주 헷갈리게 다가옵니다. 이 부록은 그 두 개념을 백지에서 정확히 설명할 수 있게 토글로 정리.
+
+### Part A. Native 메모리와 mmap
+
+<details>
+<summary><b>① "Native 메모리" 가 정확히 뭐냐</b></summary>
+
+### 정의
+
+> **Native 메모리 = JVM 의 Java Heap 바깥에서 OS 가 직접 관리하는 메모리.**
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  프로세스의 가상 메모리 공간 (RSS = footprint)                │
+│                                                              │
+│  ┌──────────────────────────────────────────────────┐       │
+│  │ Java Heap         ← JVM 이 관리 (GC 가 회수)      │       │
+│  │   - new 로 만든 객체들이 사는 곳                   │       │
+│  └──────────────────────────────────────────────────┘       │
+│  ┌──────────────────────────────────────────────────┐       │
+│  │ Native 메모리 영역들 ★                            │       │
+│  │   - Metaspace                                     │       │
+│  │   - Compressed Class Space                        │       │
+│  │   - Code Cache                                    │       │
+│  │   - Direct ByteBuffer                             │       │
+│  │   - 스레드 Stack                                  │       │
+│  │   - JNI 라이브러리 (libnio.so 등)                 │       │
+│  │   - JVM 내부 자료구조 (GC bookkeeping 등)         │       │
+│  │  → OS 가 직접 주고받음                            │       │
+│  │  → Java GC 와 무관                                │       │
+│  └──────────────────────────────────────────────────┘       │
+└────────────────────────────────────────────────────────────┘
+```
+
+### "Native" 의 의미
+
+- **JVM(Java) 의 관리 영역이 아니라 OS 가 직접 관리하는** 메모리
+- C/C++ 프로그램이 쓰는 그 메모리와 같은 성격
+- JVM 도 결국 사용자 프로세스 → OS 입장에선 "메모리 많이 달라는 C++ 프로그램"
+
+### 운영 함정
+
+```
+-Xmx 만 잡고 안심하면 안 됨:
+  RSS = Heap + Metaspace + Code Cache + Stacks + Direct + ...
+
+컨테이너 limit = -Xmx 로 잡으면 OOMKilled
+권장: limit 의 50~70% 만 -Xmx 로
+```
+
+</details>
+
+---
+
+<details>
+<summary><b>② mmap — OS 시스템 콜의 정체</b></summary>
+
+### mmap 은 C 언어 함수가 아니라 OS 시스템 콜
+
+```
+mmap = "memory map" 의 약자
+     = Unix/Linux 의 시스템 콜 (POSIX 표준)
+     = 커널이 제공하는 기능
+```
+
+C 언어, Java(JNI), Rust, Go 등 **모든 언어에서 호출 가능**. C 언어 함수가 아니라 OS 가 제공하는 인터페이스.
+
+### 시그니처 (C 표준 표기)
+
+```c
+void* mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset);
+```
+
+**무엇을 하나**: 프로세스의 가상 주소 공간에 메모리 영역을 매핑.
+
+### 두 가지 용도
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  ① File-backed mmap (파일 매핑)                          │
+│     - 파일을 메모리처럼 접근                              │
+│     - 예: MappedByteBuffer, DB 데이터 파일               │
+├──────────────────────────────────────────────────────────┤
+│  ② Anonymous mmap (익명 매핑)                            │
+│     - 그냥 큰 메모리 덩어리 요청                          │
+│     - "OS 야 1GB 짜리 영역 줘"                           │
+│     - JVM 이 Heap, Metaspace, Code Cache 받을 때 사용    │
+└──────────────────────────────────────────────────────────┘
+```
+
+### JVM 이 mmap 을 어떻게 쓰나
+
+```
+JVM 시작 시:
+  - "Heap 영역 4GB 줘"     → mmap(NULL, 4GB, ..., MAP_ANONYMOUS, -1, 0)
+  - "Metaspace 영역 줘"    → mmap(...)
+  - "Code Cache 240MB 줘"  → mmap(...)
+  - "스레드 스택 1MB 줘"   → mmap(...)  (스레드 생성마다)
+  ↓
+JVM 은 OS 한테 받은 큰 덩어리들을 자기 내부에서 잘게 나눠 씀
+  ↓
+TLAB, Klass, JIT 코드 등은 그 안에서 또 분배
+```
+
+### malloc vs mmap
+
+```
+malloc                          mmap (직접 호출)
+──────                          ──────────────
+- libc 의 함수                  - OS 시스템 콜
+- 작은 메모리에 효율 (≤ 128KB) - 큰 메모리에 효율 (≥ MB)
+- 내부적으로 sbrk/mmap 사용     - 직접 호출
+- free 해도 OS 에 안 돌아갈 수  - munmap() 으로 통째 반환
+  있음 (fragmentation)
+```
+
+→ JVM 처럼 GB 단위 다루는 프로그램은 **mmap 이 자연스러움**.
+
+</details>
+
+---
+
+<details>
+<summary><b>③ reserved vs committed — mmap 의 lazy 특성</b></summary>
+
+### 핵심 — mmap 의 결과는 즉시 RAM 이 아니다
+
+```
+mmap() 호출
+   ↓
+OS: "OK, 가상 메모리 주소 공간에서 4GB 자리 예약해줄게"
+   ↓ ★ 이 시점: reserved = 4GB, committed = 0
+   ↓ ★ 실제 RAM 은 아직 사용 안 함
+   ↓
+프로그램이 그 영역의 첫 byte 에 쓰기 시도
+   ↓
+OS: page fault 발생 → 4KB 페이지 1개를 실제 RAM 에 매핑
+   ↓ ★ committed = 4KB 추가
+   ↓
+프로그램이 점점 더 쓰면 → page fault 마다 점진적으로 RAM 매핑
+   ↓
+   committed 가 reserved 에 수렴
+```
+
+### top 명령의 VSZ / RSS 와의 연결
+
+```
+top 의 VSZ = reserved (mmap 으로 받은 가상 주소 공간 합)
+top 의 RSS = committed (실제 RAM 사용)
+
+JVM 예:
+  -Xmx 4g → mmap 4GB → VSZ 4GB 즉시
+  -Xms 1g → 처음에 1GB 만 commit → RSS 1GB 부터 시작
+  점진적 사용 시 RSS 가 4GB 까지 증가 가능
+```
+
+### 운영 관점 — NMT 의 reserved/committed 분리
+
+```
+jcmd <pid> VM.native_memory summary
+
+Total: reserved=5GB, committed=3GB
+   Java Heap (reserved=4GB, committed=2GB)
+   Class     (reserved=1GB, committed=200MB)
+   ...
+
+→ reserved 큰데 committed 작으면 정상
+→ committed 가 계속 증가하면 누수 의심
+```
+
+### 한 줄
+
+> **"Heap reserve 4GB" 가 떴다고 즉시 RAM 4GB 잡힌 게 아님. 첫 page 접근 시 lazy 하게 RAM 이 매핑됨.**
+
+</details>
+
+---
+
+### Part B. Metaspace 와 GC 의 정확한 관계
+
+<details>
+<summary><b>④ "Metaspace 는 GC 대상인가" — 정답과 흔한 오답</b></summary>
+
+### 흔한 오답
+
+> "일반 Heap GC 와는 다른 메커니즘. ClassLoader 못 따라가면 다음 GC cycle 에 CLD chunk 가 free 됨."
+
+이건 **표현이 어색해서 오해를 부르는** 답. 의심할 만함.
+
+### 어디가 어색한가
+
+1. **"다른 메커니즘"** → 마치 별개의 GC 가 따로 도는 것처럼 들림.
+   - 실제: **Heap GC 의 한 sub-phase** 로 같이 처리됨.
+
+2. **"다음 GC cycle 에"** → 시점 모호.
+   - 실제: **같은 GC cycle 안의 후반 phase** 에서 처리.
+
+3. **"CLD 단위로 처리, 개별 Klass 단위로 sweep 안 함"** → ✅ 이 부분은 정확. PermGen 과 Metaspace 의 핵심 차이.
+
+### 정확한 답변
+
+> "Metaspace 자체는 직접 GC 대상이 아닙니다. 하지만 **Heap GC 와 같은 cycle 의 sub-phase (Class Unloading phase) 에서 같이 처리됩니다**. Heap GC 의 mark phase 에서 ClassLoader 객체의 reachability 가 결정되고 (ClassLoader 도 Heap 의 일반 객체이므로), unreachable 한 ClassLoader 의 CLD chunk 들이 그 cycle 안에서 통째로 free 됩니다. 회수 단위가 객체(Heap) 가 아니라 CLD(Metaspace) 라는 게 PermGen 과의 본질적 차이입니다. `-Xlog:gc*` 에는 안 보이고 `-Xlog:class+unload` 또는 JFR `jdk.ClassUnload` 로 추적합니다."
+
+</details>
+
+---
+
+<details>
+<summary><b>⑤ Class Unloading 의 실제 흐름 (GC sub-phase)</b></summary>
+
+### 같은 GC cycle 안에서 일어나는 일
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  Class Unloading 의 실제 흐름                                │
+├────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. Heap GC 시작 (Young 또는 Old/Mixed/Full)                │
+│                                                              │
+│  2. Mark Phase                                              │
+│     - Heap 의 모든 reachable 객체 추적                       │
+│     - ClassLoader 도 Heap 의 일반 객체이므로 같이 마크됨    │
+│                                                              │
+│  3. Class Unloading Phase (GC 의 sub-phase) ★               │
+│     - 모든 CLD 순회                                          │
+│     - "이 CLD 의 ClassLoader 가 reachable 인가?" 확인       │
+│     - unreachable 이면 그 CLD 를 dead 표시                  │
+│                                                              │
+│  4. Reclaim Phase                                            │
+│     - Heap: 일반 객체 회수                                   │
+│     - Metaspace: dead CLD 의 chunk 들 통째 free             │
+│     - Code Cache: 그 Class 의 컴파일된 native 코드 무효화   │
+│                                                              │
+│  → 같은 GC cycle 안에서 처리됨. 별도 GC 아님.               │
+└────────────────────────────────────────────────────────────┘
+```
+
+### 다이어그램으로
+
+```mermaid
+flowchart TB
+    Start[GC cycle 시작]
+    Mark[Mark Phase<br/>Heap 객체 reachability 추적<br/>ClassLoader 도 포함]
+    CU[Class Unloading sub-phase<br/>CLD 순회 + dead 판정]
+    Reclaim[Reclaim Phase<br/>Heap 객체 + Metaspace CLD chunk<br/>+ Code Cache 무효화]
+    End[GC cycle 종료]
+
+    Start --> Mark --> CU --> Reclaim --> End
+```
+
+### 한 문장 정리
+
+> **"Heap GC 가 ClassLoader 의 unreachable 을 판정하고, 같은 사이클 안에서 CLD 단위로 Metaspace 를 통째로 free 한다."**
+
+</details>
+
+---
+
+<details>
+<summary><b>⑥ GC 별 Class Unloading 처리 시점</b></summary>
+
+### GC 별 차이
+
+| GC | Class Unloading 시점 | 특이사항 |
+|---|---|---|
+| **Serial / Parallel** | Full GC (STW) 중에만 | Young GC 에서는 안 함 |
+| **G1** | Concurrent Mark Cycle 끝의 Cleanup phase | JDK 10+ 부터 Young GC 에서도 일부 가능 |
+| **CMS** (deprecated) | CMS Sweep + `-XX:+CMSClassUnloadingEnabled` | 기본 비활성이라 함정 잦았음 |
+| **ZGC** | **Concurrent Class Unloading** (JDK 14+) | STW 없음 |
+| **Shenandoah** | Concurrent | STW 없음 |
+
+### 운영 관점
+
+```
+잦은 Class Unloading 이 필요한 워크로드:
+  - Spring DevTools hot reload
+  - Tomcat 핫 배포
+  - 동적 클래스 생성 (ASM, ByteBuddy)
+  - JSP 컴파일
+
+→ Serial/Parallel 의 "Full GC 에서만" 정책이면
+  옛 ClassLoader 가 한참 안 죽음 → Metaspace 누적
+→ G1+ 또는 ZGC 권장
+```
+
+### 진단 명령
+
+```bash
+# Class Unloading 추적
+java -Xlog:class+unload=info ...
+
+# JFR 이벤트
+jdk.ClassUnload
+
+# 살아있는 ClassLoader 통계
+jcmd <pid> VM.classloader_stats
+
+# 재배포 후 같은 webapp 의 CL 이 여러 개 살아있으면 → leak
+```
+
+### 한 줄
+
+> **"Class Unloading 은 GC 종류와 옵션에 따라 시점이 다르다. Serial/Parallel 은 Full GC 에서만, G1+ 는 concurrent cycle 끝에, ZGC/Shenandoah 는 concurrent 로. 잦은 동적 클래스 생성/언로드가 필요한 워크로드면 GC 선택이 곧 운영 안정성이다."**
+
+</details>
+
+---
+
+### 부록 마무리 한 줄
+
+> **"Metaspace 가 'Native 메모리에 산다' 는 건 OS 가 mmap 으로 준 영역에 산다는 뜻이고, 'GC 대상이 아니다' 는 건 Heap GC 가 객체 단위로 sweep 하지 않는다는 뜻이다. 하지만 ClassLoader 의 unreachable 판정과 CLD chunk 의 free 는 같은 GC cycle 의 sub-phase 안에서 일어나므로 '완전히 다른 메커니즘' 이 아니라 'GC 가 처리하는 방식이 다르다' 가 정확한 표현이다."**
+
+---
+
 ## 🔗 다음 단계
 
 - → [03. Stack & PC & Native Method Stack](./03-stack-pc-native.md): Per-Thread 영역의 정확한 구조

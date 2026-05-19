@@ -898,6 +898,169 @@ asprof -e alloc -d 30 -f alloc.html <pid>
 
 ---
 
+## 💡 패턴 통찰 — TLAB 의 사상은 production 어디서나 반복된다
+
+> **백지에서 줄줄 풀 수 있어야 할 마스터 수준의 통찰.**
+> TLAB 는 단순한 JVM 기능이 아니라 **"비싼 동기화를 영역으로 갈라 lock-free 빠른 길을 깔고, 가끔만 묶어 한 번에 동기화한다"** 는 사상의 한 사례. 이 사상은 production 동시성 패턴 전반에 반복됨.
+
+### TLAB 의 본질 한 줄
+
+> Eden 의 동시 할당 경합을 없애기 위해 **Eden 을 스레드별로 작은 buffer (보통 수백 KB) 로 미리 잘라줘서**, 각 스레드는 자기 buffer 안에서 **포인터를 더하는 3개 명령어로 lock-free 할당**. TLAB 가 차면 Eden 에서 새 조각을 받아올 때만 잠깐 동기화.
+
+### "비싼 동기화 영역화" 패턴의 production 사례
+
+| 영역 | "비싼 동기화" | "잘라서 나눠 가지기" 해법 |
+|---|---|---|
+| **JVM 객체 할당** | Eden.top CAS | **TLAB** (스레드별 buffer) |
+| **InnoDB 인덱스 page** | 같은 page latch | **Hash partition / sharding** |
+| **메시지 큐 Consumer** | 같은 row UPDATE 경합 | **routing key** 로 키별 격리 |
+| **분산 캐시** | 단일 global lock | **Consistent hashing sharding** |
+| **OS PID/TID 할당** | 글로벌 카운터 CAS | **Per-CPU 카운터** |
+| **Java `ThreadLocalRandom`** | `Random` 의 동기화 | **Per-thread state** |
+| **Java `LongAdder`** | `AtomicLong.incrementAndGet` 경합 | **Per-thread cell + 주기적 합산** |
+| **Linux `slab allocator`** | 글로벌 freelist lock | **Per-CPU magazine** |
+
+→ **같은 사상이 HW (cache line, NUMA) → OS (per-CPU) → JVM (TLAB) → 라이브러리 (LongAdder) → DB (partition) → 분산 시스템 (sharding) 까지 한 줄로 이어진다.**
+
+이걸 부르는 이름이 있습니다 — **mechanical sympathy** (Martin Thompson). HW 의 동시성 한계를 이해하고 그 결을 따라 SW 를 짜는 사고방식.
+
+### 같은 사상의 공통 구조 (메타 패턴)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  공통 메타 패턴                                                │
+├──────────────────────────────────────────────────────────────┤
+│  1. 자원 전체를 N개 영역으로 미리 분할                         │
+│     - TLAB: Eden 을 N개 buffer 로                             │
+│     - LongAdder: 카운터 cell 을 N개로                         │
+│     - InnoDB partition: 테이블을 N개 sub-tree 로              │
+│                                                                │
+│  2. 각 사용자(스레드/세션) 는 자기 영역만 사용 → lock-free    │
+│     - 빠른 경로 (fast path) 는 동기화 비용 0                  │
+│                                                                │
+│  3. 자기 영역이 부족하거나 결과 합산 시에만 동기화             │
+│     - TLAB refill: 가끔 Eden CAS                              │
+│     - LongAdder.sum(): 모든 cell 합산 (느린 경로)             │
+│                                                                │
+│  4. 동기화를 잘게 쪼개지 않고 묶어서 한 번에                  │
+│     - "1만 번 작은 경합" → "100번 큰 경합"                    │
+│     - amortized cost 가 비교 불가능하게 낮아짐               │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### TLAB 와 GC 의 본질적 결합 — 왜 GC 언어에서만 가능한가
+
+> bump-the-pointer 가 `malloc` 보다 빠른 이유는 **GC 가 free 책임을 통째로 맡아주기 때문**.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  malloc / free 의 비용                                    │
+│  - 어디가 비었는지 추적 (free list)                       │
+│  - 적절한 크기 찾기 (best-fit / first-fit)                │
+│  - 인접 chunk merge (fragmentation 방지)                  │
+│  - 헤더에 size, status 기록                               │
+│  → 수십~수백 명령어                                       │
+├──────────────────────────────────────────────────────────┤
+│  TLAB bump-the-pointer                                    │
+│  - GC 가 어차피 통째로 청소함                             │
+│  - free list 불필요                                       │
+│  - fragmentation 신경 안 씀 (Copying GC 가 압축)         │
+│  - 단순 포인터 증가                                       │
+│  → 3 명령어                                               │
+└──────────────────────────────────────────────────────────┘
+```
+
+→ **"GC 가 메모리 정리를 책임지니까 할당이 무지 단순해질 수 있다."** Java/Go/C# 같은 GC 언어의 할당이 C/C++ 보다 빠른 이유 (대신 그 비용을 GC 가 묶어서 한 번에 지불).
+
+### 안티패턴 — TLAB 효율을 망가뜨리는 코드
+
+```java
+// ❌ 1. 핫 루프에서 거대한 임시 배열 할당
+public byte[] processBig() {
+    byte[] tmp = new byte[10_000_000];  // 10MB
+    // → TLAB 우회 → Eden 직접 할당 (CAS 경합)
+    // → 자주 호출되면 Old gen 직행 (Pretenuring)
+    // → Full GC 트리거 위험
+}
+
+// ❌ 2. 핫 루프에서 박싱
+List<Integer> list = new ArrayList<>();
+for (int i = 0; i < 1_000_000; i++) {
+    list.add(i);  // int → Integer 박싱
+    // → 100만 개 작은 객체 → TLAB 빨리 소진
+    // → TLAB refill 잦음 → slow path 비율 ↑
+}
+
+// ❌ 3. 객체 풀 패턴 (요즘은 거의 안티패턴)
+public class FooPool {
+    private final Queue<Foo> pool = new ConcurrentLinkedQueue<>();
+    public Foo acquire() { return pool.poll(); }
+    public void release(Foo foo) { pool.offer(foo); }
+}
+// → TLAB 가 너무 빠르고 GC 가 효율적이라 풀의 의미 ↓
+// → Escape Analysis 가 stack allocation 으로 최적화 못 함
+// → 풀 큐 자체의 동기화 비용이 더 큼
+// 예외: DB connection 처럼 자원 자체가 비싸면 OK
+```
+
+### 운영 마스터 진단 — TLAB 가 깨지는 신호
+
+production 에서 TLAB 의심 증상:
+
+| 증상 | 원인 | 진단 |
+|---|---|---|
+| Young GC 빈도 폭증, 처리량 안 늘어남 | TLAB refill 잦음 (TLAB 가 작거나 allocation rate 높음) | `-XX:+PrintTLAB`, GC log allocation rate |
+| 특정 스레드만 GC 압박 | 그 스레드만 큰 객체 자주 생성 (TLAB 우회) | JFR `jdk.ObjectAllocationOutsideTLAB` |
+| top-down profiling 시 동기화 비용 큼 | TLAB 외부 할당 잦음 (Eden CAS) | async-profiler `-e alloc` |
+| Old gen 자주 차고 Full GC 잦음 | 큰 객체가 Pretenure 로 직행 | heap dump, MAT 의 Histogram |
+
+### 면접 한 줄 답
+
+> "TLAB 는 Eden 의 동시 할당 경합을 없애는 메커니즘입니다. Eden 을 스레드별 buffer 로 미리 잘라줘서 fast path 는 포인터 더하기 3 명령어로 끝나고, TLAB 가 차면 그때만 Eden 에서 새 조각을 CAS 로 받아옵니다. **같은 사상이 InnoDB partition, RabbitMQ routing key, LongAdder, OS per-CPU 카운터까지 production 전반에 반복되고, 이걸 mechanical sympathy 라고 부릅니다. HW 의 cache line·동시성 한계를 이해하고 그 결을 따라 SW 를 짜는 사고방식의 한 사례입니다.**"
+
+### 백지 마스터 다이어그램
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                   │
+│   TLAB 의 본질                                                    │
+│   ─────────────                                                   │
+│                                                                   │
+│   "Eden 을 스레드별로 미리 잘라서 lock-free 빠른 길을 깔고,      │
+│    TLAB 가 차면 그때만 잠깐 동기화."                              │
+│                                                                   │
+│   세 가지 경로                                                    │
+│   ─────────────                                                   │
+│                                                                   │
+│   ① Fast path (대부분)                                            │
+│      TLAB.top += sizeof(obj)                                      │
+│      → 3 명령어, lock-free, 완전 병렬                             │
+│                                                                   │
+│   ② Slow path (TLAB 가득)                                         │
+│      Eden 에서 새 TLAB 잘라오기 (CAS)                             │
+│      → 가끔만, 묶어서 비용 분산                                   │
+│                                                                   │
+│   ③ Large object path                                             │
+│      Eden 직접 / Old 직행                                         │
+│      → TLAB 우회                                                  │
+│                                                                   │
+│   GC 와의 결합                                                    │
+│   ─────────────                                                   │
+│   - GC 가 통째로 정리 → free list 불필요 → bump 만으로 충분      │
+│   - Eden 가 차면 Young GC → 모든 TLAB 무효화 후 재할당           │
+│                                                                   │
+│   같은 사상의 반복                                                │
+│   ─────────────────                                               │
+│   InnoDB partition · RMQ routing key · LongAdder cell ·          │
+│   ThreadLocalRandom · slab per-CPU magazine · OS per-CPU 카운터  │
+│                                                                   │
+│   → mechanical sympathy                                           │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## 🔗 다음 단계
 
 - → [02. Metaspace & Class Space](./02-metaspace-and-class-space.md): PermGen 죽음의 풀버전, ClassLoaderData

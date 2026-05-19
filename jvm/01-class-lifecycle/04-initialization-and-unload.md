@@ -1415,6 +1415,395 @@ C ctor
 
 ---
 
+## 📎 부록 — 클래스 생애주기 종합 정리 + 운영 진단
+
+> **이 챕터 전체를 한 번에 훑는 부록.**
+> ClassLoader 와 JVM 의 책임 분담, 각 단계의 순서, Unload 조건과 leak 진단까지 — 면접/리뷰에서 받았을 때 백지에서 풀 수 있게 토글로 정리.
+
+<details>
+<summary><b>① 전체 생애주기 한 장 — 책임 분담 마스터 그림</b></summary>
+
+### 클래스 생애주기 7단계
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   [.class 파일]                                                     │
+│        │                                                            │
+│        │ ① Loading       ← ClassLoader 책임                        │
+│        ▼                                                            │
+│   ┌─────────────────────────────────────────┐                       │
+│   │            Linking ← JVM 책임            │                       │
+│   │   ┌─────────────────────────────────┐   │                       │
+│   │   │ ② Verification (검증)            │   │                       │
+│   │   │ ③ Preparation  (static 메모리)   │   │                       │
+│   │   │ ④ Resolution   (심볼릭 → 직접)   │   │                       │
+│   │   └─────────────────────────────────┘   │                       │
+│   └─────────────────────────────────────────┘                       │
+│        │                                                            │
+│        │ ⑤ Initialization  ← JVM 책임                              │
+│        ▼   (<clinit> 실행)                                          │
+│   ┌─────────────────────────────────────────┐                       │
+│   │ ⑥ Using (사용)                          │                       │
+│   └─────────────────────────────────────────┘                       │
+│        │                                                            │
+│        │ ⑦ Unloading                                                │
+│        ▼   (ClassLoader 가 GC 될 때)                                │
+│   [회수됨]                                                          │
+│                                                                     │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+### 책임 분담
+
+| 단계 | 책임 주체 | 본질 |
+|---|---|---|
+| ① Loading | **ClassLoader** | .class 바이트를 어디서 가져올지 |
+| ② Verification | **JVM** | 바이트코드가 안전한가 |
+| ③ Preparation | **JVM** | static 변수 메모리 + 기본값 |
+| ④ Resolution | **JVM** | 심볼릭 참조 → 직접 참조 (lazy) |
+| ⑤ Initialization | **JVM** | `<clinit>` 실행 (lazy, thread-safe) |
+| ⑥ Using | 애플리케이션 | JIT 컴파일도 이때 |
+| ⑦ Unloading | **GC** | ClassLoader 단위로 회수 |
+
+### 핵심 통찰
+- **ClassLoader 는 ① 만 담당**, 나머지는 다 JVM
+- **Unload 의 단위는 클래스가 아니라 ClassLoader**
+
+</details>
+
+---
+
+<details>
+<summary><b>② Loading — Parent Delegation 모델</b></summary>
+
+### ClassLoader 계층
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Bootstrap ClassLoader    (JVM 내장, C++ 작성)               │
+│  java.lang.*, java.util.* (코어)                             │
+└─────────────────────────────────────────────────────────────┘
+                  ▲ (부모)
+┌─────────────────────────────────────────────────────────────┐
+│  Platform ClassLoader     (JDK 9+, 옛 Extension CL)         │
+└─────────────────────────────────────────────────────────────┘
+                  ▲
+┌─────────────────────────────────────────────────────────────┐
+│  Application ClassLoader  (System CL, classpath)            │
+│  우리가 짠 애플리케이션 코드                                  │
+└─────────────────────────────────────────────────────────────┘
+                  ▲
+┌─────────────────────────────────────────────────────────────┐
+│  Custom ClassLoader   (Tomcat, Spring Boot, OSGi 등)         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 부모 위임 흐름
+
+```
+Custom CL.loadClass("Foo")
+   ↓ 1) 부모(Application)에게 위임
+   ↓ 2) Application → Platform 에게 위임
+   ↓ 3) Platform → Bootstrap 에게 위임
+   ↓ 4) Bootstrap 못 찾음 → 자기 영역에서 찾아봄
+   ↓ 5) Platform 자기 영역
+   ↓ 6) Application 자기 영역
+   ↓ 7) Custom 자기 영역 (마지막)
+```
+
+### 왜 이렇게? — 보안 + 일관성
+- 사용자가 `java.lang.String` 을 가로채는 걸 방지
+- 같은 클래스가 두 번 로드되는 것 방지
+
+### 클래스 동일성
+> **JVM 의 클래스 동일성 = "이름 + 로드한 ClassLoader"**
+
+```
+Foo (CL1 로 로드) ≠ Foo (CL2 로 로드)
+→ 같은 이름이라도 ClassCastException 발생 가능
+→ WAS 핫 리로드 함정의 정체
+```
+
+</details>
+
+---
+
+<details>
+<summary><b>③ Linking — Verification / Preparation / Resolution</b></summary>
+
+### Verification (검증) — 바이트코드 안전성
+
+```
+검증 항목:
+  - 매직 넘버 (.class 파일 형식)
+  - 바이트코드 명령어 유효성
+  - 타입 안전성 (int 에 String 못 넣음)
+  - final class 상속 여부
+  - 접근 제어 위반 여부
+```
+
+→ Java 가 "안전한 언어" 인 이유의 절반. 비용은 큼 (startup 시간의 큰 부분).
+
+### Preparation (준비) — static "방" 잡기
+
+```java
+class Foo {
+    static int count = 100;        // ★ Preparation 후: count = 0
+    static String name = "hello";  // ★ Preparation 후: name = null
+}
+```
+
+- 자리만 잡고 **기본값** (0, null, false) 만 설정
+- 실제 값 (100, "hello") 은 ⑤ Initialization 에서
+
+### 왜 두 단계로 나누나 — 순환 참조 회피
+
+```java
+class A { static B b = new B(); }
+class B { static A a = new A(); }
+```
+
+Preparation 에서 자리만 잡고 기본값 → 순환 시 NPE 안 나고 안전.
+
+### Resolution (해결) — 심볼릭 → 직접 참조 (Lazy!)
+
+```
+.class 파일 안:
+"java/util/ArrayList.add(Ljava/lang/Object;)Z"  ← 문자열 약속
+
+Resolution 후:
+ArrayList.add 의 실제 메모리 주소
+```
+
+**lazy** — 그 메서드를 처음 호출하는 순간에 resolve. 클래스 로딩 시점이 아님.
+
+</details>
+
+---
+
+<details>
+<summary><b>④ Initialization — `<clinit>` 와 Active Use</b></summary>
+
+### `<clinit>` 의 정체
+
+JVM 이 자동 생성하는 메서드. static 변수 대입 + static 블록을 순서대로 모아 만듦.
+
+```java
+class Foo {
+    static int count = 100;
+    static String name;
+    static { name = "hello"; }
+}
+
+// JVM 이 자동 생성:
+// <clinit>() {
+//   count = 100;
+//   name = "hello";
+// }
+```
+
+### "Active Use" 6가지 — 언제 발생하나
+
+JVM 은 클래스 초기화를 **lazy** 하게 함. 다음 중 하나가 일어날 때만:
+
+```
+1. new Foo()                  - 인스턴스 생성
+2. Foo.staticMethod()         - static 메서드 호출
+3. Foo.staticField (R/W)      - static 필드 접근
+4. Class.forName("Foo")       - 명시적 로딩 (★ initialize=true)
+5. 자식 클래스 초기화         - 부모도 초기화
+6. main 클래스 (JVM 시작)
+```
+
+### Lazy 의 함정
+
+```java
+class Foo {
+    static { System.out.println("Foo 초기화"); }
+}
+
+Class<?> c = Foo.class;   // ★ 출력 안 됨 — 초기화 안 일어남
+new Foo();                // ★ 이때 출력
+```
+
+**클래스 로딩 ≠ 클래스 초기화**. 별개 사건.
+
+### Thread Safety
+
+`<clinit>` 실행은 **JVM 이 자동으로 synchronized**.
+→ Lazy Singleton Holder 패턴의 안전성 기반.
+
+```java
+class Singleton {
+    private static class Holder {
+        static final Singleton INSTANCE = new Singleton();
+    }
+    public static Singleton get() { return Holder.INSTANCE; }
+}
+```
+
+</details>
+
+---
+
+<details>
+<summary><b>⑤ Unloading — 4가지 조건과 시나리오</b></summary>
+
+### 본질
+
+> **클래스 자체가 unload 의 단위가 아니라, ClassLoader 가 단위.**
+
+ClassLoader 가 GC 되면 → 그 CL 이 로드한 모든 클래스가 함께 unload.
+
+### Unload 의 4가지 조건 (모두 만족)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ClassLoader X 가 unload 되려면:                              │
+├──────────────────────────────────────────────────────────────┤
+│  ① X 로 로드된 클래스의 인스턴스가 하나도 없어야              │
+│  ② X 로 로드된 Class<?> 객체에 대한 참조가 없어야            │
+│  ③ ClassLoader X 자체 참조가 없어야                          │
+│  ④ static 필드의 외부 객체 chain 도 모두 GC 가능             │
+└──────────────────────────────────────────────────────────────┘
+```
+
+조건 만족 → 다음 Full GC (또는 G1 concurrent mark) 시점에 unload.
+
+### 어떤 ClassLoader 가 unload 되나
+
+| ClassLoader | unload? |
+|---|---|
+| Bootstrap | ❌ 영원 (JVM 종료까지) |
+| Platform | ❌ 영원 |
+| Application | ❌ 사실상 영원 (main 클래스 chain) |
+| **Custom** | ✅ **unload 가능** |
+
+→ **실무에서 "Class unload" = "Custom ClassLoader unload"**
+
+### Unload 가 실제로 일어나는 시나리오
+
+| 시나리오 | 트리거 |
+|---|---|
+| **WAS 핫 리로드** | Tomcat WebappClassLoader 교체 |
+| **Spring DevTools** | RestartClassLoader 교체 |
+| **OSGi Bundle** | 플러그인 install/uninstall |
+| **동적 클래스 생성** | ASM/Javassist/ByteBuddy 의 일회용 CL |
+
+### Tomcat 핫 리로드 흐름
+
+```
+[v1 배포]
+   Tomcat → WebappCL v1 생성 → app v1 로드 → 운영
+
+[v2 새 WAR 배포]
+   Tomcat → WebappCL v2 생성 → app v2 로드
+          → 트래픽 v2 로 전환
+          → v1 의 마지막 요청 끝나길 대기
+          → WebappCL v1 참조 해제 ★
+          → 다음 Full GC 에 v1 통째 unload
+```
+
+</details>
+
+---
+
+<details>
+<summary><b>⑥ ClassLoader Leak — 운영 마스터의 악몽</b></summary>
+
+### 본질
+
+> ClassLoader 의 참조 chain 이 어디선가 안 풀려서 unload 가 안 되는 현상. **Metaspace 누수의 가장 흔한 원인.**
+
+### Leak 흔한 패턴 6가지
+
+#### ① ThreadLocal leak (★ 가장 흔함)
+
+```java
+public class WebappCode {
+    static ThreadLocal<UserContext> ctx = new ThreadLocal<>();
+}
+```
+
+```
+Tomcat ThreadPool 스레드 (재배포 후에도 살아있음)
+   → ThreadLocal 의 값 (UserContext 인스턴스)
+   → UserContext class
+   → WebappClassLoader  ★ 영원히 잡힘
+```
+
+#### ② JDBC Driver 정적 등록
+
+```java
+DriverManager.registerDriver(new MyDriver());
+```
+
+```
+JDK DriverManager (Bootstrap CL) → MyDriver 인스턴스
+   → MyDriver class → WebappClassLoader  ★
+```
+
+해결: `DriverManager.deregisterDriver()` 를 webapp shutdown 시 호출.
+
+#### ③ JNI / Native 핸들
+
+JNI 가 Java 객체 reference 를 native 메모리에 저장 → JVM 이 "잡혀 있다" 로 인식.
+
+#### ④ Shutdown Hook
+
+```java
+Runtime.getRuntime().addShutdownHook(new Thread(() -> { ... }));
+```
+
+람다 안에서 webapp 클래스 참조 → JVM 의 shutdown hook chain 이 영원히 잡음.
+
+#### ⑤ 정적 캐시 / Singleton
+
+```java
+SomeJDKCache.put(key, ourWebappObject);  // JDK 의 static 캐시
+```
+
+#### ⑥ Logger / Log4j / SLF4J
+
+Logger 의 정적 캐시에 webapp 클래스 등록 → 재배포 후 안 풀림.
+
+### 진단 흐름
+
+```
+"재배포할 때마다 메모리 늘어요"
+   ↓
+Q: "Heap 입니까 Metaspace 입니까?"
+   ↓
+Metaspace → ClassLoader Leak 의심
+   ↓
+jcmd <pid> VM.classloader_stats
+   → 같은 webapp 의 CL 이 여러 개 살아있나?
+   ↓
+여러 개 → leak 확정
+   ↓
+jmap -dump:live,format=b,file=heap.bin <pid>
+   ↓
+Eclipse MAT 으로 열기
+   ↓
+"Path to GC Roots" 로 ClassLoader 추적
+   ↓
+대부분: ThreadLocal / JDBC / JNI / Shutdown Hook / 정적 캐시 중 하나
+```
+
+### 면접 안전 답
+> "ClassLoader Leak 의 90% 는 ThreadLocal, JDBC Driver, JNI, Shutdown Hook, 정적 캐시 중 하나입니다. 진단은 jcmd VM.classloader_stats 로 중복 CL 확인 후 heap dump + MAT 의 Path to GC Roots 로 추적합니다."
+
+</details>
+
+---
+
+### 부록 한 줄 정리
+
+> **"ClassLoader 는 ① Loading 만, JVM 이 ② Verification → ③ Preparation → ④ Resolution → ⑤ Initialization 까지 전부. ⑦ Unload 는 클래스가 아니라 ClassLoader 단위이며, 모든 참조 chain 이 끊겨야 가능. 실무에선 Custom CL 만 unload 대상이고 (앞 3개는 영원), 운영 leak 의 90% 는 ThreadLocal/JDBC/JNI/정적 캐시 중 하나다."**
+
+---
+
 ## 🔗 다음 단계
 
 01-class-lifecycle 챕터 종료. 다음:
