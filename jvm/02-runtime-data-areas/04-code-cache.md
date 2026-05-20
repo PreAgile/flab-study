@@ -517,6 +517,303 @@ Tier 4  C2                   → Non-profiled  ★
 
 > ⚠️ **면접에서 안 묻는 영역**: Sea-of-Nodes의 노드 종류, IR 변환 단계, register allocation 알고리즘. 이건 컴파일러 작성자 수준.
 
+#### 📚 용어·최적화 풀이 (필요할 때 펼쳐보기)
+
+각 용어를 한 번씩만 정확히 이해해두면, 면접에서 "C2가 왜 좋아요?" 같은 질문에 구체적 사례로 답할 수 있다.
+
+<details>
+<summary><b>HIR (High-level Intermediate Representation)</b> — "사람이 읽을 만한 중간 언어"</summary>
+
+**본질**: bytecode를 바로 machine code로 못 만든다. 그 사이를 잇는 **추상도 높은 중간 표현**이 HIR.
+- bytecode보다 분석하기 좋게 정돈된 형태 (메서드 호출, 분기, 변수 등이 노드)
+- 아직 머신과는 거리 멈 — 레지스터·주소 없음, "변수 a, 메서드 호출" 같은 추상 단위
+
+**비유**: Java 소스와 어셈블리 사이의 중간 언어. Java의 의미는 유지하되 컴파일러가 분석·최적화하기 좋게 표현.
+
+**왜 필요한가**: HIR 단계에서 constant folding, simple inlining 같은 **소스 레벨에 가까운 최적화**를 적용한 뒤 LIR로 내려간다.
+
+</details>
+
+<details>
+<summary><b>LIR (Low-level Intermediate Representation)</b> — "거의 어셈블리"</summary>
+
+**본질**: machine code 직전 단계. 레지스터·메모리 주소·명령 단위로 표현.
+- HIR의 추상 "변수"가 LIR에서는 "레지스터 R1" 또는 "stack slot [rbp-8]"로 구체화
+- CPU 명령에 거의 1:1로 매핑됨
+
+**C1 흐름 한 줄**: `bytecode → HIR (최적화) → LIR (register allocation, 명령 매핑) → machine code`
+
+**왜 두 단계로 나누나**: HIR은 의미 단위 최적화에 좋고, LIR은 머신 단위 최적화(register, instruction scheduling)에 좋다. 한 단계로 하면 둘 다 어색.
+
+</details>
+
+<details>
+<summary><b>Sea-of-Nodes IR</b> — "그래프로 보는 코드" (C2의 무기)</summary>
+
+**본질**: 데이터 흐름과 제어 흐름을 **하나의 그래프**로 표현. 명령 "순서"가 사라지고 **노드 간 의존성**만 남는다.
+
+```
+[전통 IR — 명령 시퀀스]            [Sea-of-Nodes — 그래프]
+  a = x + y                       (+)
+  b = a * 2                      ╱   ╲
+  c = b + z                     x     y
+                                 │
+                                 ▼
+                               (*) ← 2
+                                 │
+                                 ▼
+                               (+) ← z
+                                 │
+                                 ▼
+                                 c
+```
+
+**왜 강력한가**: 명령 순서 제약이 없다. 의존성만 보존하면 **자유롭게 재배치·복제·삭제 가능**. 그래서 escape analysis, loop unrolling 같은 복잡한 최적화가 자연스럽게 풀린다.
+
+**대가**: 그래프 분석은 비싸다. C2가 메서드당 수십~수백 ms 걸리는 이유.
+
+**면접에서 한 줄로**: "C2는 Sea-of-Nodes로 명령 순서 제약 없이 그래프 재구성하면서 최적화. 비싸지만 깊은 최적화 가능."
+
+</details>
+
+<details>
+<summary><b>Constant Folding</b> — "컴파일 타임에 미리 계산"</summary>
+
+**본질**: 컴파일 시점에 계산 가능한 상수 표현을 **미리 계산해서 결과로 치환**.
+
+```java
+// Before
+int x = 3 * 4 + 5;
+int len = "hello".length();
+boolean b = (1 + 2) > 0;
+
+// After (compile time에 계산됨)
+int x = 17;
+int len = 5;
+boolean b = true;
+```
+
+**왜 좋은가**: 런타임 계산 0번. 가장 기본적이고 거의 모든 컴파일러가 함. C1도 함.
+
+**시니어 관점**: 같은 효과를 위해 사람이 코드에서 `final` 상수 잘 쓰면 JIT가 더 적극적으로 fold함. 매직 넘버 직접 박는 게 가독성·최적화 둘 다에서 손해.
+
+</details>
+
+<details>
+<summary><b>Simple Inlining (C1)</b> — "작은 메서드는 호출자 안에 펼치기"</summary>
+
+**본질**: 메서드 호출 자체를 없애고, 호출 대상의 코드를 호출자 안에 **복사해 넣음**.
+
+```java
+// Before
+int getX() { return x; }
+int total = getX() + getY();
+
+// After (inline)
+int total = this.x + this.y;
+```
+
+**왜 빨라지나**: 호출 비용(스택 프레임 생성, 인자 전달, 리턴 점프) 제거.
+
+**C1의 특징**: 보수적. 매우 작은 메서드(~수십 bytecode)만 inline. 호출 사이트가 monomorphic일 때만.
+
+**C2와의 차이**: C2는 큰 메서드도 inline + 가상 호출도 inline (CHA로 monomorphic 증명되면).
+
+</details>
+
+<details>
+<summary><b>Basic Register Allocation (C1)</b> — "변수를 CPU 레지스터에 매핑"</summary>
+
+**본질**: 모든 변수를 stack에 두면 메모리 접근이 매번 필요 → 느림. CPU 레지스터(rax, rbx 등)에 두면 **메모리 접근보다 100배 빠름**.
+
+```
+변수 a, b, c, d  + CPU 레지스터 (~16개)
+   ↓
+어떤 변수를 어떤 레지스터에 둘지 결정해야 함
+   ↓
+변수가 레지스터 수보다 많으면 일부는 stack으로 "spill"
+```
+
+**C1의 알고리즘**: **Linear scan** — 변수의 life range를 한 번 쭉 훑어 배치. 빠르지만 비최적.
+**C2의 알고리즘**: **Graph coloring** 변형 — 더 정밀하지만 느림.
+
+**왜 중요**: hot loop 안에서 매번 stack 접근하면 코드가 5~10배 느려진다.
+
+</details>
+
+<details>
+<summary><b>Aggressive Inlining (C2)</b> — "monomorphic 가상 호출도 inline"</summary>
+
+**본질**: C1의 inlining이 보수적인 반면, C2는 **큰 메서드도 inline + 가상 호출도 inline**.
+
+```java
+// 일반적으로 가상 호출 — vtable lookup 필요
+List<Integer> list = ...;
+list.add(1);  // ArrayList? LinkedList?
+
+// 그러나 profile상 ArrayList만 들어옴 (monomorphic)
+// → C2가 ArrayList.add를 직접 inline
+// → vtable lookup 사라짐
+```
+
+**효과**: inline 후 **메서드 경계가 사라져서** 다른 최적화(escape analysis, loop unrolling)가 호출 너머까지 확장됨.
+
+**전제**: Inline Cache가 monomorphic이어야 함. 다형성 남발하면 C2가 손 못 댐.
+
+</details>
+
+<details>
+<summary><b>Escape Analysis</b> — "이 객체 메서드 밖으로 나가나?"</summary>
+
+**본질**: 객체가 만들어진 메서드 밖으로 **참조가 새어나가는지(escape)** 분석.
+- 안 나가면 → heap 할당 불필요 → **stack 할당 또는 scalar replacement**
+
+```java
+// Before
+public int dist() {
+    Point p = new Point(3, 4);  // heap 할당?
+    return p.x * p.x + p.y * p.y;
+}
+// p는 메서드 밖으로 안 나감 → "no escape"
+// → heap에 안 만들어도 됨
+
+// After (scalar replacement까지 적용)
+public int dist() {
+    int p_x = 3, p_y = 4;  // 그냥 지역 변수
+    return p_x * p_x + p_y * p_y;
+}
+```
+
+**효과**: heap 할당 사라짐 → **GC 압박 ↓**, allocation 비용 ↓.
+
+**시니어 관점**: 짧게 사는 wrapper 객체(`Integer`, `Optional` 등)도 EA 덕에 실제로는 안 만들어지는 경우 많음. "객체 만들면 무조건 GC 비용"이라는 통념은 C2 시대엔 정확하지 않다.
+
+</details>
+
+<details>
+<summary><b>Scalar Replacement</b> — "객체를 아예 만들지 말고 필드만 변수로"</summary>
+
+**본질**: Escape Analysis 결과 "도망 안 가는 객체"는 **객체 자체를 안 만들고 필드를 그냥 지역 변수**로 펼침.
+
+```java
+// Before
+Point p = new Point(1, 2);
+return p.x + p.y;
+
+// After (scalar replacement)
+int p_x = 1;  // 객체 안 만들고
+int p_y = 2;  // 필드를 그냥 변수로
+return p_x + p_y;
+```
+
+**EA와의 관계**: EA는 "분석", Scalar Replacement는 "그 분석 결과를 활용한 실제 변환".
+
+**효과**: heap 할당 완전 제거. JMH 벤치에서 객체 할당이 0번으로 찍히는 게 이 효과.
+
+</details>
+
+<details>
+<summary><b>Loop Unrolling</b> — "루프 본체를 여러 번 펼치기"</summary>
+
+**본질**: 루프 한 iteration의 실제 작업 대비 **루프 오버헤드(카운터 inc, 비교, 점프)** 비율을 줄이려고 본체를 여러 번 복사.
+
+```java
+// Before
+for (int i = 0; i < 100; i++) sum += arr[i];
+
+// After (4x unroll)
+for (int i = 0; i < 100; i += 4) {
+    sum += arr[i];
+    sum += arr[i+1];
+    sum += arr[i+2];
+    sum += arr[i+3];
+}
+```
+
+**효과**:
+- 루프 오버헤드 1/4로 줄임
+- **vectorization 가능해짐** (한 번에 4개 처리하니 SIMD 명령 매핑 쉬워짐)
+- CPU pipeline 활용 증가
+
+**대가**: 코드 크기 증가. 너무 큰 unroll은 I-cache miss로 역효과.
+
+</details>
+
+<details>
+<summary><b>Range Check Elimination</b> — "배열 bounds check 제거"</summary>
+
+**본질**: Java는 안전을 위해 **모든 배열 접근에 bounds check 자동 삽입** (`ArrayIndexOutOfBoundsException` 던지려고). 이 check는 매번 실행됨.
+
+```java
+// 사용자 코드
+for (int i = 0; i < arr.length; i++) {
+    arr[i] = i;
+}
+
+// JVM이 실제 만드는 코드 (개념적)
+for (int i = 0; i < arr.length; i++) {
+    if (i < 0 || i >= arr.length) throw new AIOOBE();  // ← 매번 실행
+    arr[i] = i;
+}
+```
+
+C2의 분석: "`i`가 `0`부터 `arr.length-1`까지만 도는 게 자명함" → **check 제거**.
+
+**효과**: 단순 배열 루프 30~50% 빨라질 수 있음.
+
+**시니어 관점**: 인덱스를 `int`로 깔끔히 쓸수록 C2가 증명하기 쉬움. 복잡한 인덱스 계산(`arr[i*2 + offset]` 등)은 증명 실패로 check 남음.
+
+</details>
+
+<details>
+<summary><b>Vectorization (SIMD)</b> — "한 명령으로 여러 데이터 동시 처리"</summary>
+
+**본질**: 현대 CPU는 **SIMD 명령**(AVX, NEON 등) 지원 — 한 명령으로 4~8개 데이터 동시 처리.
+
+```java
+// 사용자 코드
+for (int i = 0; i < arr.length; i++) sum += arr[i];
+
+// 일반 컴파일: 한 번에 1개씩
+// SIMD: 한 명령으로 8개 int 동시 합산 (AVX-512)
+// → 8배 빠름
+```
+
+**조건**:
+- 루프가 단순 (분기 없음)
+- bounds check 제거됨
+- 데이터 정렬 좋음
+
+**시니어 관점**: 핫 루프에서 분기 박으면 vectorization 깨짐. `Arrays.stream(arr).sum()` 같은 단순 루프가 빠른 이유 중 하나.
+
+</details>
+
+<details>
+<summary><b>Speculative Compilation</b> — "profile은 가정, 가정 깨지면 deopt"</summary>
+
+**본질**: C2는 profile 데이터를 **확률적 가정**으로 받아 공격적으로 최적화.
+- "이 호출 사이트는 99% ArrayList" → ArrayList로 가정해 inline
+- "이 분기는 99% true" → false 쪽은 cold path로 미루기
+- "이 변수는 99% non-null" → null check 제거
+
+```java
+// 사용자 코드
+list.add(item);
+
+// profile: 100% ArrayList
+// → C2가 ArrayList.add를 inline, 가상 호출 제거
+
+// 만약 어느 시점 LinkedList가 들어오면?
+// → 가정 깨짐 → deopt → 인터프리터로 복귀
+// → 다시 profile 모아서 새로 컴파일
+```
+
+**대가**: 가정이 깨지면 **deoptimization** 발생. 잦으면 성능 저하.
+
+**시니어 관점**: 코드의 다형성(Strategy 패턴, dynamic proxy)이 많으면 가정이 자주 깨져 deopt 폭주. 그래서 sealed class·monomorphic 코드 패턴이 JIT 친화적.
+
+</details>
+
 ### Compile Broker — 큐 매니저, 그 이상도 이하도 아님
 
 Compile Broker는 **task 큐를 관리하는 단순 컴포넌트**다. 어떤 코드도 감시하지 않는다.
