@@ -1074,6 +1074,421 @@ JDK 8의 fragmentation 문제 해결:
 
 ---
 
+### 🔑 두 층으로 보기 — 개념층 vs 구현층
+
+JDK 버전 차이 질문에 답할 때 가장 중요한 사고 틀:
+
+```
+[개념층 — JDK 7 ~ 21 거의 동일]
+─────────────────────────────────
+C1 = 빠른 컴파일, 약한 최적화
+C2 = 무거운 컴파일, 공격적 최적화
+Tiered = 인터프리터 → C1 → C2 승급
+Code Cache = JIT 산출물 보관 + executable memory
+
+[구현층 — 매 JDK 조용히 진화]
+─────────────────────────────────
+어떤 최적화가 추가됐나
+어떤 intrinsic이 새로 들어갔나
+SIMD/vectorization 적용 범위
+escape analysis 정밀도
+default 임계·heuristic
+GC와의 통합 수준
+```
+
+→ **"개념은 같지만 같은 코드가 다르게 빠르다"** — JDK 업그레이드만으로 5~30% 성능 개선이 흔히 보고되는 이유.
+
+### 💡 각 변화의 "왜" — 무슨 문제 때문에 바뀌었나
+
+표만 외우면 의미 없다. **각 JEP가 어떤 문제를 풀려고 등장했는지**를 알아야 면접 답이 깊어진다. 아래 토글로 펼쳐보기.
+
+<details>
+<summary><b>🔥 Graal JIT — 등장한 이유 / 별도 프로젝트로 빠진 이유 (가장 중요)</b></summary>
+
+#### 왜 등장했나 — C2의 위기
+
+C2(Server Compiler)는 1999년경 C++로 작성된 코드. 20년 넘게 production을 지탱했지만 **유지보수 위기**에 직면.
+
+```
+C2의 누적 문제:
+─────────────────────
+1. C++로 작성된 수만 줄 — 거의 마법 수준
+   → 원작자(Cliff Click 등) 떠난 후 깊이 이해하는 사람 적음
+   → 새 최적화 추가가 어려움 = JIT 진화 정체
+
+2. Java를 컴파일하는 컴파일러가 C++
+   → 새 기능 개발하려면 C++ 컴파일러 작성자 수준 지식 필요
+   → 진입 장벽 매우 높음
+
+3. 디버깅·테스트 어려움
+   → 버그 잡기 힘들고 회귀 자주 발생
+
+4. 현대 최적화 기법 채택 정체
+   → Partial Escape Analysis, advanced inlining 등 신기법 적용 어려움
+```
+
+#### Graal의 해결책
+
+Oracle Labs가 **Java로 새 JIT를 작성**:
+- 같은 언어로 Java를 컴파일 → 자기 자신을 최적화 가능
+- 깨끗한 OOP 설계 → 유지보수·확장 쉬움
+- **JVMCI** 인터페이스(JEP 243)로 기존 JVM에 plug-in → C2 대체 가능
+- 현대 최적화 적극 채택 (Partial Escape Analysis 등)
+
+JDK 10에서 `-XX:+UseJVMCICompiler`로 실험적 사용 가능.
+
+#### 왜 실패했나 — JEP 410으로 제거된 이유
+
+```
+Graal JIT의 한계:
+─────────────────────
+1. ★ 메모리 사용 ↑
+   Java로 작성 → JVM 위에서 동작 → 추가 메모리 footprint 큼
+   컨테이너 환경에서 불리
+
+2. 일부 워크로드에서 C2보다 느림
+   peak 성능 모든 시나리오에서 C2 압도 못 함
+   "어떨 때만 좋다" → 일관성 부족
+
+3. ★ 사용자 적음
+   experimental 상태였기 때문에 production 사용 적음
+   사용자 적음 → 버그 리포트 적음 → 성숙도 정체
+
+4. OpenJDK 본체 유지 비용
+   OpenJDK 팀이 들고 있는 게 부담
+   별도로 빠지는 게 양쪽에 이득
+```
+
+#### 왜 별도 프로젝트(GraalVM)로 갔나
+
+이게 핵심 통찰이다.
+
+```
+[OpenJDK 본체]                    [GraalVM (별도 프로젝트)]
+─────────────────                  ─────────────────────────
+안정성·범용성 추구                   혁신·차별화 추구
+모든 JVM 사용자에게 안전             특정 분야에 강력하게
+                                  - Native Image (AOT)
+C1, C2 유지 (검증된 길)             - Polyglot (다언어)
+                                  - 서버리스/컨테이너 강점
+
+→ "안정의 본체" vs "혁신의 별도 프로젝트"로 분리
+```
+
+**GraalVM의 진짜 차별화**: AOT 컴파일 → **Native Image** (시작 시간 ms 단위). 서버리스·CLI 도구 분야에서 결정적 우위.
+- C1/C2: JIT, warmup 필요, peak 성능 좋음.
+- GraalVM Native Image: AOT, warmup 없음, peak는 약간 손해.
+
+**시장이 둘 다 필요로 함**. 그래서 분리가 합리적이었다.
+
+#### JVMCI는 왜 남았나
+
+Graal JIT는 빠졌지만 **JVMCI 인터페이스는 OpenJDK에 그대로**.
+- 외부 컴파일러를 plug-in으로 받을 수 있는 표준 인터페이스
+- GraalVM이 plug-in으로 여전히 OpenJDK에 붙을 수 있음
+- 미래 다른 JIT 후보(예: 더 발전된 Java 기반 JIT)가 들어올 수 있는 길
+
+→ **"길은 열어두되 본체는 가볍게"** 가 JDK 17의 결정.
+
+#### 면접 답변 한 단락
+
+> Graal JIT는 C2가 C++로 작성되어 유지보수 한계에 부딪힌 문제를 풀려고 Java로 새로 작성된 JIT입니다. JEP 243의 JVMCI 인터페이스로 plug-in 가능했고, JDK 10부터 실험적으로 사용됐습니다. 그러나 메모리 footprint가 크고, 모든 워크로드에서 C2보다 빠르지 않았으며, experimental 상태로 사용자가 적어 OpenJDK 본체 유지 비용이 부담됐습니다. JDK 17 JEP 410으로 OpenJDK에서 제거되고 별도 프로젝트 GraalVM으로 분리됐습니다. GraalVM은 Native Image(AOT) 같은 차별화 방향을 추구하고, OpenJDK는 검증된 C1/C2로 회귀했습니다. JVMCI 인터페이스는 남아 있어 GraalVM이 plug-in으로 여전히 OpenJDK에 붙을 수 있습니다.
+
+</details>
+
+<details>
+<summary><b>Tiered Compilation 도입 (JDK 7~8) — 왜 등장했나</b></summary>
+
+#### 그전의 문제: -client / -server 양자택일
+
+JDK 6까지 사용자가 두 가지 중 선택해야 했다.
+```
+java -client MyApp   → C1만 사용. Warmup 빠름, Peak 낮음
+java -server MyApp   → C2만 사용. Warmup 느림, Peak 좋음
+```
+
+**문제**:
+1. 사용자가 잘못 고르면 손해.
+2. "GUI 앱은 -client, 서버는 -server" 같은 단순 룰만 있고 정교한 판단 어려움.
+3. 시작은 client가 좋고 안정화는 server가 좋은데 둘 다 못 얻음.
+
+#### Tiered의 해결책
+
+**"둘 다 쓰자"** — 시작은 C1으로 빠르게, 안정화 후 C2로 승급.
+- JDK 7: 옵트인 (`-XX:+TieredCompilation`).
+- JDK 8: **기본 ON**.
+
+#### 대가
+
+Code Cache 2배 사용 → JDK 8 기본 size 48MB → 240MB로 증가.
+이게 또 새 문제(fragmentation) 만들어서 JDK 9에서 Segmented Code Cache가 등장.
+
+→ **한 해결책이 다음 문제를 부르는 연쇄**. JIT 진화의 전형적 패턴.
+
+</details>
+
+<details>
+<summary><b>Segmented Code Cache (JEP 197, JDK 9) — 왜 필요했나</b></summary>
+
+#### Tiered의 후유증
+
+JDK 8에서 Tiered 기본 ON → Code Cache에 C1 결과와 C2 결과가 **동시에** 살게 됨.
+
+```
+JDK 8의 단일 Code Cache 내부:
+[C2 nmethod] [C1 nmethod] [C2] [C1] [C1] [C2] [C1] ...
+   ↑ long-lived   ↑ short-lived가 섞임
+```
+
+**구체적 문제 3가지**:
+
+```
+1. Sweep 비효율
+   ─────────────
+   short-lived C1을 자주 sweep해야 함
+   그런데 long-lived C2도 같은 영역이라 매번 함께 스캔
+   → CPU 낭비
+
+2. Fragmentation
+   ─────────────
+   short-lived가 가운데 군데군데 죽으면 빈 공간 발생
+   C2의 큰 nmethod가 들어갈 연속 공간 못 찾음
+   → 컴파일 실패 또는 비효율
+
+3. I-cache locality 손상
+   ─────────────────────
+   hot한 C2 코드와 일회용 C1 코드가 메모리에서 섞임
+   CPU의 I-cache가 cold 코드를 자꾸 로드
+   → 캐시 미스 ↑
+```
+
+#### JEP 197 해결: 3개 segment로 물리 분리
+
+수명·특성별로 영역 자체를 나눔 → 각 영역 독립 sweep, locality 향상.
+
+→ **"섞이는 게 문제면 안 섞이게 칸 만들자"** 의 정공법.
+
+</details>
+
+<details>
+<summary><b>JVMCI (JEP 243, JDK 9) — 왜 만들었나</b></summary>
+
+#### 문제: JIT 진화의 병목
+
+C2가 C++로 작성되어 수정·확장이 어렵다는 문제 인식. **장기 해결책: 외부 컴파일러를 plug-in 받을 수 있게 인터페이스 표준화**.
+
+#### JVMCI의 정의
+
+`Java-level JVM Compiler Interface` — JVM이 컴파일을 외부 컴파일러에게 위임할 수 있게 하는 **Java 인터페이스**.
+
+```
+JVM (OpenJDK)                    Compiler Plug-in
+─────────────                    ──────────────────
+"이 메서드 컴파일해줘"   ────→     Graal (Java 작성)
+(JVMCI 인터페이스로)              또는 미래의 다른 JIT
+                ←────  nmethod 결과
+```
+
+#### 효과
+
+- Graal이 JDK 10에서 plug-in으로 동작 가능했던 이유.
+- JDK 17에서 Graal이 OpenJDK 본체에서 제거됐어도 **JVMCI는 남아서** GraalVM이 여전히 plug-in 가능.
+- 미래 다른 JIT 시도가 들어올 길이 됨.
+
+→ **"미래의 길을 열어두는 표준"**. 단기 효과보다 장기 옵션 가치.
+
+</details>
+
+<details>
+<summary><b>Intrinsic — JIT의 비밀 무기 (매 JDK 늘어남)</b></summary>
+
+#### 무엇인가
+
+`Intrinsic` = JIT가 **bytecode 컴파일이 아니라 hand-tuned native code로 대체**하는 메서드.
+
+```java
+// 사용자 코드
+Math.max(a, b);
+
+// 일반 컴파일: bytecode를 따라 분기 native 생성
+// Intrinsic: CPU의 SSE/AVX 명령으로 1줄 치환
+//   movd xmm0, eax
+//   pmaxsd xmm0, xmm1
+```
+
+#### 왜 매 JDK 추가되나
+
+새 CPU 명령(AVX-512, ARM SVE 등)이 추가되면 JIT가 활용할 수 있게 intrinsic 등록.
+
+대표 예:
+- JDK 8: `Math.fma` (fused multiply-add) — CPU 1명령
+- JDK 9: `String.compareTo`, `Arrays.equals` 등 (Compact Strings와 함께)
+- JDK 16+: `MethodHandles.lookup`, `Reference.refersTo`
+- JDK 21: 더 많은 `Math.*`, `BigInteger.*`
+
+#### 시니어 관점
+
+**같은 Java 코드가 JDK 버전마다 다른 machine code로 나옴**. 같은 `String.equals`가 JDK 8과 17에서 다른 속도. 그래서 "JDK 업그레이드만으로 빨라진다".
+
+→ **JIT가 "이 메서드 알아본다 → 최고의 명령으로 치환"하는 효과**.
+
+</details>
+
+<details>
+<summary><b>Partial Escape Analysis — Graal이 가져온 개념</b></summary>
+
+#### 기존 Escape Analysis의 한계
+
+C2의 EA는 **전부 아니면 전무**:
+- 객체가 어디로든 escape하면 → heap 할당
+- 안 escape하면 → stack/scalar replacement
+
+문제: **일부 경로만 escape하는 경우**에 보수적으로 heap에 둠.
+
+```java
+void method(boolean cond) {
+    Point p = new Point(1, 2);
+    if (cond) {
+        externalAPI(p);  // ★ 이 경로에서만 escape
+    } else {
+        return p.x + p.y;  // ★ 이 경로는 no escape
+    }
+}
+// 기존 EA: cond=true 경로 때문에 heap 할당
+// → cond=false인 경우도 손해
+```
+
+#### Partial EA의 해결
+
+**경로별로 다르게 처리**:
+- escape 경로: 그 시점에서 heap 객체로 "materialize"
+- no escape 경로: stack/scalar replacement 그대로
+
+```java
+// Partial EA 후 (개념적)
+if (cond) {
+    Point p = new Point(1, 2);  // 여기서만 heap 할당
+    externalAPI(p);
+} else {
+    int p_x = 1, p_y = 2;       // 객체 안 만듦
+    return p_x + p_y;
+}
+```
+
+#### 의의
+
+- Graal이 채택해 화제가 됨.
+- C2도 이후 일부 도입했지만 Graal만큼 적극적이지 않음.
+- 함수형 스타일·Optional·Stream 등 wrapper 많은 코드에서 효과 큼.
+
+→ **"전부 아니면 전무" 사고를 "경로별로"로 진화시킨 사례**.
+
+</details>
+
+<details>
+<summary><b>SuperWord / Auto-Vectorization — SIMD 자동 활용</b></summary>
+
+#### 무엇인가
+
+루프 안의 **여러 iteration을 SIMD 명령으로 묶기**.
+
+```java
+for (int i = 0; i < n; i++) c[i] = a[i] + b[i];
+
+// SuperWord: 한 번에 4~16개씩 처리
+// CPU의 AVX2/AVX-512 명령으로 4~8개 int 동시 덧셈
+```
+
+#### 왜 매 JDK 진화하나
+
+- 새 CPU 명령 등장 → 활용 패턴 추가
+- 분석 정밀도 개선 → 더 복잡한 루프에도 적용
+- JDK 16+: Vector API와 연계해 명시적 SIMD도 지원
+
+#### 시니어 관점
+
+핵심 루프에 분기·복잡한 인덱스 없으면 JIT가 자동으로 SIMD 적용. **"단순하게 쓴 루프가 더 빠르다"** 의 이유.
+
+</details>
+
+<details>
+<summary><b>nmethod unloading의 GC 통합 (JDK 16~21) — 왜 변했나</b></summary>
+
+#### 기존 문제: Code Sweeper의 STW
+
+옛 NMethodSweeper는 별도 thread에서 주기적으로 동작했지만 **일부 단계에서 STW 발생**.
+- Code Cache 압박 시 sweep 빈도 ↑ → STW 빈도 ↑
+- low-latency 시스템에서 문제
+
+#### 해결: GC와 통합
+
+ZGC, Shenandoah 같은 concurrent GC가 nmethod unloading을 **자기 동작 안에 포함**.
+- nmethod도 객체와 함께 reachability 분석
+- concurrent로 unload → STW 거의 사라짐
+
+#### 의의
+
+- JDK 17부터 표준화 흐름.
+- Code Cache 관리가 별도 시스템에서 **GC의 일부**로 흡수.
+- low-latency 시스템에서 Code Cache 압박이 더 이상 P99에 영향 안 줌.
+
+→ **"별도 서브시스템을 GC로 흡수"** 가 modern JVM의 방향.
+
+</details>
+
+<details>
+<summary><b>Project Leyden / AOT Cache — JIT의 미래?</b></summary>
+
+#### 문제: JIT의 영원한 한계 = warmup
+
+JIT는 매 실행마다 처음부터 컴파일 → **매 시작 시 warmup 비용**.
+- 서버리스(Lambda, Cloud Run): 시작이 자주 일어남 → JIT 비용 매번
+- 컨테이너 재시작 빈번: 같은 코드 매번 다시 컴파일
+- CLI 도구: 시작 시간이 곧 사용자 경험
+
+#### 옛 시도와 실패
+
+- **JDK 9 AOT (`jaotc`)**: AOT 컴파일 도구 도입 → 거의 안 쓰임 → JDK 16에서 제거.
+- **GraalVM Native Image**: 강력하지만 별도 빌드 필요, peak 성능 손해.
+
+#### Leyden의 접근
+
+**기존 JIT 결과를 cache해서 다음 실행에 재사용**.
+```
+1차 실행: 보통대로 JIT 컴파일
+        ↓ 컴파일 결과를 AOT cache로 저장
+2차 실행: cache 로드 → warmup 거의 없이 빠르게 시작
+        ↓ 추가 hot이 발견되면 새로 컴파일해 cache 업데이트
+```
+
+→ JIT를 **대체가 아닌 보완**. 검증된 C1/C2를 그대로 두고 시작 시간만 줄임.
+
+#### 현황
+
+- JDK 24+ AOT Cache 정식.
+- Leyden은 OpenJDK 산하 프로젝트로 진행 중.
+- 서버리스·컨테이너 시대에 적합한 방향.
+
+→ **"JIT는 사라지지 않는다, 그러나 시작은 cache로 건너뛴다"**.
+
+</details>
+
+### 면접 답변 — "JDK 버전마다 JIT가 다른가요?"
+
+> 개념적으로는 모두 C1/C2 + Tiered Compilation으로 동일합니다. 그러나 **내부는 매 JDK 조용히 진화합니다**.
+>
+> 주요 분기점:
+> - **JDK 8**: Tiered 기본 ON, Code Cache 240MB.
+> - **JDK 9**: Segmented Code Cache (JEP 197) — Tiered 후유증 해결. JVMCI (JEP 243) — 외부 JIT plug-in 길.
+> - **JDK 10~16**: Graal JIT 실험 — C2의 C++ 유지보수 위기를 풀려는 시도.
+> - **JDK 17**: Graal JIT 제거 (JEP 410) — 메모리·일관성·사용자 부족으로 별도 프로젝트 GraalVM으로 분리. JVMCI는 남음.
+> - **JDK 21**: nmethod unloading이 GC와 통합되어 STW 영향 거의 사라짐. Vector API 성숙으로 SIMD 활용 확대.
+> - **JDK 24+**: Project Leyden의 AOT Cache로 warmup 보완.
+>
+> 또한 intrinsic 목록, escape analysis 정밀도, vectorization 적용 범위, default heuristic이 매 JDK 갱신되어 **같은 코드도 JDK가 다르면 다르게 빠릅니다**. 그래서 JDK 업그레이드만으로 5~30% 성능 개선이 흔히 보고됩니다.
+
+---
+
 ## ⚖️ 5단계: 트레이드오프 — 옵션 튜닝의 본질
 
 ### `-XX:ReservedCodeCacheSize`
