@@ -28,20 +28,21 @@
 ### 6개 가지 — 순서를 외운다
 
 ```
-                  [ROOT: Code Cache = JIT 산출물의 executable mem]
-                                    │
-       ┌─────────┬──────────────┬───┴───┬──────────────┬─────────┐
-       │         │              │       │              │         │
-      ① WHY    ② WHAT         ③ HOW   ④ 내부          ⑤ 운영    ⑥ 진화
-   JIT 본질    별도 영역       자기    Inline Cache   진단      JDK 7→21
-       │       3 segment       보고    Deopt          시나리오   진화
-       │         │              │       │              │         │
-       │    ┌────┼────┐     ┌───┼───┐  ┌─┼─┐      ┌────┼────┐    │
-    인터프  Non-method  자기카운터 큐  IC(mono/  Deopt  Compiler.  Tiered→
-    AOT vs Profiled    인터프→C1   비동기  bi/mega) reason codecache Segmented→
-    JIT    Non-profiled tier3→C2  pickup nmethod  CHA   PrintCompile JVMCI→
-    C1+C2  Code Cache             패치   atomic         JFR        Graal→
-    Tiered "조회 X"                                                Leyden
+                                [ROOT: Code Cache = JIT 산출물의 executable mem]
+                                                      │
+          ┌─────────────┬─────────────┬─────────────┬─────────────┬─────────────┬─────────────┐
+          │             │             │             │             │             │             │
+          ①             ②             ③             ④             ⑤             ⑥
+         WHY           WHAT           HOW           내부           운영           진화
+      JIT 본질      별도 영역      자기 보고     IC + Deopt      진단         JDK 7 → 21
+                   3 segment                     (런타임)       시나리오
+          │             │             │             │             │             │
+          ▼             ▼             ▼             ▼             ▼             ▼
+
+      인터프리터    Non-method     카운터          IC 4단계       Compiler.      Tiered
+      AOT vs JIT   Profiled        tier3 → C2      nmethod        codecache      Segmented
+      C1 + C2      Non-profiled    비동기 큐       Deopt + CHA    PrintCompile   JVMCI / Graal
+      Tiered       "조회 X"        + pickup        atomic 패치    JFR            Leyden
 ```
 
 ### 가지별 핵심 키워드 (각 가지 3개씩만)
