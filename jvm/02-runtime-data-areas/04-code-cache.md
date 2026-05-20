@@ -1,943 +1,795 @@
-# 02-04. Code Cache — JIT가 만든 native code의 보관소
+# 02-04. Code Cache & JIT Compiler — JVM 성능의 심장
 
-> JVM은 bytecode를 인터프리터로 실행하다가, 자주 호출되는 hot method를 JIT으로 **native machine code**로 컴파일한다.
-> 그 컴파일 결과는 어디에 저장되나? Heap이 아니다. Metaspace도 아니다. **Code Cache** — JVM이 OS로부터 별도 reserve한 영역.
-> 기본 크기 240MB. 가득 차면? **"CodeCache is full. Compiler has been disabled."** — 그 순간부터 JVM은 평생 인터프리터로 돌아간다. 성능 5~10배 저하.
-> 시니어가 이 메시지를 한 번이라도 본 적이 있다면, 그날 production을 살린 사람이다.
+> Code Cache는 단순한 메모리 영역이 아니다. **JIT 컴파일러가 만들어낸 native code의 보관소**이자, JVM이 "느린 인터프리터 언어"가 아닌 "C에 근접한 빠른 언어"로 작동하게 만드는 핵심 인프라다.
+>
+> 그래서 이 챕터의 진짜 주인공은 **JIT 컴파일러(C1, C2)** 다. Code Cache는 JIT의 산출물을 담는 그릇일 뿐.
+>
+> 시니어가 알아야 할 것: 왜 두 개의 컴파일러(C1, C2)가 필요한가, Tiered Compilation은 왜 등장했는가, JDK 8→9→11→17→21을 거치며 JIT는 어떻게 진화했는가, 그리고 production에서 `CodeCache is full` 한 줄이 뜨면 무엇이 무너지는가.
 
 ---
 
 ## 📍 학습 목표
 
-이 챕터를 마치면 다음을 모두 답할 수 있다.
+이 챕터를 마치면 백지에서 다음을 모두 풀어 설명할 수 있어야 한다.
 
-1. JIT 컴파일된 native code가 Heap이 아닌 Code Cache에 저장되는 이유를 안다 — executable 메모리, GC 정책, dynamic linking.
-2. **Segmented Code Cache** (JDK 9+) 의 3개 segment (Non-method / Profiled / Non-profiled) 각각의 역할을 안다.
-3. 기본 크기(`ReservedCodeCacheSize = 240MB`)와 segment별 분배를 안다.
-4. Code Cache가 가득 찼을 때 발생하는 일 — JIT 비활성, 인터프리터 fallback, **UseCodeCacheFlushing**의 동작.
-5. Tiered Compilation이 Code Cache 사용량을 늘리는 이유와 트레이드오프.
-6. `Compiler.codecache` jcmd 출력의 모든 필드를 해석할 수 있다.
-7. Spring Boot 거대 앱, 동적 클래스 생성 많은 앱(Lambda, Hibernate proxy)에서 Code Cache 압박이 발생하는 패턴을 안다.
-8. **Inline Cache**가 무엇이고 Code Cache의 한 부분으로 어떻게 저장되는지 안다.
-9. **Deoptimization**이 일어나면 Code Cache의 native code가 어떻게 폐기되는지 안다.
-10. `-XX:+PrintCodeCache`, `-XX:+PrintCompilation` 옵션으로 컴파일 활동을 추적할 수 있다.
+1. **JIT란 무엇이고 왜 필요한가** — 인터프리터의 한계와 AOT 컴파일의 비현실성 사이에서 JIT가 차지하는 위치.
+2. **C1과 C2 컴파일러의 본질적 차이** — 왜 한 컴파일러가 아닌 두 개를 두는가.
+3. **Tiered Compilation의 아이디어** — 두 컴파일러를 한 JVM에서 동시 활용하는 전략과 그 비용.
+4. **Code Cache가 왜 별도 메모리 영역인가** — Heap에 두면 안 되는 본질적 이유 3가지.
+5. **JDK 8/9/11/17/21에서 JIT·Code Cache가 어떻게 변했는가** — 각 LTS에서 무엇이 바뀌었고 왜 바뀌었는지.
+6. **Code Cache가 가득 차면 무엇이 일어나는가** — `CodeCache is full` 메시지 이후의 도미노.
+7. **Deoptimization이 무엇이고 왜 일어나는가** — C2의 가정이 깨지는 시나리오.
+8. **운영 진단** — `jcmd Compiler.codecache`, `-XX:+PrintCompilation`, JFR 이벤트를 어떻게 읽는가.
+9. **면접에서 묻는 깊이의 경계** — 무엇이 "마스터 질문"이고 무엇이 "구현자만 알 수준"인지.
 
 ---
 
 ## 🎨 1단계: 백지 그리기 가이드
 
-### Step 1: JVM Process 전체에서 Code Cache의 위치
+### Step 1. JIT를 둘러싼 큰 그림
 
-- 큰 사각형 안에 Heap / Metaspace / Stacks 박스 + **Code Cache** 박스 (별도).
-- Code Cache 옆에 라벨: "executable 메모리, 기본 240MB reserve, native code 저장".
-
-### Step 2: Code Cache를 세 영역으로 분할 (JDK 9+)
+JVM이 한 메서드를 실행할 때 거치는 길을 한 장에 담는다.
 
 ```
-Code Cache (총 240MB, 기본)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-┌────────────────────────────────┐
-│ ① Non-method (~5.7MB 기본)      │  Adapter, Runtime stub, Interpreter 등
-├────────────────────────────────┤
-│ ② Profiled (~117MB)             │  C1 컴파일 결과 (profiling 포함)
-├────────────────────────────────┤
-│ ③ Non-profiled (~117MB)         │  C2 컴파일 결과 (fully optimized)
-└────────────────────────────────┘
+[Java 소스] → javac → [Bytecode (.class)]
+                              │
+                              ▼
+                    ┌─────────────────────┐
+                    │  Interpreter (느림)  │  ← 처음엔 무조건 여기로
+                    └──────────┬──────────┘
+                               │ 호출 카운터 ↑
+                               │ "이 메서드는 hot이다"
+                               ▼
+                    ┌─────────────────────┐
+                    │   JIT Compiler      │
+                    │   (C1 → C2)         │  ← Compile Broker가 백그라운드로
+                    └──────────┬──────────┘
+                               │ native code 생성
+                               ▼
+                    ┌─────────────────────┐
+                    │    Code Cache       │  ← native code 저장
+                    │  (executable mem)   │
+                    └──────────┬──────────┘
+                               │ 다음 호출부터
+                               ▼
+                          [CPU가 직접 실행]
 ```
 
-### Step 3: 한 메서드의 컴파일 흐름 화살표
+핵심: **JIT의 산출물(native code)은 Heap이 아닌 Code Cache에 들어간다.** 이게 이 챕터의 출발점.
+
+### Step 2. C1과 C2의 역할 분담
 
 ```
-Bytecode → 인터프리터 실행 (interpreter stub: Non-method)
-            │
-            ▼ 호출 횟수 ~ 임계
-        C1 컴파일 → Profiled segment에 저장
-            │
-            ▼ 더 자주 호출 + profile 데이터 수집
-        C2 컴파일 → Non-profiled segment에 저장
-            │
-            ▼ 가정 깨짐 (CHA 위반, class redefine 등)
-        Deoptimize → C2 코드 폐기, 인터프리터 또는 C1로 복귀
+       호출 카운터
+          │
+   ┌──────┴──────────────────────────┐
+   ▼ 임계 1 (≈1,500)                  ▼ 임계 2 (≈10,000)
+┌──────┐                          ┌──────┐
+│  C1  │  빠른 컴파일               │  C2  │  무거운 컴파일
+│      │  적은 최적화               │      │  공격적 최적화
+│      │  + profiling 코드 삽입     │      │  inline, escape, loop unroll
+└──────┘                          └──────┘
+   │                                  │
+   ▼                                  ▼
+ 빠른 응답                        최고 처리량
+ (warmup 단축)                     (peak performance)
 ```
 
-### Step 4: Inline Cache 줌인
+C1은 "빠르게 적당히", C2는 "오래 걸려도 최고로". **두 개를 분리한 이유는 컴파일 비용과 최적화 품질의 trade-off** 때문.
+
+### Step 3. Tiered Compilation의 5단계
 
 ```
-C2가 컴파일한 메서드 안의 invokevirtual 호출 위치
-        │
-        ▼
-Inline Cache (IC) — 한 줄 patch 가능한 영역
-        ├─ first call: monomorphic (단일 구현)
-        │      ┌─────────────────────┐
-        │      │ check klass == Foo  │
-        │      │ jump to Foo.bar()   │  ← 직접 점프 (가장 빠름)
-        │      └─────────────────────┘
-        ├─ 다른 클래스 만남: bimorphic / polymorphic
-        │      ┌─────────────────────┐
-        │      │ check + branch table│
-        │      └─────────────────────┘
-        └─ 너무 많은 타입: megamorphic
-               ┌─────────────────────┐
-               │ vtable lookup       │  ← 일반 dispatch (느림)
-               └─────────────────────┘
+Tier 0:  Interpreter        ← 모든 메서드 시작점
+   │
+   │ 호출 카운터 도달
+   ▼
+Tier 1:  C1 (no profiling)        ← C2 큐가 비어있고 inline 가능 등 단순 케이스
+Tier 2:  C1 (limited profiling)   ← 호출 카운터만 측정
+Tier 3:  C1 (full profiling)      ← 분기·타입 등 풀 profile (느림)
+   │
+   │ 충분한 profile 데이터 수집
+   ▼
+Tier 4:  C2 (fully optimized)     ← 최종 형태, profile 기반 공격적 최적화
 ```
 
-### 정답 그림 (ASCII)
+→ "한 메서드는 인터프리터 → C1 (3가지 sub-tier) → C2 순으로 승급한다"
+
+### Step 4. Code Cache 3 segment (JDK 9+)
+
+```
+┌──────────────────────────────────────────┐
+│  ① Non-method (≈ 5MB)                    │  ← JIT 결과가 아닌 JVM 자체 stub
+│     Interpreter loop, adapter, runtime    │
+├──────────────────────────────────────────┤
+│  ② Profiled (≈ 117MB)                    │  ← C1 결과 (tier 2/3)
+│     short-lived, C2로 승격되면 free       │
+├──────────────────────────────────────────┤
+│  ③ Non-profiled (≈ 117MB)                │  ← C2 결과 (tier 4) + tier 1 C1
+│     long-lived, 거의 sweep 안 함          │
+└──────────────────────────────────────────┘
+총 reserve = 240MB (기본, -XX:ReservedCodeCacheSize)
+```
+
+### Step 5. 완성된 그림
 
 ```
 JVM Process
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════
 
-[Shared/Native 영역]                  [Code Cache (별도 reserve)]
-                                      ┌──────────────────────────┐
-[Java Heap]    [Metaspace]            │ ① Non-method (5~10MB)     │
-   ↑               ↑                  │   - Adapter stub         │
-   GC 대상         CLD chunk           │   - Interpreter loop     │
-                                      │   - Runtime stub         │
-[Threads]      [Direct Memory]        │   - Compiler 자체         │
-                                      ├──────────────────────────┤
-                                      │ ② Profiled (~117MB)       │
-                                      │   - C1 컴파일된 메서드     │
-                                      │   - profiling instrumented│
-                                      │   - 짧게 살다 C2로 승격    │
-                                      ├──────────────────────────┤
-                                      │ ③ Non-profiled (~117MB)   │
-                                      │   - C2 컴파일된 메서드     │
-                                      │   - long-lived            │
-                                      │   - 가장 빠른 native code  │
-                                      └──────────────────────────┘
-                                      총 reserve: 기본 240MB
-                                      옵션: -XX:ReservedCodeCacheSize
+[Heap]        [Metaspace]       [Stacks]       [Direct Memory]
+                                                                    ╲
+                                                                     ╲ 분리된 이유:
+                                                                     ╱  - executable 메모리
+                                                                    ╱   - GC 정책 다름
+[Code Cache]  ← JIT 컴파일러 산출물 전용 ────────────────────────  - 32-bit jump
+  │
+  ├─ ① Non-method   : Interpreter loop, Adapter, Runtime stub
+  ├─ ② Profiled     : C1 nmethods (tier 2/3, instrumented)
+  └─ ③ Non-profiled : C2 nmethods (tier 4) + tier 1 C1
+        ▲                  ▲
+        │                  │
+   ┌────┴────────┐    ┌────┴───────┐
+   │ C1 Compiler │    │ C2 Compiler │
+   │ Threads     │    │ Threads      │
+   └─────────────┘    └─────────────┘
+        ▲                  ▲
+        └──────┬───────────┘
+               │
+        Compile Broker
+        (compile task 큐 관리)
+               ▲
+               │ "이 메서드는 hot"
+               │
+        [Interpreter + 호출 카운터]
 ```
 
 ---
 
-## 🧠 2단계: 직관
+## 🧠 2단계: 직관 — 왜 이렇게 설계됐는가
 
-### 핵심 비유
+### 핵심 비유: 통역사 → 번역자 → 출판사
 
-> **요리책 비유**:
-> - **Bytecode** = 평범한 레시피책 (모든 셰프가 같은 방식으로 읽음, 천천히).
-> - **인터프리터** = 레시피를 한 줄씩 읽으며 요리 (느림).
-> - **JIT 컴파일** = 자주 만드는 요리를 **개인 메모지(빠른 단축 노트)** 로 옮겨 적기.
-> - **Code Cache** = 그 단축 노트들을 보관하는 책상 옆 서랍. 한정된 공간.
-> - **Segmented**: 서랍이 3칸 — 임시 메모(non-method), 약식 메모(C1/Profiled), 완성판 메모(C2/Non-profiled).
-> - **가득 차면**: 새 단축 노트 못 만듦 → 그 후부터 다 본책에서 한 줄씩 읽음(인터프리터로 회귀) → 매우 느려짐.
+| 단계 | 비유 | JVM 실체 |
+|---|---|---|
+| Bytecode 한 줄씩 읽고 실행 | **동시 통역사** — 매번 듣고 그자리에서 통역 | Interpreter |
+| 자주 쓰는 문장을 미리 번역해둠 | **번역 초안** — 빠르게 번역, 살짝 어색 | C1 컴파일 |
+| 베스트셀러는 정식 출판 | **출판된 번역서** — 시간 많이 들였지만 완벽 | C2 컴파일 |
+| 번역본 보관소 | **창고** — 한정된 공간 | Code Cache |
 
-### 정확한 정의 (비유와 분리)
+> 통역(인터프리터)은 **준비 시간 0**, 매번 비용 발생.
+> 출판(C2)은 **준비 비용 큼**, 한 번 만들면 영원히 빠름.
+> 그래서 **자주 쓰는 것만 번역**한다 (= JIT의 본질).
 
-| 용어 | 정의 |
+### 왜 JIT인가 — 세 가지 대안과의 비교
+
+```
+[순수 인터프리터]        [AOT 컴파일]              [JIT (Java의 선택)]
+─────────────────       ──────────────            ─────────────────
+빠른 시작                 컴파일 후 배포              인터프리터로 시작
+실행은 느림               실행 매우 빠름              hot path만 컴파일
+profile 정보 없음         profile 못 씀              ★ runtime profile 활용
+
+대표: 초기 BASIC           대표: C/C++, Go            대표: HotSpot JVM, V8
+```
+
+**JIT가 AOT보다 유리한 결정적 한 가지**: **runtime profile 기반 최적화**.
+- 어느 분기가 자주 도는지, 어느 타입이 자주 등장하는지를 알고 컴파일 → **AOT가 가정만 하는 것을 JIT는 알고 한다**.
+- 대표 예: monomorphic inline (한 가지 구현만 본 호출 사이트는 직접 점프).
+
+### 왜 C1, C2 두 개인가 — 한 개로는 안 되는가
+
+**한 개 시나리오의 함정**:
+
+```
+[C1만 사용 시]                       [C2만 사용 시]
+빠른 컴파일 → 빠른 warmup            느린 컴파일 → 느린 warmup
+But, 최적화 약함 → peak 성능 ↓        But, 최적화 강함 → peak 성능 ↑
+
+웹 서버 시작 5초만에 응답 OK          웹 서버 시작 30초 동안 인터프리터
+But, 처리량 30% 손해                  But, 안정화 후 처리량 100%
+```
+
+**둘 다 가지면**: 시작은 C1 (warmup 빠름), 안정화는 C2 (peak 최적). 이게 **Tiered Compilation**의 본질.
+
+**대가**: Code Cache 사용량 ≈ 2배 (C1, C2 결과 동시 보유). 그래서 JDK 9에서 segment로 나눠 관리.
+
+### 왜 Code Cache가 별도 영역인가 — 본질적 이유 3가지
+
+```
+1. ★ Executable 메모리 (W^X 보안)
+   ────────────────────────────
+   native code는 CPU가 직접 실행 가능해야 함 (PROT_EXEC)
+   Heap이 executable이면 = 모든 객체가 코드처럼 실행 가능 = 보안 재앙
+   → 별도 영역에 executable flag, Heap은 RW만
+
+2. ★ GC와 회수 정책 분리
+   ────────────────────────────
+   일반 객체: Young → Old, 빠르게 죽고 빠르게 회수
+   native code: 한 번 만들면 길게 사용, deopt나 cold일 때만 회수
+   → 별도 sweeper(Code Sweeper)로 관리. 일반 GC 알고리즘 적용 불가.
+
+3. ★ 32-bit relative jump 가정
+   ────────────────────────────
+   JIT는 method 간 점프에 32-bit offset 사용 (명령 크기 절약)
+   모든 native code가 4GB 범위 안에 모여야 함
+   → 시작 시 한 번에 reserve. Heap 안에 흩어지면 불가능.
+```
+
+세 줄로: **(1) 보안 (2) GC 분리 (3) 점프 최적화**. 이걸 백지에서 답할 수 있어야 한다.
+
+### Tiered Compilation의 비용 — 왜 항상 켜진 게 아닌가
+
+| Tiered on (기본) | Tiered off |
 |---|---|
-| **Code Cache** | JIT 컴파일러가 생성한 native machine code와 JVM 내부 runtime stub들을 저장하는 영역. `mmap`으로 OS에서 reserve. **executable 플래그 필요** — RWX 또는 W^X 메모리. |
-| **Segmented Code Cache** (JDK 9+, JEP 197) | Code Cache를 3개 segment로 물리 분할. 각 segment가 독립적으로 관리됨. |
-| **Non-method segment** | JIT가 아닌 JVM 자체의 native stub. Interpreter loop, Adapter (calling convention 변환), Runtime stub (safepoint poll, exception handler 등), Compiler 자체의 코드. 기본 ~5.7MB. |
-| **Profiled segment** | C1 컴파일러가 만든 native code. **profiling instrumentation 포함** (호출 횟수, branch taken/not taken 등 측정). 보통 짧게 살고 C2로 승격되면 free. 기본 ~117MB. |
-| **Non-profiled segment** | C2 컴파일러가 만든 fully optimized native code. profiling 없음. long-lived. 기본 ~117MB. |
-| **NMethod** (Native Method) | 한 메서드를 컴파일한 결과를 표현하는 HotSpot C++ 객체. 메타데이터 + native instruction + dependency 정보. Code Cache의 할당 단위. |
-| **Inline Cache (IC)** | 메서드 호출 사이트에 캐시된 dispatch 정보. monomorphic/bimorphic/polymorphic/megamorphic으로 발전. |
-| **Deoptimization** | C2 컴파일 시 가정(예: "이 메서드는 monomorphic")이 깨졌을 때 native code를 폐기하고 인터프리터로 복귀하는 메커니즘. |
-| **Code Sweeper** | Code Cache가 압박받을 때 cold nmethod를 회수하는 GC 같은 메커니즘. `-XX:+UseCodeCacheFlushing` (기본 on). |
+| Warmup 빠름 (C1으로 즉시 컴파일) | Warmup 느림 (인터프리터 → C2 직행) |
+| Code Cache 사용량 ≈ 2배 | Code Cache 사용량 절반 |
+| Profile 수집 비용 있음 (instrumented C1) | Profile 비용 없음 |
+| Peak 성능 동일 | Peak 성능 동일 |
 
-### 왜 Code Cache가 별도 영역인가 — 3가지 본질적 이유
-
-```
-[Heap에 두면 (가상)]                        [별도 Code Cache (실제)]
-━━━━━━━━━━━━━━━━━━                          ━━━━━━━━━━━━━━━━━━━━
-
-1. Executable 플래그                          1. mmap PROT_EXEC 별도 영역
-   Heap에 native code 두려면 RWX 필요          executable 메모리만 별도 (보안)
-   → 보안 위협 (Heap 전체 실행 가능)             → Heap은 RW만 (XOR W^X)
-
-2. GC 정책 충돌                               2. GC와 분리
-   Heap의 일반 객체와 native code는            Code Sweeper가 nmethod 단위 회수
-   수명/회수 정책이 다름                         (cold nmethod evict)
-   - 일반 객체: 빠르게 죽음 (Young)
-   - native code: 일단 만들면 오래 살아감
-
-3. 메모리 layout 요구                          3. 연속된 executable 영역
-   JIT는 jump 명령에 32-bit offset 사용         시작 시 한 번에 reserve →
-   → 모든 native code가 4GB 안에 모여야 함       모든 점프가 32-bit relative로 가능
-                                                (32-bit relative jump optimization)
-```
-
-→ **실행 가능한 메모리, GC와 분리된 회수 메커니즘, 점프 거리 최적화** 세 가지가 Code Cache가 별도여야 하는 이유.
-
-### 왜 Segmented인가 — JDK 8 vs JDK 9+
-
-**JDK 8 이전 (단일 Code Cache)**:
-- C1, C2, runtime stub 모두 한 영역.
-- C1으로 컴파일된 short-lived 코드와 C2의 long-lived 코드가 섞임.
-- 결과: **fragmentation** — 군데군데 dead nmethod가 흩어져 새 컴파일 위한 연속 공간 못 찾음.
-- Sweeper 비용 높음 (전체 cache 스캔).
-
-**JDK 9+ (Segmented, JEP 197)**:
-- Non-method, Profiled, Non-profiled 분리.
-- Profiled (단명) 빈도 변화에 Non-profiled (장명) 영향 없음.
-- 각 segment 독립 sweep → 빠름.
-- Hot path의 instruction cache locality 향상 (long-lived code 모임).
-
-### Tiered Compilation과 Code Cache의 관계
-
-**Tiered Compilation** (JDK 7+ 기본 on):
-```
-Tier 0: 인터프리터 (Non-method의 Interpreter loop)
-   ↓ (호출 횟수)
-Tier 1/2/3: C1 컴파일 (Profiled segment에 저장)
-   ↓ (더 호출 + profile 충분)
-Tier 4: C2 컴파일 (Non-profiled segment에 저장)
-```
-
-→ Tiered Compilation은 **C1 + C2 모두** 사용 → Code Cache 사용량이 C2-only보다 큼.
-
-**`-XX:-TieredCompilation`** 옵션 (Tiered 끄기):
-- C2만 직접 사용.
-- Code Cache 사용량 ↓ (Profiled segment 거의 안 씀).
-- **그러나 warmup 시간 ↑** — C2가 무거워서 시작 시 응답 느림.
-- Trade-off: 메모리 절약 vs warmup 속도.
+→ **메모리가 빠듯한 컨테이너**나 **warmup 무관 batch job**에서는 끄는 게 합리적.
 
 ---
 
-## 🔬 3단계: 구조
+## 🔬 3단계: 구조 — JIT는 어떻게 작동하는가
 
-### Code Cache의 메모리 레이아웃 (JDK 9+)
+### JIT 컴파일 트리거 — 어떻게 "hot"을 판단하는가
 
-```
-JVM 시작 시 OS에서 ReservedCodeCacheSize (기본 240MB) reserve
-                            │
-                            ▼
-       3개 segment로 분할 (자동 또는 사용자 지정)
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-   Non-method           Profiled           Non-profiled
-   (NonNMethodCodeHeapSize)  (ProfiledCodeHeapSize) (NonProfiledCodeHeapSize)
-   기본: 5.7MB           기본: ~117MB        기본: ~117MB
-
-각 segment 안에서:
-  - nmethod (한 메서드의 컴파일 결과)들을 bump-the-pointer로 할당
-  - sweep 시 dead nmethod들을 free list로
-  - free list 재사용 또는 사용 안 되면 OS uncommit
-```
-
-### NMethod의 구조
-
-위치: `src/hotspot/share/code/nmethod.hpp`
-
-```cpp
-class nmethod : public CompiledMethod {
-private:
-  // 1. 헤더
-  int            _entry_bci;                // entry bytecode index
-  Method*        _method;                   // 어느 Java 메서드의 컴파일인가
-  int            _compile_id;               // 고유 ID
-  CompileLevel   _comp_level;               // C1=3 또는 C2=4
-
-  // 2. native instruction 영역 (실제 machine code)
-  address        _entry_point;              // 일반 호출 진입점
-  address        _verified_entry_point;     // type-check된 진입점
-
-  // 3. 메타데이터 (GC, deopt 위해)
-  PcDesc*        _scopes_pcs;               // pc → bytecode 매핑
-  Dependencies*  _dependencies;             // CHA 의존성 (deopt 트리거)
-  OopMap*        _oop_maps;                 // 각 pc에서 register/stack의 oop 위치
-
-  // 4. 호출 사이트 정보
-  RelocInfo*     _relocations;              // patch 가능 위치
-
-  // 5. inline cache slots
-  ICache*        _ic_slots;
-};
-```
-
-→ NMethod 하나가 **native instruction + 풍부한 메타데이터**의 묶음. 메타데이터가 instruction 자체보다 크기도 함 (GC/deopt가 안전하려면).
-
-### 메서드 컴파일 전체 흐름
+HotSpot은 **메서드별 두 종류의 카운터**를 유지한다.
 
 ```
-1. 메서드 호출 횟수가 임계 도달 (C1: ~1500, C2: ~10000)
-        │
-        ▼
-2. Compile Broker가 컴파일 task를 큐에 등록
-   (`-XX:CICompilerCount=N`이 컴파일 스레드 수)
-        │
-        ▼
-3. C1 또는 C2 compiler thread가 task pickup
-        │
-        ▼
-4. Bytecode → IR (C1의 HIR/LIR 또는 C2의 Sea-of-Nodes)
-        │
-        ▼
-5. 최적화 패스 (inlining, escape analysis, loop unrolling, ...)
-        │
-        ▼
-6. Register allocation
-        │
-        ▼
-7. Code emission — native instruction 생성
-        │
-        ▼
-8. NMethod 객체 생성 + Code Cache에 nmethod 할당
-   (Profiled segment 또는 Non-profiled segment)
-        │
-        ▼
-9. Method의 `_code` 필드를 새 nmethod로 패치 (atomic)
-   → 다음 호출부터 native code 실행
+1. Invocation Counter (호출 카운터)
+   - 메서드가 호출될 때마다 +1
+   - 임계 도달 시: 메서드 전체를 컴파일
+
+2. Back-edge Counter (백엣지 카운터)
+   - 루프 한 바퀴 돌 때마다 +1 (백워드 점프)
+   - 임계 도달 시: 메서드는 아직 안 끝났지만 컴파일 시작
+   - = OSR (On-Stack Replacement)
+   - 거대 루프 한 번에 안에서 hot이 되는 경우 대비
 ```
 
-### Inline Cache의 진화
+기본 임계 (Tiered 기준):
+- C1 (tier 3): 호출 200, 백엣지 5,250
+- C2 (tier 4): 호출 5,000, 백엣지 35,000
+
+표면 숫자는 외울 필요 없다. **두 종류의 카운터가 있다**는 사실이 핵심.
+
+### C1과 C2의 내부 차이 (개념 수준)
 
 ```
-첫 호출 (monomorphic, 가장 빠름):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[C1 (Client Compiler)]
+─────────────────────
+- HIR (High-level IR) → LIR (Low-level IR) → 머신 코드
+- 빠른 단일 패스
+- 최적화: constant folding, simple inlining, basic register allocation
+- profiling code 삽입 가능 (tier 2/3)
+- 컴파일 시간: 메서드당 수 ms ~ 수십 ms
 
-call site: invokevirtual a.foo()
-   │
-   ▼
-[IC slot]
-   if (a.klass == FooImpl) {
-       jump FooImpl.foo's nmethod entry
-   } else {
-       call IC miss handler  ← 새 클래스 발견 시 여기로
-   }
-
-bimorphic (다른 클래스 1개 더 발견):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[IC slot]
-   if (a.klass == FooImpl) jump FooImpl.foo's nmethod;
-   if (a.klass == BarImpl) jump BarImpl.foo's nmethod;
-   else call IC miss handler
-
-megamorphic (다양한 타입, ~3 이상):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[IC slot]
-   vtable lookup (일반 디스패치)
+[C2 (Server Compiler)]
+─────────────────────
+- Sea-of-Nodes IR (그래프 기반)
+- 여러 패스, 반복 최적화
+- 최적화: aggressive inlining, escape analysis, loop unrolling,
+          range check elimination, vectorization, scalar replacement
+- profile 데이터를 가정에 활용 (speculative)
+- 컴파일 시간: 메서드당 수십 ms ~ 수백 ms
 ```
 
-→ **IC가 monomorphic일 때 거의 직접 호출 수준 성능**. 다형성이 늘면 점진적으로 느려짐. C2의 inlining도 IC가 monomorphic이어야 가능 (다음 챕터에서 더 깊게).
+**왜 C2는 느린가**: Sea-of-Nodes는 노드들이 데이터/제어 의존성으로 얽힌 그래프 — 최적화 한 번에 그래프 전체 재배치 가능. 비싸지만 깊다.
 
-### Deoptimization — C2 코드의 폐기
+> ⚠️ **면접에서 안 묻는 영역**: Sea-of-Nodes의 노드 종류, IR 변환 단계, register allocation 알고리즘. 이건 컴파일러 작성자 수준.
 
-**언제 일어나나**:
-1. **CHA(Class Hierarchy Analysis) 가정 위반** — C2가 "이 메서드는 monomorphic"이라고 가정해 inline했는데, 새 subclass가 로드되어 다형성 등장.
-2. **Speculative type check 실패** — Profile 기반 type guess가 틀림.
-3. **Class redefinition** — JVMTI로 클래스가 다시 정의됨.
-4. **Uncommon branch 도달** — C2가 "거의 안 일어남"으로 표시한 분기에 도달.
-
-**흐름**:
-```
-1. Deopt 트리거 발생 (예: 새 subclass 로드)
-        │
-        ▼
-2. 영향받는 nmethod들 식별 (Dependencies 정보 통해)
-        │
-        ▼
-3. 그 nmethod들을 "not_entrant"로 표시 (이후 호출 시 인터프리터로)
-        │
-        ▼
-4. 이미 실행 중인 스레드는 다음 safepoint에서 deoptimize
-   - native frame → interpreter frame으로 변환 (OSR의 역방향)
-   - register/stack 값을 interpreter slot에 복원
-   - 적절한 bytecode index부터 인터프리터로 재개
-        │
-        ▼
-5. 그 nmethod는 Code Cache에서 sweep 대상
-        │
-        ▼
-6. Code Sweeper가 다음 cycle에 free
-```
-
-### Code Cache full → JIT 비활성 시나리오
+### Compile Broker — 컴파일 task 흐름
 
 ```
-Code Cache 사용량이 100%에 근접
-        │
-        ▼
-JVM 경고 로그: "CodeCache is full. Compiler has been disabled."
-"Try increasing the code cache size using -XX:ReservedCodeCacheSize="
-        │
-        ▼
-Compile Broker가 더 이상 compile task 받지 않음
-        │
-        ▼
-이미 컴파일된 메서드는 그대로 실행 (Code Cache의 nmethod 살아있음)
-        │
-        ▼
-새로 호출되는 메서드는 컴파일 안 됨 → 영원히 인터프리터
-        │
-        ▼
-성능 5~10배 저하 (인터프리터는 JIT보다 그만큼 느림)
-        │
-        ▼
-UseCodeCacheFlushing 활성 시: Sweeper가 cold nmethod 회수 시도
-        │
-        ▼
-공간 확보되면 컴파일 재개. 안 되면 영구 인터프리터 모드.
+[Application Thread]                          [Compiler Thread]
+─────────────────                              ─────────────────
+메서드 호출
+  ↓
+호출 카운터 +1
+  ↓
+임계 도달 감지
+  ↓
+CompileTask 생성  ─────────→  [Compile Queue]
+  ↓                                  ↓
+계속 인터프리터로 실행 (블록 안 함)    Compiler Thread pickup
+                                       ↓
+                                  C1 또는 C2 호출
+                                       ↓
+                                  native code 생성
+                                       ↓
+                                  Code Cache에 nmethod 할당
+                                       ↓
+                                  Method._code 패치 (atomic)
+                                       ↓
+[다음 호출 시점부터]            ─────────  ↓
+이미 컴파일된 native code 진입
 ```
 
-### `-XX:+UseCodeCacheFlushing` 메커니즘
+핵심:
+- 컴파일은 **백그라운드 스레드**에서. application 스레드 블록 안 됨.
+- 컴파일러 스레드 수: `-XX:CICompilerCount` (기본 ≈ `log2(cpu) + 1`).
+- Method 객체의 entry pointer 한 워드를 atomic write로 교체 → race 없음.
 
-기본 on. 가득 차면:
-1. 사용 빈도 낮은 nmethod (LRU 기반)를 골라 `not_entrant`로 표시.
-2. 다음 호출 시 인터프리터로 fallback.
-3. 더 이상 실행 중인 스레드 없음 확인 후 Code Sweeper가 free.
-4. 공간 확보되면 새 컴파일 가능.
+### Inline Cache — 호출 사이트 진화
 
-**단점**: 자주 호출되는 메서드가 evict됐다가 다시 호출되면 재컴파일 비용. Steady state에서 hot/cold가 분리 안 된 워크로드는 thrash.
+```java
+// Java 코드
+List<String> list = ...;
+list.add("hi");  // ← invokevirtual 호출 사이트
+```
+
+이 한 줄의 호출 사이트가 native code에서 어떻게 진화하는가:
+
+```
+[1st 호출 — Monomorphic]
+  if (receiver.klass == ArrayList) jump ArrayList.add 직접
+  else fallback
+  → 가장 빠름. C2 inlining의 전제.
+
+[다른 클래스 1개 만남 — Bimorphic]
+  klass 두 개 check + 분기
+
+[~3개 이상 — Megamorphic]
+  vtable lookup (일반 가상 호출)
+  → 가장 느림. C2 inlining 불가.
+```
+
+**시니어 관점**: 같은 호출 사이트가 `ArrayList`와 `LinkedList` 둘 다 받으면 inline이 깨진다. **다형성을 남발하면 JIT가 손 못 댄다**.
+
+### Deoptimization — C2가 자기 결과를 버릴 때
+
+C2는 "**낙관적 가정**"으로 공격적 최적화한다. 가정이 깨지면 native code 폐기.
+
+```
+가정의 종류:
+1. CHA (Class Hierarchy Analysis): "이 메서드는 monomorphic"
+   → 새 subclass 로드되면 깨짐.
+
+2. Speculative type guess: "이 변수는 99% Integer"
+   → 다른 타입 등장 시 깨짐.
+
+3. Uncommon branch: "이 if는 거의 false"
+   → true 분기 도달 시 깨짐.
+
+4. JVMTI class redefinition: 디버거가 클래스 재정의
+```
+
+Deopt 흐름:
+```
+가정 위반 감지
+   ↓
+nmethod를 'not_entrant' 표시 (이후 호출 차단)
+   ↓
+실행 중인 스레드는 safepoint에서 deopt
+   - native frame → interpreter frame 복원
+   - register/stack → interpreter slot 매핑
+   - 적절한 bytecode index부터 재시작
+   ↓
+Code Sweeper가 nmethod 회수
+```
+
+**시니어 신호**: JFR `jdk.Deoptimization` 이벤트가 분당 수백 건 → 코드의 다형성 패턴이 JIT를 괴롭히는 중. Strategy 패턴 남발, reflection, dynamic proxy를 살펴봐야 한다.
+
+### Code Cache full 시나리오
+
+```
+ReservedCodeCacheSize 거의 도달
+   ↓
+"CodeCache is full. Compiler has been disabled."
+   ↓
+Compile Broker 멈춤 (새 task 안 받음)
+   ↓
+[이미 컴파일된 메서드]  계속 native로 실행
+[새로 hot이 되는 메서드] 영원히 인터프리터로
+   ↓
+시간 지남 → 점진적 성능 5~10배 저하
+   ↓
+UseCodeCacheFlushing 켜져 있으면 (기본 on)
+   → Sweeper가 cold nmethod 회수 → 공간 확보 → 컴파일 재개
+[하지만 hot/cold 분리 안 된 워크로드면 thrash]
+```
 
 ---
 
-## 🧬 4단계: 내부 구현 — HotSpot
+## 📜 4단계: JDK 버전별 변천사 — JIT는 어떻게 진화했는가
 
-### CodeCache 클래스
+이 섹션이 이 문서의 핵심. **면접에서 "JDK 8과 17의 JIT 차이는?" 같은 질문이 자주 나온다.**
 
-위치: `src/hotspot/share/code/codeCache.cpp`
+### 전체 흐름 한눈에
 
-```cpp
-class CodeCache : public AllStatic {
-private:
-  static GrowableArray<CodeHeap*>* _heaps;  // segment 별 CodeHeap
-  static int      _number_of_blobs;
-  static int      _number_of_nmethods;
-  static int      _commited_size;
-
-public:
-  static void  initialize();
-  static CodeBlob* allocate(int size, CodeBlobType type, ...);
-  static void  free(CodeBlob* cb);
-  static void  flush();   // emergency sweep
-  static void  print_summary(outputStream* st);
-};
+```
+JDK 7   JDK 8    JDK 9       JDK 10    JDK 11    JDK 17       JDK 21
+  │      │        │            │         │         │            │
+  │   Tiered   Segmented    Graal     Graal      Graal       Leyden
+  │   기본 on  Code Cache    실험     계속 실험   제거         시작
+  │           (JEP 197)    (JEP 317)              (JEP 410)
+  │            JVMCI                              Concurrent  Generational
+실험          (JEP 243)                           class       ZGC
+                                                  unload
+                                                  성숙
 ```
 
-### 초기화 — Segment 분배
+### JDK 7 (2011) — Tiered Compilation 실험 도입
 
-```cpp
-// codeCache.cpp (요약)
-void CodeCache::initialize_heaps() {
-  size_t total_size = ReservedCodeCacheSize;          // 240MB 기본
-  size_t non_nmethod = NonNMethodCodeHeapSize;        // 5.7MB
-  size_t profiled    = ProfiledCodeHeapSize;          // 117MB
-  size_t non_profiled = NonProfiledCodeHeapSize;      // 117MB
+- 그 이전: `-client` (C1만) / `-server` (C2만) 분리. 사용자가 선택.
+- JDK 7부터 `-XX:+TieredCompilation` 옵션 추가 (기본 off, 실험).
+- 단일 Code Cache (segment 분리 없음). 기본 ~48MB.
 
-  // 합이 total과 안 맞으면 자동 조정
-  if (non_nmethod + profiled + non_profiled != total_size) {
-    adjust_sizes(...);
-  }
+### JDK 8 (2014) — Tiered Compilation 기본 ON, Code Cache 크기 점프
 
-  // 각 segment를 별도 mmap reserve
-  _non_nmethod_heap   = new CodeHeap(non_nmethod, ...);
-  _profiled_heap      = new CodeHeap(profiled, ...);
-  _non_profiled_heap  = new CodeHeap(non_profiled, ...);
+**가장 큰 변화**: `-XX:+TieredCompilation` 기본 on.
+- 한 JVM에서 C1, C2 모두 사용 → Code Cache 사용량 2배.
+- 따라서 **기본 ReservedCodeCacheSize**: 48MB → **240MB**.
 
-  // OS에 PROT_READ | PROT_WRITE | PROT_EXEC 요청
-  reserve_with_protection(...);
-}
-```
+**부작용**:
+- Code Cache가 단일 영역인데 C1(short-lived) + C2(long-lived)가 섞임.
+- Sweeper 비효율, fragmentation 발생 → JDK 9에서 해결.
 
-### NMethod 할당
+**면접 포인트**: "JDK 8에서 JIT 무엇이 가장 바뀌었나" → **Tiered가 기본 on 되면서 Code Cache 기본 크기가 5배로 늘었다**.
 
-```cpp
-// codeCache.cpp
-CodeBlob* CodeCache::allocate(int size, CodeBlobType type, ...) {
-  CodeHeap* heap = get_heap(type);  // segment 선택
+### JDK 9 (2017) — Segmented Code Cache (JEP 197) + JVMCI (JEP 243)
 
-  CodeBlob* cb = (CodeBlob*) heap->allocate(size);
-  if (cb == NULL) {
-    // segment full
-    if (UseCodeCacheFlushing) {
-      flush_codeheap(heap);          // cold nmethod 회수
-      cb = (CodeBlob*) heap->allocate(size);
-    }
-    if (cb == NULL) {
-      report_codemem_full(type);     // "CodeCache is full" 경고
-      disable_compiler();             // ★ JIT 비활성
-      return NULL;
-    }
-  }
-  return cb;
-}
-```
+**JEP 197: Segmented Code Cache**
 
-### Compile Broker — 컴파일 task 관리
+JDK 8의 fragmentation 문제 해결:
+- Code Cache를 3 segment로 물리 분리.
+  - Non-method (JIT 결과 아닌 stub)
+  - Profiled (C1, short-lived)
+  - Non-profiled (C2 + tier 1 C1, long-lived)
+- 각 segment 독립 sweep → short-lived 빈번 sweep, long-lived 거의 안 함.
+- I-cache locality 향상 (hot code끼리 모임).
 
-위치: `src/hotspot/share/compiler/compileBroker.cpp`
+**JEP 243: JVMCI (Java-level JVM Compiler Interface)**
 
-```cpp
-// 호출 시 카운터가 임계 도달
-void CompileBroker::compile_method(methodHandle method, int level, ...) {
-  CompileTask* task = create_compile_task(method, level);
+- JVM이 외부 컴파일러를 Java 인터페이스로 받아들일 수 있게 됨.
+- C2를 Java로 다시 짤 수 있는 길 열림 = **Graal의 기반**.
+- 일반 사용자에게는 직접 영향 없지만, JIT의 미래를 결정한 사건.
 
-  // task를 우선순위 큐에 추가
-  CompileQueue* queue = compile_queue(level);
-  queue->add(task);
+**면접 포인트**: "Segmented Code Cache는 왜 도입됐나" → **Tiered 기본 on으로 C1/C2가 섞여 fragmentation·sweep 비효율 발생. 수명별 segment 분리로 해결.**
 
-  // 대기 중인 compiler thread를 깨움
-  queue->notify_one();
-}
+### JDK 10 (2018) — Experimental Graal JIT (JEP 317)
 
-// Compiler thread의 main loop
-void CompilerThread::thread_main() {
-  while (!is_terminating()) {
-    CompileTask* task = queue->get();    // task pickup
-    if (task == NULL) continue;
+- C2를 대체할 후보로 Graal JIT 도입 (`-XX:+UseJVMCICompiler`).
+- 장점: Java로 작성 → 유지보수 쉬움, 공격적 최적화 (partial escape analysis 등).
+- 단점: 메모리 사용 ↑, 일부 워크로드에서 C2보다 느림.
+- **실험 상태**. 일반 production에서 사용 권장 안 됨.
 
-    // 컴파일러 호출
-    if (task->level() <= 3) {
-      _c1->compile_method(task);
-    } else {
-      _c2->compile_method(task);
-    }
+### JDK 11 (2018, LTS) — Graal 그대로 experimental
 
-    // 결과 NMethod를 method에 install
-    install_nmethod(task->method(), nm);
-  }
-}
-```
+- JDK 10의 Graal 그대로 유지. 큰 변화 없음.
+- ZGC experimental 도입 (Code Cache와 직접 관련 없지만 GC와 sweeper의 통합 흐름 시작).
 
-### Code Sweeper
+**면접 포인트**: "JDK 8과 11의 Code Cache 차이" → **Segmented Code Cache (JDK 9에서 도입된 게 11까지 이어짐)**. JDK 11 자체에서 JIT 변경은 미미.
 
-위치: `src/hotspot/share/sweeper/sweeper.cpp` (JDK 17 이전), 이후 deprecated되고 다른 메커니즘으로 대체.
+### JDK 12-16 — 점진적 개선
 
-```cpp
-// 주기적으로 또는 압박 시 실행
-void NMethodSweeper::sweep() {
-  while (nmethod_iter.has_next()) {
-    nmethod* nm = nmethod_iter.next();
-    if (nm->is_cold()) {
-      // 사용 안 한 지 오래됨
-      nm->make_not_entrant();   // 이후 호출 시 인터프리터로
-    }
-    if (nm->is_not_entrant() && nm->can_be_freed()) {
-      CodeCache::free(nm);
-    }
-  }
-}
-```
+- **JDK 14**: NUMA-aware Code Heap 할당 개선.
+- **JDK 16**: AOT 컴파일러(`jaotc`) 제거 (JEP 410의 전조).
+- Sweeper의 STW 영향 점진적 감소.
 
-### Inline Cache 패치
+### JDK 17 (2021, LTS) — Graal 제거 (JEP 410), Sweeper 성숙
 
-위치: `src/hotspot/share/code/compiledIC.cpp`
+**JEP 410: Removal of the Experimental AOT and JIT Compiler**
 
-```cpp
-void CompiledIC::set_to_monomorphic(CompiledICInfo& info) {
-  // IC slot의 instruction을 patch
-  // (예: x86_64에서 mov rax, klass_check_addr; jmp target_address)
-  NativeMovConstReg* mov = ...;
-  mov->set_data((intptr_t) info.klass());
+- Graal JIT (`-XX:+UseJVMCICompiler`)와 AOT (`jaotc`) 모두 OpenJDK에서 제거.
+- 이유: 유지 비용 ↑, 사용자 적음, 별도 프로젝트인 GraalVM으로 분리.
+- 그래도 JVMCI 인터페이스는 남음 → GraalVM 같은 외부 컴파일러 여전히 plug-in 가능.
 
-  NativeJump* jmp = ...;
-  jmp->set_jump_destination(info.entry());
-}
-```
+**Code Sweeper의 GC 통합 흐름**:
+- 일부 GC(ZGC, Shenandoah)가 nmethod unloading을 concurrent로 처리하기 시작.
+- Sweeper의 STW 영향 거의 사라짐.
 
-→ patch는 **atomic word write**로 이뤄짐. 다른 스레드가 동시에 호출 중이어도 안전.
+**면접 포인트**: "JDK 17에서 JIT 무엇이 바뀌었나" → **OpenJDK에서 Graal JIT 제거(JEP 410). 원하면 GraalVM으로 가야 함. JVMCI 인터페이스는 유지.**
+
+### JDK 21 (2023, LTS) — Generational ZGC, Leyden 준비
+
+- **Generational ZGC** (JEP 439): ZGC가 generational 모델 지원. Code Cache는 직접 영향 없지만 nmethod unloading 효율 더 향상.
+- **NMethodSweeper deprecated 흐름 마무리**: 별도 sweeper thread보다 GC와 통합된 unloading이 표준이 됨.
+- **Project Leyden 시작**: AOT(CDS + AOT compile)를 통해 startup 시간 단축 시도. JIT를 대체하는 게 아니라 **JIT가 워밍업하기 전을 메우는 보완**.
+
+**면접 포인트**: "JDK 21에서 JIT 변화" → **(1) GC와 통합된 nmethod unloading이 표준. (2) Leyden으로 AOT가 다시 등장하지만 JIT 대체가 아닌 보완 역할.**
+
+### JDK 23+ (참고) — Leyden 본격화
+
+- AOT 캐시 (`-XX:AOTCacheOutput`, `-XX:AOTCache`) 등장 (JDK 24부터 정식).
+- 첫 실행에서 컴파일한 결과를 다음 실행에 재사용 → "**JIT의 warmup을 cache로 건너뛴다**" 아이디어.
+- 즉, JIT는 사라지지 않지만 **AOT cache + JIT** 조합으로 진화.
+
+### 한 줄 요약표
+
+| JDK | 가장 중요한 변화 | 면접에서 묻기 좋은 한 줄 |
+|---|---|---|
+| 7 | Tiered 실험 도입 | "옛날엔 -client/-server 둘 중 골랐다" |
+| 8 | Tiered 기본 on, CodeCache 240MB | "JIT 양쪽 다 쓰니까 메모리도 5배" |
+| 9 | Segmented Code Cache (JEP 197), JVMCI (JEP 243) | "C1/C2 섞임 문제를 영역 분리로 해결" |
+| 10 | Graal JIT 실험 (JEP 317) | "C2 대체 시도 시작" |
+| 11 | LTS, 큰 변화 없음 | "9의 변화를 안정화한 LTS" |
+| 17 | Graal/AOT 제거 (JEP 410) | "OpenJDK는 C1/C2로 회귀, Graal은 GraalVM으로" |
+| 21 | Generational ZGC, Leyden 시작 | "nmethod 회수가 GC와 합쳐짐, AOT 재시도" |
 
 ---
 
-## 📜 5단계: 역사
+## ⚖️ 5단계: 트레이드오프 — 옵션 튜닝의 본질
 
-| 연도 | 릴리스 | 변화 | 이유 |
-|---|---|---|---|
-| 1996 | JDK 1.0 | JIT 없음 (Sun JIT 별도 옵션) | 초기 |
-| 1999 | HotSpot 1.0 | C1 (Client) JIT, 단일 Code Cache | 빠른 startup |
-| 2000 | HotSpot 1.3 | C2 (Server) JIT 추가 | 처리량 |
-| 2007 | JDK 6u20 | Tiered Compilation 실험 | C1 + C2 결합 |
-| 2014 | JDK 8 | **Tiered Compilation 기본 on** | warmup + 최적화 양립 |
-| 2017 | JDK 9 | **Segmented Code Cache (JEP 197)** | fragmentation 해결, sweep 효율 |
-| 2018 | JDK 10 | AOT 도입 (`jaotc`) → 11에서 제거 | 실험 실패 |
-| 2018 | JDK 9+ | Graal 실험 (별도 JIT 옵션) | 더 공격적 최적화 |
-| 2020 | JDK 16 | Sweeper 개선 — concurrent sweeping | Sweeper의 STW 영향 ↓ |
-| 2024+ | JDK 23+ | Project Leyden (AOT/CDS 통합) | startup 최적화 재시도 |
+### `-XX:ReservedCodeCacheSize`
 
-### Segmented Code Cache 도입의 동기 — JEP 197
+| 작게 (~64MB) | 기본 (240MB) | 크게 (512MB ~ 1GB) |
+|---|---|---|
+| 메모리 ↓ | 일반 웹 서버 적정 | Spring Boot 거대 앱·동적 클래스 많은 앱 |
+| Full 위험 ↑ | | 시작 시 reserve 양 ↑ |
 
-JDK 8까지의 문제:
-1. **Sweep 비효율**: 단일 cache 전체 스캔. C2의 long-lived nmethod와 C1의 short-lived nmethod가 섞여 사실상 모든 페이지 검사.
-2. **Fragmentation**: short-lived가 가운데 군데군데 죽으면 큰 nmethod 할당 위한 연속 공간 부족.
-3. **Cache locality 손상**: hot path와 cold path 코드가 섞여 instruction cache miss ↑.
+**경험칙**: 일반 API 서버는 기본 OK. Spring + Hibernate + 동적 proxy 많으면 512MB 이상.
 
-JEP 197 해결:
-- 3개 segment로 물리 분리 → 독립 sweep, segment 단위 evict 효율 ↑.
-- Long-lived (C2) 영역은 거의 sweep 안 함 → 안정.
-- Short-lived (C1) 영역만 자주 sweep.
+### `-XX:-TieredCompilation`
 
-### Tiered Compilation의 시대적 의미
-
-JDK 8 이전 (`-server`/`-client` 분리):
-- 서버: C2만, startup 느림, peak 빠름.
-- 클라이언트: C1만, startup 빠름, peak 느림.
-
-JDK 8+ (Tiered 기본):
-- 한 JVM이 C1 + C2 모두 활용.
-- 일찍 C1로 빠르게 컴파일 (warmup ↑), 나중에 hot method를 C2로 승격 (peak ↑).
-- Trade-off: **Code Cache 2배 사용** (C1, C2 양쪽 결과 동시 존재).
-
-이 변화가 JDK 9의 Segmented Code Cache 필요성을 만듦 — Tiered로 양쪽 코드 다 들고 있어야 하니 영역 분리가 합리적.
-
----
-
-## ⚖️ 6단계: 트레이드오프
-
-### `ReservedCodeCacheSize` 트레이드오프
-
-| 작게 (~64MB) | 크게 (~512MB) |
+| Tiered ON (기본) | Tiered OFF |
 |---|---|
-| ✅ 메모리 footprint 작음 | ❌ footprint 큼 |
-| ❌ "CodeCache is full" 위험 ↑ | ✅ 풍부한 공간 |
-| ❌ Sweeper 자주 동작 | ✅ Sweeper 거의 안 함 |
-| ❌ 거대 앱 (Spring Boot 등) 부적합 | ✅ 거대 앱 견딤 |
-| ✅ 마이크로서비스 (소형) 적합 | △ 마이크로서비스에선 낭비 |
+| Warmup 빠름 | Warmup 느림 |
+| Code Cache 2배 | Code Cache 절반 |
+| Profile 수집 비용 | Profile 없음 |
 
-**경험칙**:
-- 일반 웹 서버: 기본 240MB로 충분.
-- Spring Boot 대형 앱 / 동적 클래스 많은 앱: 512MB.
-- Lambda 폭주 + Hot reload 환경: 768MB ~ 1GB.
+**언제 끄나**: 컨테이너 메모리 제한 빠듯 (512MB limit) + warmup 무관한 batch.
 
-### Tiered Compilation 끄기 (`-XX:-TieredCompilation`)
+### `-XX:TieredStopAtLevel=N`
 
-| Tiered on (기본) | Tiered off (C2 only) |
-|---|---|
-| ✅ Warmup 빠름 (C1으로 일찍 컴파일) | ❌ Warmup 느림 (인터프리터 → C2 직접) |
-| ❌ Code Cache 사용량 큼 (C1+C2 양쪽) | ✅ Code Cache 사용량 작음 |
-| ✅ peak 성능 동일 | ✅ peak 성능 동일 |
-| △ profile 데이터 수집 비용 | ✅ profile 비용 없음 |
+`N=1`: tier 1까지만 (단순 C1, no profiling).
+- Code Cache 최소.
+- Peak 성능 낮음.
+- 가장 절약적이지만 단점 큼.
 
-**언제 끄나**:
-- 메모리 매우 제한적 (컨테이너 limit ~512MB).
-- Code Cache 압박 명백.
-- Warmup이 중요하지 않은 batch / 데몬 워크로드.
+### `-XX:CompileThreshold`
 
-### Code Cache Flushing 트레이드오프
+컴파일 임계 조정. 크게 잡으면 컴파일 횟수 ↓, Code Cache 사용 ↓, 그러나 warmup 더 길어짐.
 
-| `+UseCodeCacheFlushing` (기본 on) | `-UseCodeCacheFlushing` |
-|---|---|
-| ✅ 가득 차도 계속 컴파일 가능 | ❌ 가득 차면 영원히 JIT 비활성 |
-| ❌ Thrash 위험 (hot method가 evict됐다 재컴파일) | ✅ 안정적 (한번 컴파일된 거 영원) |
-| ✅ 메모리 한정 환경 적합 | ✅ 메모리 충분 환경 적합 |
-
-→ 기본 on이 거의 항상 맞음. 끄는 경우는 **컴파일 deterministic이 중요한 latency-critical 시스템**.
-
-### `CICompilerCount` (컴파일 스레드 수)
-
-| 작게 (1~2) | 크게 (8+) |
-|---|---|
-| ✅ 컴파일 백그라운드 비용 작음 | ❌ 컴파일러가 CPU 점유 |
-| ❌ 컴파일 적체 (큐 길어짐) → warmup 느림 | ✅ 컴파일 빠름 |
-| ✅ 코어 적은 환경 (1~2 vCPU 컨테이너) | ✅ 코어 많은 환경 |
-
-기본값: `CICompilerCount = max(2, log2(cpu_count) + 1)`. 일반적으로 적정.
+> ⚠️ 표면 옵션값을 외우지 말 것. **"메모리 빠듯 → Tiered 끄거나 size 조정", "warmup이 중요 → Tiered on 유지"** 같은 **결정 룰**만 갖고 있으면 된다.
 
 ---
 
-## 📊 7단계: 측정·진단
+## 📊 6단계: 운영 진단 — production에서 무엇을 보는가
 
-### `jcmd Compiler.codecache` — 현재 사용량
+### 1. 현재 상태 스냅샷
 
 ```bash
 jcmd <pid> Compiler.codecache
 ```
 
-출력 예:
-```
-CodeHeap 'non-profiled nmethods': size=120000Kb used=45032Kb max_used=46100Kb free=74968Kb
- bounds [0x00007fa1b8000000, 0x00007fa1bb000000, 0x00007fa1bf500000]
-CodeHeap 'profiled nmethods': size=120000Kb used=8512Kb max_used=8612Kb free=111488Kb
- bounds [0x00007fa1bf500000, 0x00007fa1bfa00000, 0x00007fa1c6a00000]
-CodeHeap 'non-nmethods': size=5760Kb used=2840Kb max_used=2841Kb free=2920Kb
- bounds [0x00007fa1c6a00000, 0x00007fa1c6e00000, 0x00007fa1c6fa0000]
- 
- total_blobs=12345 nmethods=8765 adapters=987
- compilation: enabled
-              stopped_count=0, restarted_count=0
-```
+핵심 보는 곳:
+- `used / size` 비율 (각 segment). **80% 넘으면 압박 신호**.
+- `compilation: enabled / disabled`. **disabled면 사고**.
+- `stopped_count`. **1 이상이면 한 번이라도 멈춤 → 즉시 조사**.
 
-**해석 포인트**:
-- `enabled` — JIT 정상.
-- `stopped_count > 0` — Code Cache full로 한 번이라도 멈춤 → **운영 사고 신호**.
-- 각 segment의 `used / size` 비율 — 80% 넘으면 압박.
-
-### `-XX:+PrintCompilation` — 컴파일 활동 실시간 로그
+### 2. 컴파일 활동 실시간 추적
 
 ```bash
 java -XX:+PrintCompilation -jar app.jar
 ```
 
-출력:
+출력 한 줄 읽는 법:
 ```
-     38    1   n 0       java.lang.Object::<init> (1 bytes)
-    140    2     3       java.lang.String::hashCode (49 bytes)
-    142    3 %   4       MyApp::process @ 12 (123 bytes)
-    150    4       4       MyApp::process (123 bytes)
-   ...
-```
-
-필드:
-1. 시작 후 시간 (ms)
-2. compile ID
-3. 플래그: `n`=native, `s`=synchronized, `!`=exception handler, `%`=OSR
-4. tier: 0=interpreter, 1~3=C1, 4=C2
-5. 메서드 시그니처
-
-### `-XX:+PrintInlining` — Inlining 결정 추적
-
-```bash
-java -XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining -jar app.jar
+   142    3 %   4       MyApp::process @ 12 (123 bytes)
+   ───   ─── ─── ─       ──────────────  ──   ─────
+    │    │   │  │             │          │     │
+    │    │   │  │             │          │     bytecode size
+    │    │   │  │             │          OSR entry bytecode index
+    │    │   │  │             메서드 시그니처
+    │    │   │  tier (0=interp, 1~3=C1, 4=C2)
+    │    │   flags (% = OSR, n = native, ! = exception)
+    │    compile ID
+    JVM 시작 후 시간 (ms)
 ```
 
-출력:
-```
-                            @ 5   java.lang.String::length (5 bytes)   inline (hot)
-                            @ 12  java.lang.Integer::valueOf (32 bytes)   inline (hot)
-                            @ 25  MyClass::expensive (200 bytes)   too big
-```
-
-→ JIT이 어느 호출을 inline하고 어느 호출을 안 했는지. "too big", "callee is too large" 같은 메시지가 inlining 막힘 신호.
-
-### JFR Code Cache 이벤트
+### 3. JFR 핵심 이벤트
 
 ```bash
 jcmd <pid> JFR.start name=cc duration=300s settings=profile filename=cc.jfr
-jfr summary cc.jfr | grep -iE 'CodeCache|Compilation|Deoptimization'
 ```
 
-**핵심 이벤트**:
+봐야 할 이벤트:
 - `jdk.CodeCacheStatistics` — 주기적 사용량.
-- `jdk.CodeCacheFull` — 가득 참 발생 (이게 보이면 즉시 대응).
-- `jdk.Compilation` — 컴파일 발생.
-- `jdk.CompilerInlining` — inlining 결정.
-- `jdk.Deoptimization` — deopt 발생.
-- `jdk.CodeSweeperStatistics` — sweep 통계.
+- `jdk.CodeCacheFull` — **가득 참 발생. 보이면 즉시 size 증가**.
+- `jdk.Compilation` — 어떤 메서드가 컴파일됐는지.
+- `jdk.Deoptimization` — deopt reason까지 — 빈발 시 코드의 다형성 점검.
+- `jdk.CompilerInlining` — inlining 결정. "too big" "callee large" 같은 reason 확인.
 
-### Code Cache 시각화 (JITWatch)
+### 4. 운영 시나리오 매트릭스
 
-[JITWatch](https://github.com/AdoptOpenJDK/jitwatch) — `-XX:+UnlockDiagnosticVMOptions -XX:+TraceClassLoading -XX:+LogCompilation` 로그를 시각화.
-- 어느 메서드가 C1/C2로 컴파일됐는지.
-- Inlining 트리.
-- Deopt 발생 위치.
-
-### 운영 시나리오 진단 매트릭스
-
-| 증상 | 진단 명령 | 가능 원인 |
+| 증상 | 첫 진단 | 가능 원인 |
 |---|---|---|
-| "CodeCache is full" 경고 | `jcmd Compiler.codecache` | ReservedCodeCacheSize 부족 |
-| 시간 지나면 응답 느려짐 | JFR `jdk.CodeCacheFull` 이벤트 | JIT 비활성 |
-| 컴파일 멈춤 (`stopped_count > 0`) | `Compiler.codecache` | Code Cache full |
-| Hot reload 후 점진적 느려짐 | `-XX:+PrintCompilation` + `jcmd Compiler.codecache` | 옛 nmethod 누적 |
-| Spring Boot 거대 앱 OOM 아닌데 느림 | NMT의 Code 영역 | Code Cache 부족 |
-| Deopt 빈발 | JFR `jdk.Deoptimization` | CHA 가정 위반, polymorphism ↑ |
+| 시작 후 점진적 응답 ↓ | `jcmd Compiler.codecache` | Code Cache full |
+| 컴파일이 자꾸 멈춤 | `stopped_count` 추세 | size 부족 + flushing thrash |
+| Hot reload 환경 점진 느려짐 | NMT의 Code 영역 | ClassLoader 누수 + nmethod 누적 |
+| Deopt 분당 수백 건 | `jdk.Deoptimization` | 호출 사이트 megamorphic |
+| Spring Boot 대형 앱 OOM 없이 느려짐 | Compiler.codecache | size 240MB로 부족 |
 
-### 시나리오 1: Spring Boot 거대 앱 — Code Cache 부족
+### 5. 시나리오 1: "CodeCache is full" — 대형 Spring Boot
 
 ```
 증상:
-- 시작 후 30분 이후 P99 latency 점진적 ↑
-- 로그: "CodeCache is full. Compiler has been disabled."
+  로그: "CodeCache is full. Compiler has been disabled."
+  P99 latency 점진 ↑.
 
 진단:
-$ jcmd <pid> Compiler.codecache | grep -A 1 compilation
-compilation: disabled (not enough memory)
-stopped_count=1
+  $ jcmd <pid> Compiler.codecache | grep -A 1 compilation
+  compilation: disabled (not enough memory)
+  stopped_count=1
 
-해결:
--XX:ReservedCodeCacheSize=512m   # 240MB → 512MB
--XX:InitialCodeCacheSize=128m    # 시작 시 commit 양
+조치:
+  -XX:ReservedCodeCacheSize=512m
+  + 동적 클래스 audit (AOP unnecessary proxy 제거)
+  + Lambda capture 패턴 점검
 ```
 
-### 시나리오 2: Lambda 폭주 + 동적 클래스로 인한 Code Cache 압박
+### 6. 시나리오 2: Deopt 폭주 — Megamorphic call site
 
 ```
 증상:
-- 시간이 지나면 컴파일 횟수가 비정상적으로 많음
-- jcmd VM.classloader_stats에 hidden class 수천 개
+  JFR jdk.Deoptimization 분당 수백 건.
+  reason: class_check 다수.
 
 원인:
-- 매 lambda 호출 사이트마다 hidden class 1개 생성
-- 각 hidden class의 method가 자체 nmethod 차지
-- 코드 패턴: Stream API 남용 + reflection 기반 framework
+  Strategy 패턴으로 한 호출 사이트가 5+ 구현체 받음.
+  C2가 monomorphic 가정 inline → 매번 깨짐.
 
 조치:
-1. Lambda 사이트 수 audit (코드 검토)
-2. ReservedCodeCacheSize 증가
-3. -XX:+UseCodeCacheFlushing 확인 (기본 on)
-```
-
-### 시나리오 3: Deopt 폭주 — Megamorphic call site
-
-```
-증상:
-- JFR jdk.Deoptimization 이벤트가 분당 수백 건
-- P99 latency 튐
-
-원인:
-- 한 호출 사이트가 너무 많은 구현체를 만남
-- C2가 monomorphic 가정으로 inline했다가 깨짐 → deopt
-
-조치:
-1. 코드에서 polymorphic call site 식별 (Strategy 패턴 등)
-2. 일부 경우는 sealed class로 구현체 제한
-3. -XX:+PrintInlining으로 inlining 실패 확인
+  - sealed class로 구현체 제한 → CHA 안정
+  - 일부 사이트는 if-else로 평탄화
+  - -XX:+PrintInlining으로 실패 메시지 확인
 ```
 
 ---
 
-## ⚔️ 8단계: 꼬리질문 트리
+## ⚔️ 7단계: 면접 깊이별 질문 — 무엇을 묻고 무엇을 안 묻나
 
-### Q1. JIT 컴파일된 native code는 어디에 저장되나요?
+여기가 이 문서의 두 번째 핵심. **무엇이 합리적 면접 질문이고, 무엇이 컴파일러 작성자만 알 수준인지** 구분해야 한다.
 
-**예상 답변**:
-> Code Cache. Heap이 아니고 Metaspace도 아닌 별도 영역.
-> JVM이 OS로부터 `mmap`으로 reserve. 기본 240MB (`-XX:ReservedCodeCacheSize`).
-> Executable 플래그 필요 — Heap과 분리되어야 하는 보안적 이유.
-> JDK 9+에서는 3개 segment(Non-method / Profiled / Non-profiled)로 분할.
+### Tier A: 표면 (안 묻는 수준)
 
-#### 🪝 Q1-1: 왜 Heap에 두면 안 되나요?
+> 외워서 답하면 의미 없는 질문. 시니어 면접에서는 안 묻거나 패스.
 
-> 3가지 본질적 이유:
-> 1. **Executable 메모리**: native code는 executable이어야 함 — Heap이 executable이면 보안 위협 (W^X 위반).
-> 2. **GC 정책 분리**: 일반 객체는 Young/Old gen으로 짧게 죽고 길게 사는 모델인데 native code는 다른 수명 패턴. Code Sweeper로 별도 관리.
-> 3. **32-bit relative jump**: JIT이 점프 명령에 32-bit offset 사용 → 모든 native code가 4GB 범위 안에 모여야 함. 별도 reserve로 보장.
+- "ReservedCodeCacheSize 기본값은?"
+- "C1 tier 3 임계는?"
+- "Sea-of-Nodes의 노드 타입은?"
+- "nmethod 구조체 필드를 말해보라"
 
-### Q2. Segmented Code Cache의 3개 segment는 무엇이고 각각 무엇을 저장하나요?
+→ **답할 줄 알아도 점수 안 됨**. 검색하면 나오는 정보.
 
-**예상 답변**:
-> 1. **Non-method**: JIT 결과가 아닌 JVM 자체의 native stub. Interpreter loop, Adapter, Runtime stub, Compiler 자체. 기본 ~5.7MB.
-> 2. **Profiled**: C1 컴파일 결과 + profiling instrumentation. 보통 short-lived (C2로 승격되면 free). 기본 ~117MB.
-> 3. **Non-profiled**: C2 컴파일 결과, fully optimized. Long-lived. 기본 ~117MB.
-> 
-> 도입: JDK 9 JEP 197. 옛 단일 cache의 fragmentation/sweep 비효율 해결.
+### Tier B: 개념 이해 (3~5년차에게 묻는 수준)
 
-#### 🪝 Q2-1: 왜 C1과 C2 결과를 분리해서 저장하나요?
+> 메커니즘과 trade-off를 이해했는지 확인하는 질문. **여기를 확실히 답해야 한다**.
 
-> 수명/특성이 다르기 때문:
-> - C1: 빠르게 만들어졌다 곧 C2로 승격 → short-lived.
-> - C2: 한 번 만들어지면 거의 영구 → long-lived.
-> 둘이 섞이면:
-> - Sweep 시 long-lived 영역도 매번 스캔 → 비용 ↑.
-> - Fragmentation — short-lived가 죽은 자리에 long-lived가 들어가기 어려움.
-> 분리하면 short-lived만 자주 sweep, long-lived는 거의 건드리지 않음 → 효율.
+#### B1. JIT는 무엇이고 왜 필요한가
+> 인터프리터는 시작 빠르나 매번 비용. AOT는 빠르나 runtime 정보 못 씀.
+> JIT = 인터프리터로 시작 → hot path만 native code로 컴파일.
+> **결정적 장점은 runtime profile 기반 최적화** (monomorphic inline 등).
+> AOT가 가정만 하는 것을 JIT는 알고 한다.
 
-### Q3. "CodeCache is full" 경고가 나오면 무슨 일이 일어나나요?
+#### B2. C1과 C2는 왜 두 개인가
+> 컴파일 비용과 최적화 품질의 trade-off.
+> C1 = 빠른 컴파일, 약한 최적화 → warmup 단축.
+> C2 = 무거운 컴파일, 공격적 최적화 → peak 성능.
+> 하나만 쓰면 한쪽을 잃음. Tiered Compilation이 둘을 결합.
 
-**예상 답변**:
-> 1. JVM이 더 이상 새 컴파일을 진행하지 않음. Compile Broker가 task 받지 않음.
-> 2. 이미 컴파일된 메서드는 그대로 native code로 실행 (살아있음).
-> 3. **새로 호출되는 메서드는 영원히 인터프리터** — 성능 5~10배 저하.
-> 4. `-XX:+UseCodeCacheFlushing` 기본 on이면 Sweeper가 cold nmethod 회수 시도 → 공간 확보되면 컴파일 재개.
-> 5. flushing 실패하면 영구 인터프리터 모드 → 재시작 필요.
-> 
-> 진단: `jcmd Compiler.codecache` 의 `stopped_count`. 1 이상이면 한 번이라도 멈춤.
+#### B3. Tiered Compilation의 비용은
+> Code Cache 2배 사용 (C1, C2 결과 동시 보유).
+> Profile 수집 비용 (instrumented C1 코드 실행 비용).
+> 이게 JDK 9에서 Segmented Code Cache 필요해진 이유.
 
-#### 🪝 Q3-1: 그럼 ReservedCodeCacheSize를 무한정 크게 잡으면 되지 않나요?
+#### B4. Code Cache가 왜 별도 영역인가
+> 세 가지: (1) executable 메모리 분리 (보안), (2) GC와 회수 정책 다름, (3) 32-bit relative jump 가정.
 
-> 큰 trade-off 없이는 안 됨:
-> 1. JVM 시작 시 reserve 양 ↑ → 가상 메모리 사용 ↑ (container limit 압박).
-> 2. 실제 commit은 사용량 따라 점진적이지만, container 환경에선 reserve도 limit에 포함되는 경우 있음.
-> 3. 32-bit relative jump를 위한 연속 공간이 너무 크면 OS가 적절한 위치 못 찾을 가능성.
-> 
-> 일반적으로 512MB ~ 1GB가 거대 앱의 sweet spot. 그 이상은 진짜 필요한 경우만.
+#### B5. Code Cache가 가득 차면 무엇이 일어나는가
+> "CodeCache is full" → Compile Broker 멈춤 → 새 hot method는 인터프리터 영구 실행 → 5~10배 성능 저하.
+> UseCodeCacheFlushing이 on이면 sweeper가 cold 회수 시도.
 
-### Q4. Tiered Compilation을 끄면 어떤 효과가 있나요?
+### Tier C: 운영 마스터 (시니어/리드 수준)
 
-**예상 답변**:
-> `-XX:-TieredCompilation` 또는 `-XX:TieredStopAtLevel=N`:
-> 
-> 효과:
-> - **Code Cache 사용량 ↓**: C1 결과(Profiled segment)를 거의 안 만듦. Non-profiled만 사용.
-> - **Warmup 느림**: 인터프리터 → 바로 C2 직접 컴파일. C2가 무거워서 시작 응답 느림.
-> - **Peak 성능 동일**: 최종적으로 같은 C2 결과.
-> - **Profile 비용 없음**: instrumented C1 코드 안 실행.
-> 
-> 언제 적절한가:
-> - 메모리 제한 컨테이너 (~512MB limit).
-> - Code Cache 압박 명백.
-> - Batch / 데몬 워크로드 (warmup 무시).
+> 실제 production에서 한 번이라도 만난 사람만 답하는 질문.
 
-### Q5. Deoptimization이 무엇이고 언제 발생하나요?
+#### C1. JDK 8과 17의 JIT 차이를 설명하라
+> 8: Tiered 기본 on, Code Cache 240MB. 그러나 단일 영역으로 fragmentation 있음.
+> 9: Segmented Code Cache (JEP 197). 수명별 segment 분리.
+> 10~16: Graal JIT 실험 등장.
+> 17: JEP 410으로 Graal/AOT OpenJDK에서 제거. 원하면 GraalVM으로.
+> 17부터 nmethod unloading이 GC와 통합되기 시작 → STW 영향 ↓.
 
-**예상 답변**:
-> C2가 컴파일 시 한 가정이 깨졌을 때 native code를 폐기하고 인터프리터로 복귀하는 메커니즘.
-> 
-> 트리거:
-> 1. **CHA 위반**: "이 메서드는 monomorphic"이라고 가정해 inline했는데 새 subclass 로드 → 다형성 등장.
-> 2. **Speculative type check 실패**: profile 기반 type guess 틀림.
-> 3. **Class redefinition**: JVMTI로 클래스 재정의.
-> 4. **Uncommon branch 도달**: C2가 "거의 안 일어남"으로 표시한 분기.
-> 
-> 흐름:
-> 1. 영향받는 nmethod → not_entrant 표시.
-> 2. 실행 중 스레드는 다음 safepoint에서 native frame → interpreter frame 변환.
-> 3. Code Sweeper가 그 nmethod 회수.
+#### C2. "CodeCache is full" 경고가 나왔다. 어떻게 진단하고 해결하나
+> 1. `jcmd Compiler.codecache`로 `stopped_count`와 segment별 used 확인.
+> 2. JFR `jdk.CodeCacheFull`로 시점 특정.
+> 3. 원인 분류:
+>    - 일반 부족 → `ReservedCodeCacheSize` 증가
+>    - 동적 클래스 누적 → AOP/proxy/lambda audit
+>    - Hot reload 환경 → ClassLoader 누수 같이 의심
+> 4. 모니터링 — Prometheus jvm_jit 지표, JFR 상시.
 
-#### 🪝 Q5-1: Deopt가 빈발하면 어떻게 진단하나요?
-
-> JFR `jdk.Deoptimization` 이벤트 — 어느 메서드에서, 어떤 reason으로 deopt했는지.
-> reason 예시:
-> - `unstable_if`: speculative branch가 자주 다른 쪽 감.
-> - `class_check`: monomorphic 가정 깨짐.
-> - `predicate`: hoisted check 실패.
-> 
+#### C3. Deopt가 빈발한다. 무엇을 의심하고 어떻게 해결하나
+> 가장 흔한 원인: 한 호출 사이트가 megamorphic이 됨 (구현체 3개 이상).
+> 진단: JFR `jdk.Deoptimization`의 reason 분포.
 > 해결:
-> - polymorphic call site 식별 (Strategy 패턴 등).
-> - sealed class로 구현체 제한 → CHA가 안정.
-> - JIT 친화적 코드 패턴 (가능한 monomorphic, hot path 단순).
+> - Strategy 패턴 남발하는 곳 sealed class로 제한 → CHA 안정.
+> - 핫 패스에서 reflection/dynamic proxy 줄임.
+> - `-XX:+PrintInlining`으로 inline 실패 메시지 확인.
 
-### Q6. Inline Cache가 무엇이고 어떻게 진화하나요?
+#### C4. 메모리 제한 컨테이너에서 JIT 어떻게 튜닝하나
+> 우선순위:
+> 1. `ReservedCodeCacheSize` 적정 추정 (jcmd로 사용량 측정 후 1.5배).
+> 2. Warmup 무관하면 `-XX:-TieredCompilation` 검토 (Code Cache 절반).
+> 3. 그래도 모자라면 `-XX:TieredStopAtLevel=1` (peak 손해 감수).
+> 4. AOT cache (JDK 24+) 검토.
 
-**예상 답변**:
-> 메서드 호출 사이트에 캐시된 dispatch 정보. 호출이 어떻게 분기되어야 하는지 직접 patch된 instruction.
-> 
-> 4단계 진화:
-> 1. **Monomorphic** (단일 구현): klass check 1번 + 직접 점프. 가장 빠름.
-> 2. **Bimorphic** (구현 2개): klass check 2번 + 분기.
-> 3. **Polymorphic** (구현 ~3개): branch table.
-> 4. **Megamorphic** (구현 많음): vtable lookup으로 fallback. 가장 느림.
-> 
-> C2의 inlining은 monomorphic IC에 의존 — IC가 monomorphic이어야 callee를 caller에 inline 가능.
+#### C5. Tiered Compilation을 끄면 어떤 일이 일어나는가
+> Code Cache 사용량 ≈ 절반 (Profiled segment 거의 안 씀).
+> Warmup 느려짐 (인터프리터 → C2 직행, C2가 무거워서 시작 응답 느림).
+> Peak 성능 동일.
+> 적합한 경우: 메모리 제한 강한 환경 + warmup 무관 batch.
 
-### Q7. (Killer) Spring Boot 거대 앱이 시작 30분 후 응답이 느려집니다. 어떻게 진단하시겠어요?
+### Tier D: 안 묻는 수준 (컴파일러 작성자 영역)
 
-**예상 답변**:
-> 단계적 진단:
-> 
-> 1. **Code Cache 의심**:
->    ```
->    jcmd <pid> Compiler.codecache | grep -A 1 compilation
->    ```
->    `compilation: disabled` 또는 `stopped_count > 0` 이면 Code Cache full 확정.
-> 
-> 2. **사용량 추세**:
->    ```
->    JFR.start name=cc duration=600s settings=profile
->    # 또는 jcmd <pid> Compiler.codecache 를 5분 간격으로 비교
->    ```
->    각 segment의 `used/size` 비율 추세.
-> 
-> 3. **원인 추정**:
->    - Spring AOP/Hibernate proxy/Mockito 등 동적 클래스 생성 많음?
->    - Lambda 폭주? (`-Xlog:class+load`에 hidden class 다수)
->    - Hot reload 환경? (ClassLoader 누수 + Code Cache 누적)
-> 
-> 4. **조치**:
->    - `-XX:ReservedCodeCacheSize=512m` (240 → 512MB).
->    - 동적 클래스 생성 audit (Spring AOP unnecessary proxy 제거).
->    - Lambda 사용 패턴 검토 (capture 줄이기, 재사용).
->    - `-XX:+PrintCompilation` 로 어떤 메서드가 컴파일되는지 식별.
-> 
-> 5. **장기 모니터링**:
->    - JFR `jdk.CodeCacheStatistics` 주기 로깅.
->    - Prometheus + jvm_classloader_loaded, jvm_jit_compilations 지표.
+> 시니어 면접에서도 안 묻는다. 만약 묻는다면 잘못된 면접.
 
-#### 🪝 Q7-1: 컴파일 자체를 줄여서 Code Cache 사용을 줄이는 옵션이 있나요?
+- Sea-of-Nodes의 노드 종류와 변환 단계
+- C2의 register allocation 알고리즘 (linear scan vs graph coloring)
+- Escape analysis의 IFDS 변형
+- IR 패스 순서와 fixed-point 종결 조건
+- nmethod의 메모리 layout과 patch 가능 영역
 
-> 1. `-XX:-TieredCompilation` — C1 결과 거의 안 만듦. Profiled segment 사용 ↓ (절반 가까이 절약).
-> 2. `-XX:TieredStopAtLevel=1` — C1까지만, C2 안 함. Non-profiled 거의 안 씀.
-> 3. `-XX:CompileThreshold=20000` — 더 늦게 컴파일 (호출 횟수 임계 ↑).
-> 4. `-XX:MaxInlineSize=N` 작게 → inlining 줄임 → nmethod 크기 ↓.
-> 
-> 단점: 모두 peak 성능 또는 warmup에 영향. **trade-off 명시 후 측정해야 함**.
+이걸 묻는 면접 = OpenJDK 컨트리뷰터 채용 면접. 일반 백엔드 채용에서는 부적절.
+
+### 꼬리질문 트리 — 압박 면접 시뮬레이션
+
+#### Q. "JIT 컴파일된 코드는 어디 저장되나요?"
+- A: Code Cache. Heap도 Metaspace도 아닌 별도 영역.
+
+##### 🪝 왜 Heap에 두면 안 되나?
+- A: 세 가지. (1) executable 메모리는 보안상 분리 (W^X), (2) native code의 회수 정책이 일반 객체와 달라 별도 sweeper 필요, (3) 32-bit relative jump를 위해 4GB 안에 모여야 함.
+
+##### 🪝 그럼 그 Code Cache는 어떻게 구성돼 있나?
+- A: JDK 9 이후 3 segment. Non-method (JVM stub), Profiled (C1 결과), Non-profiled (C2 결과). 수명/특성이 달라 분리.
+
+##### 🪝 왜 그렇게 segment를 나눴나?
+- A: JDK 8까지 단일 영역에서 C1(short-lived)와 C2(long-lived)가 섞여 fragmentation과 sweep 비효율 발생. JEP 197로 영역 분리.
+
+##### 🪝 그러면 segment 분리는 무엇이 좋아지나?
+- A: short-lived만 자주 sweep, long-lived는 안정. I-cache locality도 향상.
+
+#### Q. "Tiered Compilation이 뭔지 설명해보세요"
+- A: C1과 C2를 한 JVM에서 모두 활용. 인터프리터 → C1 (tier 1/2/3) → C2 (tier 4) 순으로 hot 메서드를 승급.
+
+##### 🪝 왜 5단계인가, 그냥 C1 → C2면 안 되나?
+- A: C1도 3가지로 나뉜다. tier 1 (no profile, C2 큐 막혔거나 단순한 경우), tier 2 (호출 카운터만), tier 3 (full profile, 가장 느린 C1). profile 비용 vs 정확도의 점진적 trade-off.
+
+##### 🪝 Tiered의 비용은?
+- A: Code Cache 2배 (C1, C2 결과 동시). Profile 수집 overhead. 그래서 JDK 9에서 Segmented Code Cache가 필요해졌다.
+
+##### 🪝 Tiered를 끄면 어떻게 되나?
+- A: Code Cache 절반. Warmup 느림. Peak 성능 동일. 메모리 빠듯 + warmup 무관 환경에 적합.
+
+#### Q. "JDK 8과 21을 비교해 JIT에서 무엇이 가장 바뀌었는지 설명해보세요"
+- A: 세 가지 큰 변화.
+  1. **JDK 9의 Segmented Code Cache**: C1/C2 결과 분리로 fragmentation 해결.
+  2. **JDK 17의 Graal/AOT 제거 (JEP 410)**: OpenJDK 본체는 C1/C2로 회귀, GraalVM은 별도 프로젝트로.
+  3. **JDK 21의 GC 통합 nmethod unloading**: 별도 Sweeper thread 시대 끝, GC와 함께 concurrent로 회수. STW 영향 거의 사라짐.
+
+##### 🪝 Leyden은 뭔가?
+- A: JIT를 대체하는 게 아니라 보완. 첫 실행에서 컴파일한 결과를 cache해 다음 실행의 warmup을 줄이는 시도. JDK 24부터 AOT cache 정식.
+
+#### Q. "production에서 'CodeCache is full' 메시지를 본 적 있다고 가정해봅시다. 무엇부터 보겠어요?"
+- A: 다섯 단계.
+  1. `jcmd Compiler.codecache`로 segment별 used / size + `stopped_count` 확인.
+  2. JFR로 시점/주기 확인 (`jdk.CodeCacheFull`).
+  3. 원인 분류:
+     - 일반 부족 → size 증가
+     - 동적 클래스 누적 → 코드 audit (AOP, lambda, reflection)
+     - ClassLoader 누수 의심
+  4. 즉시 조치: `-XX:ReservedCodeCacheSize` 증가 + 재시작.
+  5. 장기 모니터링 셋업.
+
+##### 🪝 size만 무한정 늘리면 안 되나?
+- A: 안 됨. (1) 가상 메모리 사용 ↑ → 컨테이너 limit 압박. (2) reserve가 클수록 32-bit jump 범위 보장 어려움. 일반적으로 512MB ~ 1GB가 거대 앱의 sweet spot.
+
+##### 🪝 만약 코드의 다형성이 너무 많아서 컴파일이 비정상적으로 많은 거라면?
+- A: Deopt 빈발 의심. JFR `jdk.Deoptimization`으로 reason 분포 확인. megamorphic call site 식별 → sealed class, if-else 평탄화, 핫 패스에서 reflection 제거.
 
 ---
 
@@ -947,15 +799,16 @@ stopped_count=1
 - → [06. GC bookkeeping](./06-gc-bookkeeping-and-others.md): Card Table, RSet, Mark Bitmap
 - ← [03. Stack & PC & Native](./03-stack-pc-native.md): Per-thread 메모리
 - ← [02. Metaspace](./02-metaspace-and-class-space.md): Class 메타데이터
-- 관련: 추후 03-execution-engine 챕터 — JIT 컴파일러 내부 (C1/C2, Sea-of-Nodes, Escape Analysis 등)
+- 관련: 추후 03-execution-engine 챕터 — C1/C2 내부 동작과 최적화 기법 상세
 
 ## 📚 참고
 
 - **JEP 197 Segmented Code Cache**: https://openjdk.org/jeps/197
-- **HotSpot `codeCache.cpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/code/codeCache.cpp
-- **HotSpot `nmethod.hpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/code/nmethod.hpp
-- **HotSpot `compileBroker.cpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/compiler/compileBroker.cpp
-- **Oracle — Tiered Compilation Notes**: https://docs.oracle.com/en/java/javase/21/vm/java-hotspot-virtual-machine-performance-enhancements.html
-- **JITWatch (시각화 도구)**: https://github.com/AdoptOpenJDK/jitwatch
-- **Aleksey Shipilëv — JIT Compilation Watcher**: https://shipilev.net/jvm/anatomy-quarks/
-- **Cliff Click — A JVM Does What?**: 컨퍼런스 발표, Sea-of-Nodes의 원작자가 본 컴파일 흐름
+- **JEP 243 JVMCI**: https://openjdk.org/jeps/243
+- **JEP 317 Experimental Graal JIT**: https://openjdk.org/jeps/317
+- **JEP 410 Removal of AOT/Graal JIT**: https://openjdk.org/jeps/410
+- **JEP 439 Generational ZGC**: https://openjdk.org/jeps/439
+- **Oracle — HotSpot VM Performance Enhancements**: https://docs.oracle.com/en/java/javase/21/vm/java-hotspot-virtual-machine-performance-enhancements.html
+- **JITWatch (시각화)**: https://github.com/AdoptOpenJDK/jitwatch
+- **Aleksey Shipilëv — JVM Anatomy Quarks**: https://shipilev.net/jvm/anatomy-quarks/
+- **Project Leyden 개요**: https://openjdk.org/projects/leyden/
