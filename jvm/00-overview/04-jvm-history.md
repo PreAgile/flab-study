@@ -1,679 +1,467 @@
-# 04. JVM 역사 — 30년의 진화, "왜" 중심으로
+# 04. JVM 역사 — 30년 진화, "왜" 중심으로
 
 > 역사를 모르면 "왜 PermGen이 사라졌나", "왜 G1이 나왔나", "왜 Module System이 필요했나"에 답할 수 없다.
 > 현재의 설계는 과거의 상처다. 각 결정의 **트리거가 된 사건**을 기억하라.
+> "JDK X에서 Y가 추가됐다"고만 말하지 말고 **"무슨 문제를 풀기 위해 Y가 만들어졌는가"**를 말하면 한 단계 위로 보인다.
 
 ---
 
-## 📍 학습 목표
+## 이 문서의 사용법
 
-1. Java/JVM의 주요 마일스톤 10여 개를 연도+이유로 말할 수 있다.
-2. HotSpot이 등장한 1999년 전후의 상황을 안다.
-3. JDK 8 → 9 → 17 → 21 메이저 변화의 **원인**을 설명할 수 있다.
-4. 각 GC가 도입된 동기를 시대 흐름으로 안다 (CMS의 짧은 생애 등).
-5. Oracle의 라이선스 정책 변화(2018 BCL → No-Fee 2021)와 OpenJDK 생태계 분화를 안다.
+이 문서는 면접용 마인드맵을 따라 선형으로 펼친 구조다. 학습 순서 = 면접 답변 순서 = 백지에 그리는 순서.
 
----
-
-## 🎨 1단계: 백지 그리기 가이드
-
-> 가로로 긴 타임라인을 그려라. 시간 축은 왼쪽에서 오른쪽으로.
-
-### Step 1: 메인 축
-- 화면 가로 중앙에 긴 화살표 (1991 → 2026+)
-- 5년 단위 눈금: 1995, 2000, 2005, 2010, 2015, 2020, 2025
-
-### Step 2: 주요 마일스톤 (위/아래로 번갈아 표기)
-**위쪽 (Language/Runtime)**:
-- 1991 Green Project (Oak)
-- 1995 Java 1.0
-- 1999 HotSpot
-- 2004 Java 5 (Generics, JMM)
-- 2014 Java 8 (Lambda, Stream, Metaspace)
-- 2017 Java 9 (Module)
-- 2021 Java 17 LTS
-- 2023 Java 21 LTS (Virtual Thread)
-
-**아래쪽 (Ecosystem/Tooling)**:
-- 2006 OpenJDK
-- 2010 Oracle, Sun 인수
-- 2017 6개월 릴리스 주기
-- 2019 GraalVM 1.0 GA
-- 2021 No-Fee Oracle JDK
-
-### Step 3: GC 진화 축 (별도 라인)
-- 1.0 Serial → 1.4 Parallel → 1.4 CMS → 1.7u4 G1 → 11 ZGC → 12 Shenandoah → 21 Generational ZGC
-
-### Step 4: 각 점 옆에 "왜?" 한 줄
-- 예: "Java 9: 모듈 — rt.jar 60MB 비대화, 임베디드 적합성 + 강한 캡슐화"
-
-### 정답 그림
-
-![JVM/Java 진화 타임라인 1991-2026](./_excalidraw/04-jvm-timeline.svg)
-
-> SVG로 직접 임베드된다. 편집하려면 [04-jvm-timeline.excalidraw](./_excalidraw/04-jvm-timeline.excalidraw)을 [excalidraw.com](https://excalidraw.com/)에서 "Open" 으로 열면 된다.
+1. **0장 마인드맵을 먼저 외운다** — 루트 한 문장 + 5가지 가지 + 각 가지의 키워드 3개.
+2. **1~5장을 순서대로 학습한다** — 각 장이 마인드맵의 한 가지에 정확히 대응.
+3. **6장 면접 워크플로우로 검증** — 질문을 보면 어느 가지로 가야 하는지 매핑.
+4. **7장 꼬리질문으로 깊이 점검**.
 
 ---
 
-## 🧠 2단계: 직관 — 30년을 3시대로
+## 0. 마인드맵 — 면접 종이에 그릴 그림
 
-### 1기 (1991~2005): "Java is Slow" 시대 — 성능 따라잡기
-- 인터프리터 → JIT → 멀티코어 GC. C++과의 속도 격차를 좁히는 데 14년.
+### 루트 한 문장 (anchor)
 
-### 2기 (2006~2017): 오픈소스화 + 정체 → 폭발 — Java 6, 7 사이 4년 공백, 그리고 8의 폭발
-- Sun의 재정난, Oracle 인수. OpenJDK 출범. 그리고 Java 8의 lambda가 분기점.
+> **"JVM 30년은 3시대로 나뉜다 — 1기(1991~2005) 'Java is Slow'를 JIT으로 극복, 2기(2006~2017) Oracle 인수와 4년 공백 후 Java 8 함수형으로 폭발, 3기(2018~) 6개월 주기 + GC 혁신 + 클라우드 적응. 각 변화는 '시대의 화두에 대한 응답'이고, 그 화두를 모르면 설계 의도를 못 본다."**
 
-### 3기 (2018~현재): 모던 Java — 6개월 주기, GC 혁신, 클라우드 적응
-- ZGC, Loom, Panama, Valhalla. Java가 클라우드 네이티브로 변모하려는 노력.
+이 한 문장에서 모든 답변이 출발한다. 어떤 질문이 와도 이 문장부터 말하고 적절한 가지로 분기.
+
+### 5개 가지 — 순서를 외운다
+
+```
+                  [ROOT: JVM 30년 = 3시대 × 5축의 진화]
+                                  │
+       ┌─────────┬────────┬───────┼────────┬──────────┐
+       │         │        │       │        │          │
+      ① 3시대   ② 언어/   ③ GC   ④ JIT   ⑤ 라이선스
+                  Runtime  진화    진화      /배포
+       │         │        │       │        │
+       │      ┌──┼──┐    Serial   Sun JIT  Sun→Oracle
+    1기     1.0  5  8     Parallel HotSpot  OpenJDK
+    Slow    1.4 21         CMS    C1+C2    BCL→
+    →JIT   2.0    LTS     G1     Tiered   No-Fee
+    2기                    ZGC              Temurin/
+    공백후                Shenandoah        Corretto/
+    Lambda                Generat'l ZGC     Zulu
+    3기                                    GraalVM
+    클라우드
+```
+
+### 가지별 핵심 키워드
+
+| 가지 | 키워드 1 | 키워드 2 | 키워드 3 |
+|---|---|---|---|
+| **① 3시대** | 1기 1991~2005 "느림" | 2기 2006~2017 "정체→폭발" | 3기 2018~ "모던 Java" |
+| **② 언어/Runtime** | Java 1.0 (1996) | Java 5/8 (Generics/Lambda) | Java 21 (Virtual Thread) |
+| **③ GC 진화** | Serial → Parallel → CMS | G1 (region 기반) | ZGC / Shenandoah / Gen ZGC |
+| **④ JIT 진화** | Sun JIT (1998) | HotSpot C1/C2 (1999/2000) | Tiered (JDK 7→8) |
+| **⑤ 라이선스/배포** | OpenJDK (2006, GPLv2) | Oracle BCL 폭탄 (2018) | No-Fee + Temurin/Corretto |
+
+### 면접 답변 흐름
+
+> 면접관 질문 → 루트 문장 → 질문에 맞는 가지 1개 선택 → 그 가지의 키워드 3개 순서대로 설명 → 듣는 사람의 관심에 따라 인접 가지로 확장
+
+"왜 PermGen 사라졌나?" → ② Java 8. "CMS 왜 죽었나?" → ③. "Virtual Thread 왜?" → ② Java 21. "JDK 11 라이선스 문제?" → ⑤.
 
 ---
 
-## 🔬 3단계: 구조 — 시간순 깊이 분석
+## 1. 가지 ①: 3시대 — JVM 30년의 큰 흐름
 
-> **표기 컨벤션**: 각 마일스톤은 다음 형식으로 통일한다.
-> - **연도** = 실제 일반 공개(GA) 연도 (preview/RC가 아닌 정식 출시)
-> - **릴리스** = 자바 언어 버전 (Java N) 또는 JDK 버전. JDK와 Java N은 5부터 같은 숫자.
-> - **핵심 이유** = "어떤 문제를 풀기 위해"
-> - "발표/preview/RC"와 "GA"가 다르면 별도 표시. 같은 해에 여러 일이 있으면 따로 표기.
->
-> 빠른 참조 테이블:
->
-> | 연도 | 릴리스 | 핵심 이유 |
-> |---|---|---|
-> | 1995 | Java 1.0 발표 (베타) | applet으로 웹 동적 콘텐츠 |
-> | 1996 | JDK 1.0 GA | 첫 정식 JVM |
-> | 1999 | JDK 1.3 (HotSpot) | JIT으로 성능 격차 좁힘 |
-> | 2002 | JDK 1.4 | NIO, assert, Parallel/CMS GC |
-> | 2004 | Java 5 (JDK 5) | Generics, Annotation, JMM (JSR-133) |
-> | 2006 | Java 6 / OpenJDK 출범 | 오픈소스화 |
-> | 2011 | Java 7 | invokedynamic, try-with-resources |
-> | 2014 | Java 8 | Lambda, Stream, Metaspace |
-> | 2017 | Java 9 | Module System, jlink, 6개월 주기 시작 |
-> | 2018 | Java 11 LTS | 첫 LTS, HTTP Client |
-> | 2021 | Java 17 LTS | Sealed class, Pattern matching |
-> | 2023 | Java 21 LTS | Virtual Thread, Generational ZGC |
+### 1.1 핵심 질문
 
-## 📅 1기: 탄생과 성장 (1991-2005)
+> "Java 30년을 한 호흡에 정리하면?"
 
-### 1991: Green Project — Oak
+### 1.2 키워드 1 — 1기 (1991~2005): "Java is Slow" 시대
 
-- Sun Microsystems의 13인 비밀 프로젝트, 리더 **James Gosling**
-- 목표: **가전제품(셋톱박스, 토스터)을 제어할 언어**
-- 왜 C++이 아니었나: C++은 플랫폼별 컴파일 필요 + 메모리 관리 위험. 가전 디바이스의 CPU가 너무 다양.
-- 이름 Oak: 사무실 창밖의 참나무.
-- 결과: 셋톱박스 시장이 안 열렸음. 프로젝트 사실상 실패.
+**시대 정신**: "C++ 너무 위험 → GC + Bytecode 검증" + "C++과의 속도 격차 좁히기".
 
-### 1995: Java 1.0 — 우연히 인터넷이 등장
+- **1991 Green Project** (Sun, James Gosling) — 가전/셋톱박스용 언어 Oak. C++은 플랫폼별 컴파일 + 메모리 위험. 가전 CPU가 너무 다양 → "bytecode + interpreter" 답.
+- **1995 Java 1.0** — Mosaic/Netscape 인터넷 붐 만나 방향 전환. **applet**으로 "웹 동적 콘텐츠" 시도. pure interpreter, C++ 대비 20~50배 느림.
+- **1996 JDK 1.0 (Classic VM)** — 스택 기반 인터프리터, AWT.
+- **1997 Sun, Animorphic 인수** — Strongtalk VM 만든 팀 영입. 후에 HotSpot 핵심 개발자 (Lars Bak이 V8 만든 사람).
+- **1999 HotSpot 1.0 (JDK 1.3)** — JIT 등장. **"10%의 코드가 90% 실행 시간을 차지한다"** (Pareto). 그 10%만 컴파일하면 충분.
+- **2002 JDK 1.4** — Parallel GC, CMS GC, NIO, assert.
+- **2004 Java 5** — Generics, Annotation, Autoboxing, Enhanced for, Enum, **JMM 명세화 (JSR-133)** — 멀티스레드 코드의 동작이 JVM 구현마다 달랐던 시대 종결.
 
-- Mosaic 브라우저(1993), Netscape(1994). 갑자기 "다양한 OS에서 돌아야 하는" 코드가 필요해짐.
-- Oak를 **Java**로 개명 (트레이드마크 충돌, 인도네시아 자바 섬에서)
-- **HotJava 브라우저** + Java applet — "웹에서 동적인 것"의 첫 시도
-- JVM = pure interpreter. 매우 느림. C++ 대비 20~50배.
-- 명세 첫 출판: The Java Virtual Machine Specification, 1996.
+이 시기까지 C++ 따라잡기. JSR-133 이후 모든 `java.util.concurrent`가 그 위에 만들어짐.
 
-### 1996: JDK 1.0 — Classic VM
+### 1.3 키워드 2 — 2기 (2006~2017): 오픈소스화와 정체 → 폭발
 
-- Sun JDK 1.0 정식 출시 (1996.01.23)
-- "Classic VM"이라 불리던 첫 구현. 스택 기반 인터프리터.
-- **AWT** GUI 라이브러리 포함. 느리고 못생겼다는 평.
+**시대 정신**: Sun 재정난 → Oracle 인수 → Apache Harmony 종말 → 그 후 Java 8 lambda로 폭발.
 
-### 1997: Sun, Animorphic Systems 인수
+- **2006 OpenJDK 출범** — GPLv2 + Classpath Exception. IBM, Red Hat 등 합류. Apache Harmony는 의미 잃음.
+- **2006 Java 6** — 성능 안정화. "이미 성숙한 언어" 평가.
+- **2009 Sun 재정난** — 닷컴 버블 후유증, MySQL 인수. Java 개발 정체.
+- **2010 Oracle, Sun 인수** — 56억 달러. Apache Harmony 종말 (Oracle이 TCK 접근 거부). Google과의 소송(Java API 저작권)은 10년 끌다 2021 대법원 Google 승소.
+- **2011 Java 7** (4년 공백 후) — try-with-resources, diamond `<>`, multi-catch, **invokedynamic (JSR 292)** — JRuby/Scala용 새 bytecode → 나중에 Java 8 lambda의 인프라. **G1 GC experimental**.
+- **2014 Java 8 LTS** — **현재까지도 가장 많이 쓰이는 버전**. Lambda + Stream + default method + Optional + java.time + **PermGen 제거 → Metaspace**. 함수형 패러다임 도입의 분기점.
+- **2017 Java 9** — Module System (Jigsaw), jlink, JShell, **6개월 릴리스 주기 시작**.
 
-- Animorphic은 **Strongtalk VM** (Smalltalk용) 만든 회사
-- 그 팀이 **HotSpot**의 핵심 개발자가 됨
-- 핵심 인물: Lars Bak (나중에 V8 만든 사람), Urs Hölzle
+### 1.4 키워드 3 — 3기 (2018~현재): 모던 Java
 
-### 1998: Java 1.2 — Swing, Collections
+**시대 정신**: 클라우드 네이티브 + GC 혁신 + 동시성 모델 재발명.
 
-- Swing GUI (AWT 대체)
-- Collections Framework (`Map`, `List`, `Set`)
-- JIT 컴파일러 옵션화 (Sun JIT — HotSpot 이전의 단순 JIT)
+- **2018.10 Oracle JDK 라이선스 폭탄** — JDK 11부터 상업적 사용 유료. 시장 충격. Temurin/Corretto/Zulu 폭발.
+- **2018 Java 11 LTS** — HTTP Client, **ZGC experimental**, Epsilon GC.
+- **2020 Java 14, 15** — Records, Pattern Matching, Text Blocks, **CMS 제거 (JDK 14)**, ZGC production-ready (JDK 15).
+- **2021 Java 17 LTS** — Sealed Classes, Pattern Matching for switch (preview), macOS M1 정식 지원, **Oracle JDK No-Fee Terms** 재무료화.
+- **2022 JDK 19** — Virtual Threads (preview, Loom).
+- **2023 Java 21 LTS** — **Virtual Thread stable**, **Generational ZGC**, Record Patterns, Sequenced Collections.
+- **2024 JDK 22+** — Foreign Function & Memory API stable (Panama), Class File API.
+- **2025 Java 25 LTS (예정)** — Project Leyden (AOT 가속), Valhalla (value types).
 
-### 1999: HotSpot 1.0 — JIT의 시대 (JDK 1.3)
+### 1.5 한눈에 보는 마일스톤 테이블
 
-- **"Hot Spot"의 뜻**: 자주 실행되는 코드(=hot)만 컴파일.
-- 핵심 아이디어 (Pareto principle):
-  > **10%의 코드가 90%의 실행 시간을 차지한다.**
-  > 그 10%만 컴파일하면 사실상 다 컴파일한 것과 같다.
-- 처음엔 **Client VM**(`-client`, 작고 빠른 JIT). 1.4에서 **Server VM**(`-server`, 공격적 JIT) 추가.
+| 연도 | 릴리스 | 핵심 이유 |
+|---|---|---|
+| 1995 | Java 1.0 발표 | applet으로 웹 동적 콘텐츠 |
+| 1996 | JDK 1.0 GA | 첫 정식 JVM |
+| 1999 | JDK 1.3 (HotSpot) | JIT으로 성능 격차 좁힘 |
+| 2002 | JDK 1.4 | NIO, Parallel/CMS GC |
+| 2004 | Java 5 | Generics, JMM (JSR-133) |
+| 2006 | Java 6 / OpenJDK | 오픈소스화 |
+| 2011 | Java 7 | invokedynamic, G1 (exp) |
+| 2014 | Java 8 LTS | Lambda, Stream, Metaspace |
+| 2017 | Java 9 | Module System, 6개월 주기 |
+| 2018 | Java 11 LTS | HTTP Client, ZGC (exp), 라이선스 격동 |
+| 2021 | Java 17 LTS | Sealed, Pattern matching, No-Fee |
+| 2023 | Java 21 LTS | Virtual Thread, Generational ZGC |
 
-### 2002: Java 1.4 — Parallel GC, Assert, NIO
+---
 
-- **Parallel GC** 도입: Young Gen을 멀티스레드로 수집. CPU 코어 활용.
-- **CMS (Concurrent Mark Sweep) GC** 도입: Old gen을 stop-the-world 없이 동시 마킹.
-- `assert` 키워드 추가
-- **NIO** (New I/O): non-blocking I/O, ByteBuffer
+## 2. 가지 ②: 언어/Runtime — 메이저 릴리스의 "왜"
 
-### 2004: Java 5 — 언어의 대변혁
+### 2.1 핵심 질문
 
-- **Generics** (JSR 14)
-- **Annotation** (JSR 175) — Java EE의 기반
-- **Autoboxing**: `int` ↔ `Integer` 자동 변환
-- **Enhanced for**: `for (T t : list)`
-- **Enum** 타입
-- **Varargs**: `Object... args`
-- **JMM 명세화** (JSR-133): happens-before 관계, volatile semantics 정립 — 멀티코어 시대 필수
+> "Java 8/9/17/21의 메이저 변화를 그 동기와 함께 설명?"
 
-> **JSR-133의 충격**: 그 전까진 JMM이 거의 정의 안 됨. 멀티스레드 코드의 동작이 JVM 구현마다 달랐다.
-> 이후 모든 동시성 라이브러리(`java.util.concurrent`)가 JSR-133 위에 만들어짐.
+### 2.2 키워드 1 — Java 8 (2014): 함수형 + Metaspace
 
-## 📅 2기: 오픈소스화와 정체 (2006-2013)
+> 가장 많이 채택된 LTS. 모든 면접의 기준.
 
-### 2006: OpenJDK — GPLv2 오픈소스화
+- **Lambda + Stream API** — 함수형 패러다임. 5년 작업(Brian Goetz, Project Lambda 2009 시작).
+- **default method** — Stream과 기존 Collection 통합용. 인터페이스에 구현체 가능.
+- **Optional, java.time** — null 안전성, Date/Calendar 악몽 종결.
+- **PermGen 제거 → Metaspace (JEP 122)** — PermGen은 크기 고정으로 OOM 빈번 (Spring AOP, Hibernate proxy 등 동적 클래스). Metaspace는 Heap 밖 native + ClassLoader chunk 단위.
+- **Nashorn** — JavaScript 엔진 (나중에 GraalVM JS로 대체, JDK 15에서 제거).
 
-- Sun이 JDK를 **GPLv2 (with Classpath Exception)** 로 공개
-- 그 전까지: Sun JDK는 무료 다운로드는 가능했지만 소스 비공개
-- 영향:
-  - IBM, Red Hat 등 컨트리뷰터 합류
-  - Apache Harmony (Apache가 만들던 클린룸 JDK) → 점차 의미 잃음
-  - 후에 Android의 Java SE 호환성 분쟁 (Oracle vs Google) 의 배경
+**왜 함수형?**: 멀티코어 시대 + 빅데이터(Stream/Map-Reduce 패턴) 적응. 그리고 익명 클래스의 boilerplate 해소.
 
-### 2006: Java 6 — 성능 안정화
+### 2.3 키워드 2 — Java 9 (2017): Module System + 6개월 주기
 
-- Compiler API (`javax.tools.JavaCompiler`)
-- ServiceLoader
-- HotSpot 안정화. **이 시기까지 Java는 "이미 성숙한 언어"로 평가됨**
+- **JPMS (JEP 261)** — `module-info.java`로 명시적 의존성/공개 패키지. **왜**: `rt.jar` 60MB 비대화, 임베디드/IoT 부담, 내부 API 누출 (`sun.misc.*` 같은 것).
+- **JEP 282 jlink** — 필요한 모듈만 골라 커스텀 런타임 빌드 → 표준 JRE 별도 배포 축소. JRE **개념 자체는 살아있음**, Oracle은 JDK 11부터 standalone JRE 배포 중단.
+- **JShell** — REPL.
+- **6개월 릴리스 주기 시작** — 그 전 3~5년 메이저. **왜**: "전부 다 들어가야 한다"는 압박 → 일정 슬립 (Java 8이 lambda 때문에 1.5년 지연, 9가 Module 때문에 2년 지연). 6개월 = 준비된 기능만 들어가고 나머진 다음. LTS는 2~3년에 한 번 (11, 17, 21, 25).
 
-### 2009: Sun 재정난
-
-- 닷컴 버블 후유증, MySQL 인수 (2008) 등으로 Sun이 흔들림
-- Java 개발 정체. Java 7이 나와야 할 시점인데 안 나옴.
-
-### 2010: Oracle, Sun 인수
-
-- 56억 달러
-- Java의 소유권이 Oracle로
-- **Apache Harmony의 종말**: Apache가 TCK(Java 호환성 인증) 접근을 요구했으나 Oracle 거부 → Harmony 프로젝트 종료
-- **Google과의 소송**: Android가 Java API를 사용한 것이 저작권 침해인가? 10년 끌다 2021 대법원 Google 승소.
-
-### 2011: Java 7 — 늦은 출시 (4년 공백)
-
-- **try-with-resources**, **diamond operator** `<>`, **multi-catch**
-- **invokedynamic** (JSR 292) — JRuby, Scala 같은 동적 언어를 위한 새 bytecode → **나중에 Java 8 lambda의 인프라**
-- **G1 GC** experimental 도입 (`-XX:+UseG1GC`)
-- Fork/Join framework — 작업 분할 병렬 처리
-
-### 2013: Java 8 RC, Lambda 통합
-
-- 출시는 2014.03이지만 개발은 2013에 마무리
-- Brian Goetz가 주도한 **Project Lambda** 5년 작업 (2009 시작)
-
-## 📅 3기: 모던 Java (2014-현재)
-
-### 2014: Java 8 LTS — 함수형의 도입
-
-> **현재까지도 가장 많이 쓰이는 버전**. 모든 면접의 기준.
-
-- **Lambda Expression** + **Stream API** — 함수형 패러다임
-- **Default Method** (인터페이스에 구현체) — Stream과 기존 Collection 통합 위해
-- **Method Reference**: `Class::method`
-- **`Optional<T>`** — null 안전성
-- **`java.time`** (JSR 310, Stephen Colebourne) — Date/Calendar의 악몽 종결
-- **PermGen 제거 → Metaspace** (JEP 122)
-- **Nashorn** — JavaScript 엔진 (나중에 GraalVM JS로 대체, JDK 15에서 제거)
-
-### 2017: Java 9 — Module System (Jigsaw), 6개월 주기 시작
-
-- **JPMS (Java Platform Module System)** (JEP 261): `module-info.java`로 명시적 의존성/공개 패키지 선언
-  - **왜?**: `rt.jar`가 60MB로 비대화. 임베디드/IoT에서 부담. 내부 API 누출 (sun.misc.* 같은 것).
-- **JEP 282 jlink**: 필요한 모듈만 골라 커스텀 런타임 빌드 → **전통적 "표준 JRE 별도 배포" 모델이 축소**되고 jlink 기반 커스텀 런타임이 권장됨. JRE라는 **개념 자체가 사라진 것은 아니며**, Oracle은 JDK 11부터 standalone JRE 별도 배포를 중단했으나 Temurin 등 일부 벤더는 한동안 JRE 빌드를 유지했음.
-- **JShell**: REPL (Python의 인터프리터 같은 것)
-- **6개월 릴리스 주기 시작** — 그 전까진 메이저가 3~5년에 한 번, 이제는 매년 3월/9월
-  - **왜?**: 작은 기능을 빨리 풀어 사용자 피드백 받기 위해. 3~5년 주기는 "전부 다 들어가야 한다"는 압박 → 일정 슬립.
-  - LTS는 2~3년에 한 번 지정 (11, 17, 21, 25 예정)
-
-### 2018: Java 10 — `var` (Local Variable Type Inference)
-
-- `var x = new ArrayList<String>()` (지역 변수만)
-- **G1 GC가 기본 GC**로 (그 전엔 Parallel GC)
-- **Application Class-Data Sharing**: 클래스 메타데이터를 archive해 startup 가속
-
-### 2018: Java 11 — 첫 LTS, ZGC experimental
-
-- **HTTP Client** API 표준화 (`java.net.http`)
-- **String API 확장**: `isBlank()`, `lines()`, `strip()`, `repeat()`
-- **ZGC** experimental (JEP 333) — sub-ms pause를 목표로 한 새 GC
-- **Epsilon GC** (JEP 318) — no-op GC. 메모리 사용 측정용
-- **Nashorn deprecated**
-- **2018.10: Oracle JDK 라이선스 정책 변경** — 상업적 사용 유료, 6개월 보안 패치만. AdoptOpenJDK / Amazon Corretto / Eclipse Temurin 같은 무료 빌드가 부상.
-
-### 2019: Java 12, 13 — Switch Expression preview
-
-- **JEP 325 Switch Expression**: `var x = switch (day) { case MON -> 1; ... };`
-- **Shenandoah GC** experimental (Red Hat 제공)
-
-### 2020: Java 14, 15 — Records, Pattern Matching
-
-- **Records** (JEP 384, preview → 16 stable): 불변 데이터 클래스. `record Point(int x, int y) {}`
-- **Pattern Matching for `instanceof`** (JEP 305)
-- **Text Blocks** (`"""..."""`)
-- **ZGC production-ready** (JEP 377)
-- **CMS GC 제거** (JEP 363) — JDK 9에서 deprecated, 5년 만에 제거
-
-### 2021: Java 16 — Strong Encapsulation
-
-- **JEP 396**: JDK internal API (`sun.misc.*`, `jdk.internal.*`)이 기본 inaccessible. 17, 19에서 더 강화.
-- **JEP 376** (ZGC concurrent thread-stack processing) — STW 시 stack scan을 동시화
-
-### 2021: Java 17 LTS — 모던 Java의 분기점
+### 2.4 키워드 3 — Java 17 LTS (2021): Strong Encapsulation
 
 > Java 8 다음으로 가장 많이 채택될 LTS. 많은 기업이 8 → 17로 점프.
 
-- **Sealed Classes** (JEP 409): `sealed`/`permits` — 상속 제한
-- **Pattern Matching for `switch`** preview
-- **macOS AArch64** (M1) 정식 지원
-- **JEP 411**: Security Manager deprecated for removal — Java SecurityManager의 종말
-- **Oracle JDK No-Fee Terms**: 다시 무료화 (JDK 17부터, 2026까지 보장)
+- **Sealed Classes (JEP 409)** — `sealed`/`permits`로 상속 제한.
+- **Pattern Matching for switch** preview, **Records** stable, **Text Blocks** stable.
+- **JEP 396** — JDK internal API 기본 inaccessible. `sun.misc.Unsafe`, `jdk.internal.*` 접근 차단. Reflection으로 쓰던 라이브러리(Hibernate, Lombok 일부)가 깨짐.
+- **JEP 411** — Security Manager deprecated for removal. 1995 애플릿 시대의 흔적 정리.
+- **macOS AArch64 (M1) 정식 지원**.
+- **Oracle JDK No-Fee Terms** — 다시 무료화 (2026까지 보장).
 
-### 2022: Java 18, 19 — Virtual Thread preview
+### 2.5 Java 21 LTS (2023): Virtual Thread
 
-- **JEP 425** Virtual Threads preview (Project Loom) — JDK 19
-- **Pattern Matching for switch** preview 계속 다듬기
+> 클라우드 시대를 위한 LTS.
 
-### 2023: Java 21 LTS — Virtual Thread, Generational ZGC
+- **JEP 444 Virtual Threads stable** — OS 스레드 1:1 매핑 종결. JVM이 직접 스케줄링. 100만 vthread 가능.
+- **JEP 441 Pattern Matching for switch** stable.
+- **JEP 440 Record Patterns** stable.
+- **JEP 439 Generational ZGC** — ZGC가 Young/Old 분리. ZGC + 일반 워크로드 효율 ↑.
+- **JEP 451 Sequenced Collections** — `List`/`Deque`에 일관된 first/last API.
 
-> **클라우드 시대를 위한 LTS**.
+**Virtual Thread의 작동 원리**: blocking I/O 직전에 현재 stack을 Heap으로 swap-out (Continuation 저장) → carrier thread 해제. I/O 완료 시 다른 carrier에서 swap-in.
 
-- **JEP 444 Virtual Threads** stable — OS 스레드 1:1 매핑 종결
-- **JEP 441 Pattern Matching for switch** stable
-- **JEP 440 Record Patterns** stable
-- **JEP 439 Generational ZGC** — ZGC가 Young/Old 분리. ZGC + 일반적 워크로드 효율 ↑
-- **JEP 451** Sequenced Collections — `List`, `Deque` 등에 일관된 first/last API
-- **String Templates** preview
+**Pinning** 한계: `synchronized` 블록 안, JNI 안에선 unmount 불가. JDK 24 (JEP 491)에서 synchronized pinning 해결.
 
-### 2024: Java 22, 23, 24 — 점진적 진화
+### 2.6 8 → 17 마이그레이션 함정
 
-- Foreign Function & Memory API stable (JEP 454, Project Panama) — JNI의 미래
-- Stream Gatherers preview
-- Class File API stable (JEP 484)
+1. **Strong Encapsulation** — `sun.misc.Unsafe`, `jdk.internal.*` 접근 막힘. `--add-opens` 회피.
+2. **Removed API** — Nashorn, Java EE 모듈(`java.xml.ws`, `javax.activation`) 삭제. 별도 dependency 추가.
+3. **Default GC 변경** — Parallel → G1. tuning 달라짐.
+4. **reflection default deny** — `--illegal-access=permit` 옵션 사라짐.
 
-### 2025: Java 25 LTS (예정)
-
-- Project Leyden — AOT + closed-world 최적화
-- Project Valhalla — value types (선택적 stable?)
+깨지는 라이브러리: Hibernate 5.x → 6.x, Lombok 1.18.22+, Mockito 4.x+, MapStruct 1.5.x+, Spring 5.3+ (6.x는 JDK 17 필수). 진단: `jdeps --jdk-internals my-app.jar`.
 
 ---
 
-## 🌳 GC 진화사
+## 3. 가지 ③: GC 진화 — Serial → Generational → Region → Colored Pointer
+
+### 3.1 핵심 질문
+
+> "GC 30년 진화를 시대 흐름으로 설명? CMS는 왜 죽었나?"
+
+### 3.2 키워드 1 — Serial → Parallel → CMS (멀티코어 시대)
+
+**Serial (1996)** — Single-threaded mark-sweep. STW 동안 전부 정지.
+
+**Parallel (2002, JDK 1.4)** — Young Gen을 멀티스레드로 수집. CPU 코어 활용 → 처리량 ↑.
+
+**CMS (2002, JDK 1.4)** — Old Gen 동시 마킹. STW ↓.
+
+**Generational GC**의 핵심: **Weak Generational Hypothesis** — "대부분의 객체는 일찍 죽는다". Young만 자주 수집하면 충분. Eden(allocation) + Survivor(생존자 임시) + Old(살아남은 자) 구조.
+
+### 3.3 키워드 2 — G1 (region 기반, 예측 가능한 STW)
+
+**G1 (2012, JDK 7u4 → 2017 JDK 9 기본)** — Heap을 region(1~32MB)으로 쪼개고, **쓰레기 많은 region만** 골라 수집. STW 시간 예측 가능.
+
+- `-XX:MaxGCPauseMillis=200` 같은 옵션으로 목표 STW 지정.
+- **PausePrediction** 모듈이 이전 GC 통계(region copy 비용, RSet 스캔 비용)를 EMA/linear regression으로 누적.
+- 새 GC 결정 시 이 모델로 "X개 region을 수집하면 Y ms" 예측.
+- Hard guarantee 아님 — "최선의 노력".
+
+**CMS의 짧은 생애 — 왜 죽었나** (JDK 9 deprecated, JDK 14 제거):
+1. **Concurrent Mode Failure** — 동시 마킹 중 Old gen 꽉 차면 Serial Old GC로 fallback → 매우 긴 STW.
+2. **압축 안 함** — mark-sweep만. fragmentation 누적되어 큰 객체 OOM 위험.
+3. **유지보수 부담** — HotSpot에서 가장 복잡한 GC 코드.
+4. **G1이 완성** — 동시 마킹 + 압축 + 예측 가능성 모두 제공.
+
+### 3.4 키워드 3 — ZGC / Shenandoah / Generational ZGC
+
+**ZGC (2018 JDK 11 experimental → 2020 JDK 15 production)** — sub-ms pause 목표.
+- **Colored Pointers** — 포인터의 unused bit를 색깔로 사용 (mark/remap).
+- **Load Barrier** — 모든 reference load가 barrier를 거쳐 forwarding 처리.
+- Self-healing — barrier가 옛 위치 → 새 위치로 forward + field 갱신.
+
+**Shenandoah (2019 JDK 12, Red Hat)** — Brooks Pointer → Load Reference Barrier. 동시 압축.
+
+**Generational ZGC (2023 JDK 21, JEP 439)** — ZGC가 Young/Old 분리. Weak Generational Hypothesis를 ZGC도 활용 → 일반 워크로드 효율 ↑.
+
+### 3.5 GC 진화 한 그림
 
 ```
-1996 │ Serial GC
-     │ Single-threaded. 단순.
-     │
-1999 │ HotSpot에 통합
-     │
-2002 │ Parallel GC + CMS (JDK 1.4)
-     │ Parallel: Young Gen 멀티스레드 → 처리량 ↑
-     │ CMS: Old Gen 동시 마킹 → STW ↓
-     │
-2012 │ G1 (JDK 7u4)
-     │ Region 기반. "예측 가능한 STW".
-     │
+1996 │ Serial GC                — Single-threaded
+1999 │ HotSpot 통합
+2002 │ Parallel + CMS (JDK 1.4) — 멀티코어 + 동시 마킹
+2012 │ G1 (JDK 7u4)             — Region 기반, 예측 가능
 2017 │ G1이 기본 GC (JDK 9)
-     │
-2018 │ ZGC experimental (JDK 11)
-     │ Colored Pointer, Load Barrier. sub-ms pause 목표.
-     │
-2019 │ Shenandoah experimental (JDK 12, Red Hat 제공)
-     │ Brooks Pointer → Load Reference Barrier. 동시 압축.
-     │
-2020 │ CMS 제거 (JDK 14)
-     │ G1이 사실상 완전 대체. CMS의 Concurrent Mode Failure 문제 결정타.
-     │ ZGC production-ready (JDK 15)
-     │
+2018 │ ZGC experimental (JDK 11)— Colored Pointer + Load Barrier
+2019 │ Shenandoah (JDK 12)
+2020 │ CMS 제거 (JDK 14) / ZGC production (JDK 15)
 2023 │ Generational ZGC (JDK 21)
-     │ ZGC가 Young/Old 분리. 더 효율적.
 ```
 
-### CMS의 짧은 생애 — 왜 죽었나?
-
-1. **Concurrent Mode Failure**: CMS가 동시 마킹 중 Old gen이 꽉 차면, fallback으로 single-threaded Serial Old GC가 작동 → 긴 STW.
-2. **압축 안 함**: CMS는 mark-sweep만. 압축(compaction)을 안 해서 fragmentation 누적.
-3. **Footprint 큼**: 동시 마킹용 자료구조가 메모리 차지.
-4. **G1의 완성**: G1이 모든 CMS의 장점 + 압축 + 예측 가능성 제공.
-
-→ JDK 9 deprecated, JDK 14 제거.
-
 ---
 
-## ☁️ 라이선스 / 디스트리뷰션 역사
+## 4. 가지 ④: JIT 진화
 
-### 2006: OpenJDK 출범 — GPLv2 + Classpath Exception
+### 4.1 핵심 질문
 
-### 2010: Oracle 인수 후 — Oracle JDK ≠ OpenJDK
+> "JIT의 진화를 설명? Sun JIT → HotSpot → Tiered."
 
-- 둘 다 같은 코드 베이스지만, Oracle JDK에 추가 상용 기능 (Java Flight Recorder, Mission Control 등) 포함
-
-### 2018.09: Oracle JDK 11 — 라이선스 폭탄
-
-- Oracle JDK 상업적 사용 유료화
-- 무료는 6개월 보안 패치만
-- 시장 충격: 모두가 대안 모색
-
-### 2018-2019: 대안 빌드 폭발
-
-- **AdoptOpenJDK** (커뮤니티) → 2021 **Eclipse Adoptium / Temurin**으로 이전
-- **Amazon Corretto** (무료, 무제한, 장기 지원)
-- **Azul Zulu** (Azul Systems)
-- **SapMachine** (SAP)
-- **Red Hat OpenJDK** (RHEL용)
-- **Microsoft Build of OpenJDK**
-- **Liberica JDK** (BellSoft)
-
-### 2019: GraalVM 1.0 GA
-
-- Oracle Labs의 새 JVM 구현
-- Graal compiler (Java로 작성) + Native Image (AOT) + Truffle (polyglot)
-
-### 2021.09: Oracle JDK No-Fee — JDK 17 LTS
-
-- Oracle이 다시 무료화 발표 (JDK 17부터, 2026까지)
-- 하지만 시장은 이미 분화됨. Temurin, Corretto, Liberica 등의 점유율이 매우 큼.
-
-### 2022.09: JDK 19 — Project Loom 첫 출시 (preview)
-
-### 2023.09: JDK 21 LTS — Virtual Thread stable
-
----
-
-## 🧬 4단계: 내부 구현 — 코드로 보는 진화
-
-### 1. JIT의 진화: Sun JIT → HotSpot Client → HotSpot Server → C1+C2 Tiered
-
-#### Sun JIT (1998) — 단순했다
+### 4.2 키워드 1 — Sun JIT (1998): 확장된 인터프리터
 
 ```cpp
-// 의사 코드 — 그 시절 JIT의 본질
 void compile_method(method* m) {
   for (bytecode bc : m->bytecodes) {
-    emit_naive_assembly(bc);  // bytecode 한 줄마다 asm 한 두 줄
+    emit_naive_assembly(bc);  // bytecode 한 줄마다 asm 한두 줄
   }
 }
 ```
 
 → 기본적으로 "확장된 인터프리터". 빠르지만 최적화 없음.
 
-#### HotSpot Server VM (C2, 2000) — Sea of Nodes
+### 4.3 키워드 2 — HotSpot Client (C1) + Server (C2)
 
-```cpp
-// opto/compile.cpp 본질
-void compile_method(method* m) {
-  // 1. Parse: bytecode → Ideal Graph (Sea of Nodes IR)
-  Parse parser(m);
+**HotSpot 1.0 (1999, JDK 1.3)** — Animorphic의 Strongtalk VM 팀이 만듦. "Hot Spot" 의미: 자주 실행되는 코드만 컴파일.
 
-  // 2. 다단계 최적화
-  IterGVN(...);            // Global Value Numbering
-  PhaseIdealLoop(...);     // Loop optimization
-  Escape::do_analysis(...);// Escape Analysis
-  // ... 수십 개 phase
+- **Client VM (C1, 1999)** — 작고 빠른 JIT. 데스크탑 클라이언트 앱(스윙)용. HIR + LIR + Linear Scan RA.
+- **Server VM (C2, 2000)** — 공격적 JIT. 서버용. **Sea of Nodes** (1999 Cliff Click 박사 논문) — Control flow와 Data flow가 한 그래프에 통합된 IR.
 
-  // 3. Schedule: 노드 순서 결정 (Global Code Motion)
-  // 4. Register Allocation (Graph Coloring)
-  // 5. Machine code emit
-}
+C2의 최적화 패스 (20개 이상):
+```
+Parse → IterGVN → PhaseIdealLoop (unrolling, vectorization)
+     → Escape::do_analysis → PhaseMacroExpand
+     → PhaseCFG::do_global_code_motion → PhaseChaitin::Register_Allocate
+     → Output
 ```
 
-→ "고품질 컴파일러". 단점은 **느리다** (큰 메서드 수백 ms).
+### 4.4 키워드 3 — Tiered Compilation (JDK 7→8)
 
-#### Tiered Compilation (2012, JDK 7) — 통합
+JDK 7 이전: `-client` 또는 `-server` 중 하나만.
+JDK 7 (2011): Tiered 도입 (실험).
+JDK 8 (2014): **기본 활성화**. C1과 C2가 한 JVM 안에 공존.
 
-```cpp
-// compileBroker.cpp 본질
-void compile_method(method* m, int level) {
-  switch (level) {
-    case CompLevel_simple:           // L1: C1 no profile
-    case CompLevel_limited_profile:  // L2: C1 with counters
-    case CompLevel_full_profile:     // L3: C1 full profile
-      C1Compiler::compile(m, level);
-      break;
-    case CompLevel_full_optimization: // L4: C2
-      C2Compiler::compile(m);
-      break;
-  }
-}
+```
+Level 0: Interpreter
+Level 1: C1 no profile (trivial 메서드)
+Level 2: C1 with counters (C2 큐 막힘 시)
+Level 3: C1 full profile (MethodData 채움)
+Level 4: C2 (profile-guided)
 ```
 
-→ C1과 C2를 워크로드에 따라 자동 분배.
+→ "빠른 1차 컴파일(C1) + 천천히 더 좋은 2차 컴파일(C2)" 파이프라인.
 
-### 2. GC의 진화: Mark-Sweep → Generational → Region-based → Colored Pointer
-
-#### Serial GC (1.0) — 기본형
-
-```cpp
-// 의사 코드
-void collect() {
-  stop_all_threads();
-  mark_reachable_from_roots();    // Mark phase
-  sweep_unreachable();             // Sweep
-  resume_all_threads();
-}
-```
-
-#### Generational GC (1.2+)
-
-```cpp
-void minor_collect() {  // Young만
-  mark_from_roots_into_young();
-  copy_survivors_to_other_survivor_space();
-  promote_old_objects_to_old_gen();
-}
-
-void major_collect() {  // Full GC
-  mark_all_reachable();
-  compact_old_gen();
-}
-```
-
-핵심: **대부분의 객체는 일찍 죽는다** (Weak Generational Hypothesis). Young만 자주 수집하면 충분.
-
-#### G1 (2012)
-
-```cpp
-// 의사 코드
-void g1_collect_pause() {
-  // 1. Concurrent: 마킹 (스레드 실행 중)
-  concurrent_mark();
-
-  // 2. STW: 수집 region 선택
-  CollectionSet cs = select_regions_by_efficiency();
-
-  // 3. STW: 선택된 region만 evacuate
-  for (Region r : cs) {
-    copy_live_objects_to_new_region(r);
-    free_region(r);
-  }
-}
-```
-
-핵심: **Heap을 region(1~32MB)으로 쪼개고, 쓰레기 많은 region만 골라 수집**. STW 시간을 예측 가능하게.
-
-#### ZGC (2018+)
-
-```cpp
-// 의사 코드 — Load Barrier가 핵심
-oop ZBarrier::load(oop* field) {
-  oop o = *field;
-  if (is_marked_bad(o)) {  // 포인터 색깔로 판단
-    // 동시 evacuation 중에 옛 위치의 객체 → 새 위치로 forwarding
-    o = forwarding_get(o);
-    *field = o;            // self-healing
-  }
-  return o;
-}
-```
-
-핵심: **포인터의 unused bit를 색깔로 사용** (Colored Pointers). 모든 reference load가 barrier를 거쳐 forwarding을 처리.
-→ STW 거의 없이 동시 압축 가능.
+**GraalVM (2019)** — JVMCI(JEP 243)로 C2를 Graal JIT(Java로 작성)으로 교체. Partial Escape Analysis 등 C2보다 강력한 최적화. Native Image는 별도 SVM 런타임으로 AOT 지원.
 
 ---
 
-## 📜 5단계: 시대 정신과 트렌드
+## 5. 가지 ⑤: 라이선스/배포 — 격동의 OpenJDK 생태계
 
-### 시대별 화두
+### 5.1 핵심 질문
 
-| 시대 | 화두 | JVM의 응답 |
+> "Java 라이선스 변화와 OpenJDK 생태계 분화를 시대 흐름으로?"
+
+### 5.2 키워드 1 — Sun → Oracle → OpenJDK
+
+**2006 OpenJDK 출범** — Sun이 JDK를 GPLv2 (with Classpath Exception)로 공개. IBM, Red Hat 합류. Apache Harmony는 의미 잃음.
+
+**2010 Oracle, Sun 인수** — 56억 달러. Apache Harmony 종말 (Oracle TCK 접근 거부). Google과의 Java API 저작권 소송 10년 끌다 2021 대법원 Google 승소.
+
+이 시기까지 "Oracle JDK ≠ OpenJDK"였음 — Oracle JDK에 추가 상용 기능 (JFR, JMC).
+
+### 5.3 키워드 2 — 2018 라이선스 폭탄 → 대안 빌드 폭발
+
+**2018.09 Oracle JDK 11** — 상업적 사용 유료화. 무료는 6개월 보안 패치만. 시장 충격.
+
+**대안 빌드 폭발**:
+- **AdoptOpenJDK** (커뮤니티) → 2021 **Eclipse Adoptium / Temurin**으로 이전
+- **Amazon Corretto** — 무료, 무제한, 장기 지원
+- **Azul Zulu** — Azul Systems
+- **SapMachine** — SAP
+- **Red Hat OpenJDK** — RHEL용
+- **Microsoft Build of OpenJDK** — Azure
+- **Liberica JDK** — BellSoft
+
+### 5.4 키워드 3 — 2021 No-Fee + GraalVM
+
+**2019 GraalVM 1.0 GA** — Oracle Labs. Graal compiler (Java) + Native Image (AOT) + Truffle (polyglot).
+
+**2021.09 Oracle JDK No-Fee** — JDK 17 LTS부터 다시 무료화 (2026까지 보장). 하지만 시장은 이미 분화. Temurin/Corretto 점유율이 매우 큼.
+
+**2024 라이선스 추가 조정** — 항상 최신 약관 확인 필요.
+
+### 5.5 시대별 화두 → JVM의 응답
+
+| 시대 | 화두 | JVM 응답 |
 |---|---|---|
 | 90년대 | "C++ 너무 위험, 메모리 누수" | GC, Bytecode 검증 |
-| 2000s 초 | "멀티코어 시대 도래" | Parallel GC, JMM, java.util.concurrent |
+| 2000s 초 | "멀티코어 시대 도래" | Parallel GC, JMM, j.u.concurrent |
 | 2000s 후 | "RIA, 동적 언어" | invokedynamic, scripting API |
 | 2010s 초 | "Java is bloated" | Module System, Compact Profiles |
 | 2010s 중 | "함수형, 빅데이터" | Lambda, Stream, ForkJoin |
 | 2010s 후 | "GC pause 못 견딘다" | G1 기본, ZGC, Shenandoah |
-| 2020s | "클라우드 네이티브, 콜드스타트" | GraalVM Native Image, AOT |
+| 2020s | "클라우드 네이티브, 콜드스타트" | GraalVM Native Image, Leyden |
 | 2020s | "동시성 100만 연결" | Virtual Thread (Loom) |
 
-### 면접 답변 황금 패턴
+---
 
-> "JDK X에서 Y가 추가됐다"고만 말하지 말고, **"무슨 문제를 풀기 위해 Y가 만들어졌는가"**를 같이 말하면 한 단계 위로 보인다.
+## 6. 면접 답변 워크플로우
 
-예:
-- ❌ "JDK 9에 모듈 시스템이 들어갔어요."
-- ✅ "JDK 9에 모듈 시스템이 들어간 이유는 rt.jar가 60MB로 비대해지면서 임베디드/IoT 적합성이 떨어졌고, `sun.misc.*` 같은 내부 API가 무분별하게 노출되어 의존성 관리가 어려웠기 때문이에요. Project Jigsaw가 그 답이고, 부수효과로 jlink가 가능해져서 **표준 JRE 별도 배포가 의미를 잃었죠** (JRE 개념 자체가 사라진 건 아니고요)."
+### 6.1 질문 → 가지 매핑
+
+| 면접 질문 | 진입 가지 | 인접 확장 |
+|---|---|---|
+| "Java 30년을 요약?" | ① 3시대 | 전부 |
+| "JDK 8과 17 차이?" | ② 언어/Runtime | ⑤ 라이선스 |
+| "PermGen이 왜 사라졌나?" | ② Java 8 | ③ GC |
+| "Module System 도입 이유?" | ② Java 9 | jlink |
+| "Virtual Thread 왜?" | ② Java 21 | 클라우드 시대 |
+| "8 → 17 마이그레이션 함정?" | ② Strong Encapsulation | jdeps |
+| "CMS 왜 죽었나?" | ③ GC | G1 |
+| "G1 'predictable STW' 의미?" | ③ G1 | PausePrediction |
+| "ZGC가 어떻게 sub-ms?" | ③ ZGC | Colored Pointer |
+| "HotSpot이 어떻게 등장?" | ④ JIT | Animorphic |
+| "Tiered Compilation 의미?" | ④ JIT | C1+C2 협업 |
+| "Sea of Nodes 뭐?" | ④ C2 | Cliff Click |
+| "JDK 11 라이선스 문제?" | ⑤ 라이선스 | Temurin/Corretto |
+| "GraalVM이 왜 등장?" | ⑤ 배포 | Native Image |
+
+### 6.2 답변 황금 패턴
+
+> "JDK X에서 Y가 추가됐다"고만 말하지 말고 **"무슨 문제를 풀기 위해 Y가 만들어졌는가"**를 같이 말하면 한 단계 위로 보인다.
+
+예: "JDK 9에 Module System이 들어간 이유?"
+
+> "**Java 30년은 3시대로 나뉘는데**, JDK 9는 2기 끝 3기 시작의 분기점입니다 (← 루트).
+> JDK 9에 Module System(JPMS, JEP 261)이 들어간 이유는 **`rt.jar`가 60MB로 비대해지면서 임베디드/IoT 적합성이 떨어졌고**, `sun.misc.*` 같은 **내부 API가 무분별하게 노출되어 의존성 관리가 어려웠기** 때문입니다.
+> Project Jigsaw가 그 답이고, 부수효과로 **jlink가 가능해져서 표준 JRE 별도 배포가 의미를 잃었습니다** — JRE 개념 자체가 사라진 건 아니고, '내 앱 전용 런타임 이미지'로 형태가 바뀐 거죠.
+> 같은 시기에 **6개월 릴리스 주기**가 시작된 이유도 비슷합니다 — 그 전 3~5년 주기는 '전부 다 들어가야 한다'는 압박 때문에 일정 슬립이 잦았고(Java 8 lambda 1.5년 지연, 9 Module 2년 지연), 6개월 주기는 '준비된 기능만'으로 그걸 회피하는 답이었습니다."
 
 ---
 
-## ⚔️ 6단계: 꼬리질문 트리
+## 7. 꼬리질문 트리 (가지별)
 
-### Q1. JDK 8과 17의 가장 큰 차이를 꼽으라면?
+### Q1 [가지 ②]. JDK 8과 17의 가장 큰 차이?
 
-**예상 답변**:
-> 언어 측면: lambda는 이미 8에 있었고, 17은 sealed class, records, pattern matching for instanceof, text blocks가 추가.
-> 런타임 측면: 9의 Module System 도입, GC가 G1 기본 (8은 Parallel), ZGC/Shenandoah experimental → production-ready.
-> 라이선스: 8까지는 Oracle JDK 무료 → 11에서 유료화 → 17에서 다시 No-Fee.
+> 언어: lambda는 이미 8에. 17은 sealed/records/pattern matching/text blocks. 런타임: 9의 Module System, GC가 G1 기본 (8은 Parallel), ZGC/Shenandoah production. 라이선스: 8 무료 → 11 유료 → 17 No-Fee.
 
-#### 🪝 꼬리 Q1-1: "8 → 17로 마이그레이션 시 가장 흔한 함정은?"
+**🪝 Q1-1: 8 → 17 마이그레이션 함정?**
+> Strong Encapsulation (`--add-opens`), Removed API (Nashorn, Java EE 모듈), Default GC 변경, reflection default deny. Hibernate 5→6, Lombok 1.18.22+, Mockito 4+, Spring 5.3+. 진단: `jdeps --jdk-internals`.
 
-**예상 답변**:
-> 1. **Strong Encapsulation**: `sun.misc.Unsafe`, `jdk.internal.*` 접근이 막힘. Reflection으로 쓰던 라이브러리(Hibernate, Lombok 일부)가 깨짐. `--add-opens` 회피 필요.
-> 2. **Removed API**: Nashorn, Java EE 모듈 (`java.xml.ws`, `javax.activation`) 삭제. 별도 dependency 추가 필요.
-> 3. **Default GC 변경**: Parallel → G1. tuning이 달라짐. throughput-critical 워크로드는 측정 후 결정.
-> 4. **JEP 396 / 403**: 모든 reflection이 default deny. `--illegal-access=permit` 옵션도 사라짐.
+### Q2 [가지 ③]. CMS GC는 왜 사라졌나?
 
-##### 🪝 꼬리 Q1-1-1: "구체적으로 어떤 라이브러리가 깨지나요?"
+> 네 가지. (1) Concurrent Mode Failure — Old gen 동시 마킹 중 가득 차면 Serial Old fallback → 매우 긴 STW. (2) 압축 안 함 — mark-sweep만, fragmentation 누적. (3) 유지보수 부담 — HotSpot 최복잡 GC. (4) G1이 완성. JDK 9 deprecated, JDK 14 제거.
 
-**예상 답변**:
-> - **Hibernate 5.x → 6.x로 업데이트 필요** (Jakarta EE namespace 변경 + 내부 reflection)
-> - **Lombok**: 1.18.22+ 필요 (이전 버전은 javac internal 접근)
-> - **Mockito**: 4.x+ (3.x는 ByteBuddy 의존, JDK 17 호환성 이슈)
-> - **MapStruct**: 1.5.x+
-> - **Spring**: 5.3+ (6.x는 JDK 17 필수)
-> - **Cassandra driver, Netty**: 일부 버전이 `sun.misc.Unsafe` 호출
-> - 진단: `jdeps --jdk-internals my-app.jar`
+**🪝 Q2-1: G1의 '예측 가능한 STW' 의미?**
+> `-XX:MaxGCPauseMillis=200`으로 목표 STW 지정. G1은 region 단위 수집 → 동적으로 "이 STW에 몇 region 수집할지" 조정. PausePrediction 모듈이 이전 GC의 region copy/RSet 스캔 비용을 EMA로 누적, 새 GC에 예측 모델 적용. Hard guarantee 아닌 best effort.
 
-### Q2. CMS GC는 왜 사라졌나요?
+### Q3 [가지 ②]. Virtual Thread는 왜 만들어졌고, 어떻게 동작?
 
-**예상 답변**:
-> 네 가지 이유.
-> 1. **Concurrent Mode Failure**: Old gen이 동시 마킹 중 가득 차면 Serial Old GC로 fallback → 매우 긴 STW.
-> 2. **압축 안 함**: mark-sweep만. fragmentation 누적되어 큰 객체 할당 시 OOM 위험.
-> 3. **유지보수 부담**: HotSpot에서 가장 복잡한 GC 코드. 버그 수정이 어려워짐.
-> 4. **G1이 완성**: G1이 동시 마킹 + 압축 + 예측 가능성을 모두 제공.
-> JDK 9에서 deprecated, JDK 14에서 제거.
+> 그 전엔 OS 스레드 = Java 스레드 1:1. OS 스레드는 비싸다 (1MB 스택, context switch). 10,000 connection = 10GB 스택 → 비현실. Reactive Programming은 callback hell. Virtual Thread는 OS 스레드 의존을 끊고 JVM이 직접 스케줄링. 100만 vthread 메모리 GB 단위. 작동 원리: blocking I/O 직전에 stack을 Heap으로 swap-out(Continuation) → carrier thread 해제 → I/O 완료 시 다른 carrier에서 swap-in.
 
-#### 🪝 꼬리 Q2-1: "G1의 '예측 가능한 STW'가 정확히 무슨 의미인가요?"
+**🪝 Q3-1: swap-out 안 되는 케이스?**
+> **Pinning**. (1) synchronized 블록 안 (JDK 21 기준, JDK 24 JEP 491에서 해결), (2) JNI/native 안. Pinning되면 carrier도 같이 막혀 효과 상실. 진단: `-Djdk.tracePinnedThreads=full`. 권장: synchronized → ReentrantLock.
 
-**예상 답변**:
-> `-XX:MaxGCPauseMillis=200` 같은 옵션으로 **목표 STW 시간을 지정**할 수 있다.
-> G1은 region 단위로 수집하므로, "이 STW에 몇 개 region을 수집할지"를 동적으로 조정.
-> 과거 처리량 통계를 보고, 목표 시간 안에 처리 가능한 region 수를 선택.
-> 단, hard guarantee는 아님 — "최선의 노력". 실제로는 약간 초과 가능.
+### Q4 [가지 ①]. 6개월 릴리스 주기는 왜?
 
-##### 🪝 꼬리 Q2-1-1: "그 통계는 어떻게 누적되나요?"
+> 그 전 3~5년 주기는 "모든 기능 다 넣자" 압박 → 일정 슬립 (Java 8 lambda 1.5년 지연, 9 Module 2년 지연). 6개월은 "준비된 기능만, 나머진 다음 6개월". LTS는 2~3년 한 번 (11, 17, 21, 25)으로 prod 안정 베이스. preview/experimental feature가 활발해진 부수효과.
 
-**예상 답변**:
-> G1의 **PausePrediction** 모듈이 이전 GC들의 실측 데이터(region copy 비용, RSet 스캔 비용)를 누적.
-> Exponential moving average 또는 linear regression.
-> 새 GC 결정 시 이 모델로 "X개 region을 수집하면 Y ms 걸린다"를 예측.
-> 너무 보수적이면 throughput 손실, 너무 공격적이면 STW 초과.
+**🪝 Q4-1: preview vs experimental vs incubator?**
+> **Preview**: 언어/API 기능. 명세 거의 완성, 피드백 단계. `--enable-preview`. Switch Expression/Records가 거침. **Experimental**: JVM 기능. ZGC가 11→15. `-XX:+UnlockExperimentalVMOptions`. **Incubator**: 새 모듈/API. `jdk.incubator.*` 패키지.
 
-### Q3. Virtual Thread는 왜 만들어졌나요? 그 전엔 어떻게 했나요?
+### Q5 (Killer) [가지 ④, ⑤]. 만약 당신이 JDK 22를 책임진다면 우선순위?
 
-**예상 답변**:
-> 그 전엔 **OS 스레드 = Java 스레드 1:1**. OS 스레드는 비싸다 (1MB 스택, context switch 비용).
-> 10,000개 connection이면 10,000개 스레드 = 10GB 스택. 비현실적.
-> 그래서 **Reactive Programming** (Reactor, RxJava, CompletableFuture) 등장 — non-blocking I/O + callback hell.
->
-> Virtual Thread는 OS 스레드 의존을 끊고, **JVM이 직접 스케줄링**.
-> 100만 개 virtual thread도 메모리 GB 단위로 처리 가능.
-> Spring 6.1+, Tomcat 11+이 채택 → "blocking 코드처럼 짜면서 reactive 성능".
+> 정답 없음, 논리 보는 질문. 워크로드에 따라.
+> - **클라우드 네이티브**: GraalVM Native Image 표준화, Leyden 가속, FFM API 안정화.
+> - **AI/ML**: Vector API stable (현재 incubator), JNI 대체.
+> - **개발자 경험**: Pattern matching 완성, String Templates stable, Structured Concurrency (Loom + scope-based 에러).
+> - **운영 효율**: Generational ZGC 완전화, JFR streaming, CRaC (Checkpoint Restore).
+> 개인 의견으로는 **Structured Concurrency**가 가장 큰 잠재력 — Virtual Thread + scope-based 에러 처리로 동시성 모델 근본 단순화.
 
-#### 🪝 꼬리 Q3-1: "Virtual Thread가 어떻게 그게 가능하죠?"
-
-**예상 답변**:
-> 핵심은 **Continuation**.
-> Virtual Thread는 OS 스레드 대신 **carrier thread**(소수의 OS 스레드 풀) 위에서 실행.
-> blocking I/O 호출 (read, sleep, lock) 직전에 **현재 stack을 Heap으로 swap-out** (=Continuation 저장) → carrier thread 해제.
-> I/O 완료 시 다른 carrier thread에서 **swap-in** → 이어서 실행.
-> Project Loom의 핵심 메커니즘.
-
-##### 🪝 꼬리 Q3-1-1: "swap-out이 안 되는 케이스가 있나요?"
-
-**예상 답변**:
-> 있다. **pinning**.
-> 1. **synchronized 블록 안** (JDK 21 기준 — 24에서 해결됨)
-> 2. **native 메서드** (JNI) 안
-> Pinning되면 carrier thread도 같이 막혀서 효과 사라짐.
-> 진단: `-Djdk.tracePinnedThreads=full` 옵션 → pinning 발생 시 stack trace 출력.
-> 권장: synchronized → ReentrantLock으로 교체.
-
-###### 🪝 꼬리 Q3-1-1-1: "JDK 24에서 synchronized pinning이 어떻게 해결됐나요?"
-
-**예상 답변**:
-> **JEP 491** (Synchronize Virtual Threads without Pinning).
-> 그 전: synchronized monitor가 OS thread에 묶여 있어 virtual thread가 unmount할 수 없었다.
-> JDK 24부터 monitor 구현을 바꿔 virtual thread도 unmount 가능하게 함.
-> 단, JNI/native 안에서의 pinning은 여전.
-
-### Q4. 6개월 릴리스 주기는 왜 도입됐나요?
-
-**예상 답변**:
-> 그 전엔 3~5년에 한 번 메이저 릴리스. 매번 "모든 기능을 다 넣자" 압박 → 일정 슬립.
-> 예: Java 8이 lambda 때문에 1.5년 지연. Java 9는 Module System 때문에 2년 지연.
-> 6개월 주기는 **"준비된 기능만 들어가고 나머진 다음 6개월"** 모델. 일정 슬립 없음.
-> 대신 LTS를 2~3년 한 번 (11, 17, 21, 25) 지정해서 prod 채택자가 안정적 베이스 가지게 함.
-> preview/experimental feature가 활발해진 부수효과.
-
-#### 🪝 꼬리 Q4-1: "preview feature vs experimental feature 차이는?"
-
-**예상 답변**:
-> - **Preview**: 언어/API 기능. 명세는 거의 완성, 피드백 받는 단계. `--enable-preview` 컴파일 옵션 + 같은 옵션으로 실행 필요. Switch Expression, Records가 preview 거쳐서 stable이 됨.
-> - **Experimental**: JVM 기능. ZGC가 11에서 experimental, 15에서 production. `-XX:+UnlockExperimentalVMOptions` 필요.
-> - **Incubator**: 새 모듈/API (HTTP Client 9의 사례). `jdk.incubator.*` 패키지.
-
-### Q5. (Killer) 만약 당신이 JDK 22를 책임진다면, 어떤 기능을 우선순위에 둘 건가요?
-
-**예상 답변** (정답 없음. 논리 보는 질문):
-> 워크로드를 어디에 두느냐에 따라:
-> - **클라우드 네이티브**: GraalVM Native Image 표준화, Leyden 가속, Foreign Function & Memory API 안정화.
-> - **AI/ML**: Vector API stable (현재 incubator), JNI 대체 패스의 성숙.
-> - **개발자 경험**: Pattern matching 완성, String Templates stable, Async API의 통합 (Loom + structured concurrency).
-> - **운영 효율**: ZGC generational 완전화, JFR streaming 개선, CRaC (Checkpoint Restore at Checkpoint).
->
-> 개인적으로는 **Structured Concurrency**가 가장 큰 잠재력 — Virtual Thread + scope-based 에러 처리로 동시성 프로그래밍 모델을 근본적으로 단순화 가능.
-
-#### 🪝 꼬리 Q5-1: "Project Leyden이 GraalVM Native Image와 어떻게 다른가요?"
-
-**예상 답변**:
-> 둘 다 AOT지만:
-> - **GraalVM Native Image**: **closed-world** 가정. 모든 reflection/dynamic class loading을 빌드 시 명시. 결과물은 standalone 바이너리, JVM 없음.
-> - **Leyden**: **partial AOT**. JVM 위에서 동작하면서 가능한 부분을 미리 컴파일. JIT은 여전히 존재. dynamic 기능 보존.
-> Leyden은 "Java의 동적성 유지하면서 startup만 가속" 노선. Spring처럼 동적 로딩 많은 앱에 유리.
+**🪝 Q5-1: Leyden과 GraalVM Native Image의 차이?**
+> 둘 다 AOT지만. **GraalVM Native Image**: closed-world 가정. reflection/dynamic class loading을 빌드 시 명시. standalone 바이너리, JVM 없음. **Leyden**: partial AOT. JVM 위에서 동작하면서 가능한 부분만 미리 컴파일. JIT은 존재. dynamic 기능 보존. Leyden은 "Java 동적성 유지하며 startup만 가속" 노선 → Spring처럼 동적 로딩 많은 앱에 유리.
 
 ---
 
-## 🔗 다음 단계
+## 8. 학습 체크리스트
+
+면접 전 백지에서 다음을 다 해낼 수 있어야 마스터:
+
+- [ ] 0장 마인드맵을 종이에 1분 이내로 그릴 수 있다 (루트 + 5가지 + 각 키워드 3개)
+- [ ] 가지 ① 3시대를 한 줄씩 구분하고 각 시대의 화두를 말한다
+- [ ] 가지 ② JDK 8/9/17/21의 메이저 변화를 동기와 함께 말한다
+- [ ] 가지 ② 8 → 17 마이그레이션 4가지 함정과 깨지는 라이브러리를 답한다
+- [ ] 가지 ② Virtual Thread의 swap-out/in 메커니즘과 Pinning을 설명한다
+- [ ] 가지 ③ GC 진화 한 그림 (Serial→Parallel→CMS→G1→ZGC→Generational ZGC)
+- [ ] 가지 ③ CMS가 죽은 4가지 이유를 말한다
+- [ ] 가지 ③ G1의 PausePrediction 모듈 동작을 설명한다
+- [ ] 가지 ④ Sun JIT → HotSpot C1/C2 → Tiered의 진화를 말한다
+- [ ] 가지 ④ Sea of Nodes의 의미와 Cliff Click의 1999 논문을 안다
+- [ ] 가지 ⑤ 2018 라이선스 폭탄 + 대안 빌드 폭발 + 2021 No-Fee 흐름을 말한다
+- [ ] 가지 ⑤ GraalVM의 등장 배경과 3가지 모드(JIT/Native Image/Truffle)를 설명한다
+
+---
+
+## 다음 단계
 
 00-overview 챕터가 끝났다. 다음:
-- **01-class-lifecycle** (예정): ClassFile 포맷, ClassLoader, Linking 풀버전
-- **02-runtime-data-areas** (예정): Heap, Metaspace 깊이 파기
-- **03-execution-engine** (예정): Interpreter, JIT 풀버전
-- **04-gc** (예정): 각 GC 알고리즘 + 구현
-- **06-version-history** (예정): 본 챕터의 풀버전 (각 JDK 버전 풀 JEP 분석)
+- **01-class-lifecycle**: ClassFile 포맷, ClassLoader, Linking 풀버전
+- **02-runtime-data-areas**: Heap, Metaspace 깊이
+- **03-execution-engine**: Interpreter, JIT 풀버전
+- **04-gc**: 각 GC 알고리즘 + 구현
+- **06-version-history**: 본 챕터의 풀버전 (각 JDK 버전 풀 JEP 분석)
 
-## 📚 참고
+## 참고
 
 - **JEP Index**: https://openjdk.org/jeps/0
 - **Java Almanac (모든 JDK 버전 비교)**: https://javaalmanac.io/
 - **The History of Java Technology**: https://www.oracle.com/java/moved-by-java/timeline/
 - **Brian Goetz on Project Lambda**: https://www.youtube.com/results?search_query=brian+goetz+lambda
 - **Cliff Click on HotSpot history**: https://www.cliffc.org/blog/
+- **JEP 444 Virtual Threads**: https://openjdk.org/jeps/444
+- **JEP 491 Synchronize Virtual Threads without Pinning**: https://openjdk.org/jeps/491

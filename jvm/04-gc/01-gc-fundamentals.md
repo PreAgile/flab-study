@@ -1,197 +1,131 @@
-# 04-01. GC Fundamentals — Reachability + Mark/Sweep/Compact
+# 04-01. GC Fundamentals — Reachability + 3가지 회수 변환
 
-> GC 알고리즘은 30년간 진화했지만 **본질은 두 질문에 답하는 것**: "어떤 객체가 살아있는가?" + "죽은 객체의 메모리를 어떻게 회수하는가?"
-> 답: **Reachability** (GC Roots에서 도달 가능) + **3가지 회수 변환** (Mark-Sweep / Mark-Compact / Copying).
-> 시니어가 알아야 할 것: 모든 GC 알고리즘은 이 기본의 변형이다. Serial부터 ZGC까지의 차이는 "STW를 어떻게 줄였나"의 변천사.
-
----
-
-## 🗺️ JVM 아키텍처 안에서 이 챕터의 위치
-
-본 챕터는 GC의 모든 변종이 공유하는 기본을 다룬다.
-
-![gc fundamentals](./_excalidraw/01-gc-fundamentals.svg)
+> GC 알고리즘은 30년간 진화했지만 본질은 두 질문에 답하는 것이다. **"무엇이 살아있는가"** + **"죽은 것을 어떻게 회수하는가"**.
+> 답은 30년째 같다. Reachability로 살아있음을 정의하고, Mark-Sweep / Mark-Compact / Copying 세 가지 변환으로 회수한다.
+> Serial부터 Generational ZGC까지의 진화는 본질의 변화가 아니라 **"STW를 어떻게 줄였나"의 변천사**다.
 
 ---
 
-## 📍 학습 목표
+## 이 문서의 사용법
 
-1. **Reachability**가 GC의 "살아있다" 정의인 이유 — 참조 카운팅 vs reachability.
-2. **GC Roots 4종** — Stack local + Static field + JNI global + Active thread.
-3. **Mark-Sweep / Mark-Compact / Copying** 세 가지 변환의 차이와 적합한 영역.
-4. **Weak Generational Hypothesis** — "대부분 객체는 일찍 죽는다" 가설이 generational GC를 만든 이유.
-5. **STW (Stop-The-World)** 가 왜 필요한지 + 30년 GC 진화가 STW 축소에 집중된 이유.
-6. **Write Barrier / Read Barrier** — GC와 mutator의 협력 메커니즘.
-7. **Safepoint** — STW를 안전하게 진입하는 메커니즘 ([Chapter 05 Threading](../05-threading/) 와 연결).
-8. **Card Table / Remembered Set** — Old → Young 참조 추적 ([Chapter 02-06 GC bookkeeping](../02-runtime-data-areas/06-gc-bookkeeping-and-others.md)).
-9. **Compaction의 비용 vs 이득** — fragmentation 대비.
-10. **Live ratio** 가 GC 효율에 미치는 영향 — Young GC가 빠른 이유.
+이 문서는 **면접용 마인드맵**을 따라 선형으로 펼친 구조다. 학습 순서 = 면접 답변 순서 = 백지에 그리는 순서.
+
+1. **0장 마인드맵을 먼저 외운다** — 루트 한 문장 + 5가지 가지 + 각 가지의 키워드 3개.
+2. **1~5장을 순서대로 학습한다** — 각 장이 마인드맵의 한 가지에 정확히 대응.
+3. **6장 면접 워크플로우로 검증** — 질문을 보면 어느 가지로 가야 하는지 매핑.
+4. **7장 꼬리질문으로 깊이 점검**.
 
 ---
 
-## 🎨 1단계: 백지 그리기 가이드
+## 0. 마인드맵 — 면접 종이에 그릴 그림
 
-### Step 1: Reachability 그래프
+### 루트 한 문장 (anchor)
 
-```
-[GC Roots]
-   - Stack (local + operand)
-   - Static fields
-   - JNI globals
-   - Active threads
-        │
-        ▼ 참조 따라가기
-[Reachable 객체들] = 살아있음
-        │
-[Unreachable 객체들] = 죽음 → 회수
-```
+> **"GC는 GC Roots에서 도달 가능한 객체만 살리고, 3가지 회수 변환(Mark-Sweep/Compact/Copying)으로 죽은 메모리를 거둔다. 30년 진화는 STW 축소의 역사다."**
 
-### Step 2: 3가지 변환
+이 한 문장에서 모든 답변이 출발한다. 어떤 질문이 와도 이 문장부터 말하고 적절한 가지로 분기.
+
+### 5개 가지 — 순서를 외운다
 
 ```
-[Mark-Sweep]
-[살][죽][살][죽][살]  →  [살][free][살][free][살]
-→ Fragmentation. 빠름.
-
-[Mark-Compact]
-[살][죽][살][죽][살]  →  [살][살][살][free][free]
-→ Fragmentation 0. 느림 (객체 이동).
-
-[Copying]
-영역A: [살][죽][살][죽][살]
-영역B: (비어있음)
-        │ Copy
-        ▼
-영역A: (비어있음)  →  다음 GC 시 영역으로 사용
-영역B: [살][살][살]
-→ 살아있는 객체 적으면 매우 빠름.
+                  [ROOT: Reachability + 3 변환 + STW 축소]
+                                   │
+       ┌─────────┬──────────────────┼──────────────────┬─────────┐
+       │         │                  │                  │         │
+      ① 살아있음  ② 회수 변환        ③ Generational   ④ Mutator  ⑤ STW
+   (Reachability)(M-S/M-C/Copy)    Hypothesis        협력 메커니즘  진화
+       │         │                  │                  │         │
+       │    ┌────┼────┐         ┌───┼───┐         ┌────┼────┐    │
+    GC Roots Mark-Sweep         단명 객체           Write       Safepoint
+     4종    Mark-Compact         95%                Barrier      polling
+   ref count Copying            Card Table         Read         Concurrent
+    한계     trade-off          Young/Old          Barrier      GC 등장
 ```
 
-### 정답 그림
+### 가지별 핵심 키워드 (각 가지 3개씩만)
 
-위의 [01-gc-fundamentals.svg](./_excalidraw/01-gc-fundamentals.svg) 참조.
+| 가지 | 키워드 1 | 키워드 2 | 키워드 3 |
+|---|---|---|---|
+| **① 살아있음 (Reachability)** | GC Roots 4종 | 순환 참조 해결 | ref count 거부 |
+| **② 회수 변환** | Mark-Sweep | Mark-Compact | Copying |
+| **③ Generational Hypothesis** | 단명 객체 95% | Young/Old 분할 | live ratio 활용 |
+| **④ Mutator 협력** | Write Barrier | Read Barrier | Card Table |
+| **⑤ STW 진화** | Safepoint | Concurrent | 30년 축소사 |
+
+### 면접 답변 흐름
+
+> 면접관 질문 → 루트 문장 → 질문에 맞는 가지 1개 선택 → 그 가지의 키워드 3개 순서대로 설명 → 듣는 사람의 관심에 따라 인접 가지로 확장
 
 ---
 
-## 🧠 2단계: 직관
+## 1. 가지 ①: 살아있음 — Reachability가 GC의 정의
 
-### 핵심 비유
+### 1.1 핵심 질문
 
-> **창고 정리 비유**:
-> - **Reachability** = 출입구(GC Roots)에서 시작해 사용 중인 물건들 표시. 표시 안 된 건 버릴 것.
-> - **Mark-Sweep** = 버릴 물건 그 자리에서 폐기. 빈 공간이 흩어짐.
-> - **Mark-Compact** = 사용할 물건을 한 쪽으로 모음. 빈 공간이 한 군데로.
-> - **Copying** = 사용할 물건만 새 창고로 옮김. 옛 창고는 통째 비움.
+> "GC는 어떻게 '이 객체는 살아있다'를 판단하나요? 왜 reference counting이 아닌가요?"
 
-### 정확한 정의 (비유와 분리)
-
-| 용어 | 정의 |
-|---|---|
-| **Reachability** | 객체 그래프에서 GC Roots로부터 도달 가능한지. "살아있음"의 GC적 정의. |
-| **GC Roots** | reachability 분석의 시작점. Stack local/operand + Static field + JNI global ref + Active thread/monitor. |
-| **Mark-Sweep** | reachable 객체 mark → unreachable 객체 sweep (free list 반환). Fragmentation 있음. |
-| **Mark-Compact** | mark → 살아있는 객체를 한 쪽으로 compact. Fragmentation 0이지만 객체 이동 비용. |
-| **Copying** | 두 영역 사용. mark + copy 동시. 살아있는 객체가 적을수록 효율적. |
-| **STW (Stop-The-World)** | GC 중 모든 application thread 정지. Mark 정확성 + Compact 안전 보장. |
-| **Concurrent GC** | mutator와 동시 동작. STW 최소화. SATB/IU 같은 메커니즘 필요. |
-| **Write Barrier** | mutator의 ref 쓰기 시 추가 코드 실행. GC가 변경 알도록. ([Chapter 02-06](../02-runtime-data-areas/06-gc-bookkeeping-and-others.md)). |
-| **Read Barrier** | mutator의 ref 읽기 시 추가 코드. ZGC/Shenandoah가 사용. |
-| **Live Ratio** | 한 영역에서 살아있는 객체의 비율. Young은 낮음 (~5%), Old는 높음 (~80%+). |
-
-### 왜 Reachability인가 — Reference Counting의 한계
+### 1.2 키워드 1 — GC Roots 4종
 
 ```
-Reference Counting (Python, Swift):
-  - 각 객체에 ref count 유지.
-  - 0이 되면 즉시 회수.
-  + 즉시성 (STW 없음).
-  + 단순.
-  - 순환 참조 못 회수 (a→b→a 경우 둘 다 count > 0).
-  - ref 변경 시마다 count 갱신 → 성능 영향.
-  - Thread-safe하려면 atomic 증감.
+[GC Roots — Reachability 분석의 시작점]
 
-Reachability (Java, Go):
-  + 순환 참조 회수 가능.
-  + Mutator overhead 작음 (write barrier만, count 안 함).
-  - 주기적 GC 사이클 필요.
-  - STW 또는 concurrent 필요.
+1. Stack 기반 (per-thread):
+   - JVM Stack의 local variable slot 안 oop
+   - Operand Stack 안 oop
+   - OopMap이 어느 slot이 oop인지 표시
 
-→ Java의 선택: Reachability. 순환 참조 + 멀티스레드 친화.
-```
-
-### 왜 STW가 필요한가
-
-```
-[STW 없이 Mark 시도]
-GC thread: 객체 A를 reachable로 mark
-        │
-        ▼ 동시에
-Mutator: a.field = newObj   ← A의 reference 변경
-        │
-        ▼
-GC thread: A의 reference 따라가서 newObj 발견 못 함
-        │
-        ▼
-잘못 회수 → 메모리 손상 → crash
-
-[STW 적용]
-GC 시작 → 모든 thread 정지 → 정확한 mark → 회수 → resume
-```
-
-→ **정확성 보장의 가장 단순한 방법이 STW**. 그러나 모든 thread 정지는 latency 비용. 30년 진화가 "정확성을 유지하며 STW를 어떻게 줄일까"에 집중.
-
-### 왜 3가지 회수 변환이 모두 필요한가
-
-```
-Mark-Sweep: 객체 이동 안 함 → 안전, 빠름. 단점: fragmentation.
-   → 적합: 큰 객체 별로 없고 free list로 충분히 관리 가능.
-   → 옛 CMS Old gen.
-
-Mark-Compact: 객체 이동 → fragmentation 0.
-   → 적합: 큰 객체 자주 할당, 메모리 효율 중요.
-   → Serial/Parallel Old, G1 Full GC.
-
-Copying: 살아있는 객체 적으면 매우 효율.
-   → 적합: live ratio 낮음 (보통 Young gen ~5%).
-   → 모든 Young GC.
-```
-
-→ 모든 GC는 영역(Young/Old)별로 다른 변환 조합. **한 GC = 영역별 변환 조합**.
-
----
-
-## 🔬 3단계: 구조
-
-### GC Roots의 정확한 종류
-
-```
-1. Stack 기반 roots (per-thread):
-   - JVM Stack의 local variable slot에 있는 oop
-   - Operand stack의 oop
-   - 모든 스레드 별로 OopMap이 어느 slot이 oop인지 알려줌
-
-2. Class 기반 roots:
-   - 각 InstanceKlass의 static field
+2. Class 기반 (shared):
+   - InstanceKlass의 static field
    - String pool (interned String)
-   - Symbol table (옛 PermGen 시절 흔적)
+   - Symbol table
 
-3. Native 기반 roots:
+3. Native 기반:
    - JNI Global Reference (NewGlobalRef)
-   - JNI Weak Reference (보조적)
+   - JNI Weak Reference
 
 4. Thread/Monitor 기반:
    - Active thread의 ContextClassLoader
-   - Locked object (synchronized)
-   - Thread local
-
-5. JFR/JVMTI:
-   - 모니터링 도구가 잡는 객체
+   - synchronized 잡힌 객체
+   - ThreadLocal
 ```
 
-### Mark Phase 흐름
+이 4종에서 출발해 참조를 따라 도달 가능한 객체 = **reachable = 살아있음**. 나머지는 dead.
+
+### 1.3 키워드 2 — 순환 참조 해결
 
 ```
-1. GC Roots 식별 (모든 스레드 stack scan 등)
+객체 A → 객체 B → 객체 A (서로 가리킴)
+   ↑
+   GC Roots 어디에서도 안 가리킴
+
+Reference Counting (Python, Swift):
+   A의 count = 1 (B가 가리킴)
+   B의 count = 1 (A가 가리킴)
+   → 둘 다 count > 0 → 회수 안 됨 (누수)
+
+Reachability (Java, Go):
+   GC Roots에서 따라가도 A, B 도달 불가
+   → 둘 다 dead → 회수
+```
+
+이게 Java가 reachability를 선택한 가장 큰 이유.
+
+### 1.4 키워드 3 — Reference Counting 거부의 이유
+
+| | Reference Counting | Reachability |
+|---|---|---|
+| 순환 참조 | 못 회수 | 회수 가능 |
+| Mutator overhead | 매 ref 변경마다 count 갱신 | Write barrier만 |
+| Thread-safe | atomic 증감 필수 | barrier 단순 |
+| 회수 시점 | 즉시 (count=0) | 주기적 GC cycle |
+| STW | 없음 | 있음 (또는 concurrent) |
+
+→ Java는 멀티스레드 친화 + 순환 참조 회수를 위해 **reachability + 주기적 GC + STW**를 선택. 대가는 STW 비용 — 30년간 이 비용을 줄여온 것이 GC 진화사.
+
+### 1.5 Mark Phase 알고리즘
+
+```
+1. GC Roots 모두 식별 (스레드 stack scan 등)
 2. Roots를 worklist에 enqueue
 3. while worklist not empty:
      obj = worklist.pop()
@@ -199,164 +133,74 @@ Copying: 살아있는 객체 적으면 매우 효율.
          obj.marked = true
          for each ref in obj.fields:
              worklist.push(ref)
-4. 끝나면 marked = reachable, !marked = dead
+4. 끝나면: marked = 살아있음, !marked = 죽음
 ```
 
-마킹 시간 ≈ 살아있는 객체 수에 비례. **Live ratio가 GC 비용의 핵심**.
-
-### Card Table — Young/Old 분리 시 필수
-
-Young GC가 효율적이려면 Old gen 전체를 스캔하면 안 됨. 그러나 Old → Young 참조도 reachability 계산에 필요:
-
-```
-Old gen 객체 O가 Young gen 객체 Y를 가리킴
-→ Y는 살아있어야 함 (O가 reachable이라면)
-
-해결: Card Table
-   - Heap을 512B 카드로 나눔
-   - Old의 어느 카드에 Young 참조 변경? → 그 카드 dirty 표시 (Write Barrier)
-   - Young GC 시 dirty 카드만 scan → Old 전체 안 봄
-```
-
-자세히는 [Chapter 02-06 GC Bookkeeping](../02-runtime-data-areas/06-gc-bookkeeping-and-others.md).
-
-### Safepoint — STW 진입 메커니즘
-
-STW 시작 = JVM이 "지금 멈춰" 신호 → 모든 thread가 safepoint에서 자발적 정지:
-
-```
-1. JVM이 polling page를 mprotect(PROT_NONE)
-2. 인터프리터: 특정 명령(메서드 진입/exit, loop back-edge)에 poll instruction
-   - polling page 읽음 → SEGV → signal handler → thread 정지
-3. JIT 컴파일된 코드: 메서드 prologue/epilogue, loop back-edge에 poll
-4. 모든 thread가 safepoint blocking 상태 → GC 진행
-```
-
-자세히는 [Chapter 05 Threading](../05-threading/).
-
-### Generational GC의 동기 — Weak Generational Hypothesis
-
-> **"대부분의 객체는 일찍 죽는다"** — Lieberman & Hewitt 1983.
-
-실측:
-- Java 앱의 80~98%의 객체가 첫 Young GC를 못 넘긴다.
-- 이걸 활용: Young만 자주 청소 (대부분 dead) + Old는 가끔 (대부분 alive).
-
-```
-Young GC (Copying):
-  - Eden + Survivor에서 살아있는 객체만 복사
-  - 살아있는 객체 ~5% → 95%의 메모리를 매우 빠르게 회수
-  - 빈도: 수 초마다, ~10~50ms
-
-Old GC (Major):
-  - Old gen이 차면 Mark-Sweep 또는 Mark-Compact
-  - 살아있는 객체 ~80%+ → 회수 효율 낮음
-  - 빈도: 수 분~수 시간마다, ~수백 ms ~ 수 초
-```
+**마킹 시간 ≈ 살아있는 객체 수에 비례** — live ratio가 GC 비용의 핵심.
 
 ---
 
-## 🧬 4단계: 내부 구현 — HotSpot
+## 2. 가지 ②: 회수 변환 — 3가지의 차이
 
-### CollectedHeap 추상
+### 2.1 핵심 질문
 
-위치: `src/hotspot/share/gc/shared/collectedHeap.hpp`
+> "죽은 객체를 어떻게 회수하나요? 왜 GC마다 다른 알고리즘을 쓰나요?"
 
-```cpp
-class CollectedHeap : public CHeapObj<mtGC> {
-public:
-    virtual void collect(GCCause::Cause cause) = 0;
-    virtual HeapWord* allocate_new_tlab(...) = 0;
-    virtual void object_iterate(ObjectClosure* cl) = 0;
-    // ... 모든 GC가 구현해야 할 API
-};
+### 2.2 키워드 1 — Mark-Sweep
 
-// 각 GC 구현
-class SerialHeap : public CollectedHeap { ... };
-class ParallelScavengeHeap : public CollectedHeap { ... };
-class G1CollectedHeap : public CollectedHeap { ... };
-class ZCollectedHeap : public CollectedHeap { ... };
-class ShenandoahHeap : public CollectedHeap { ... };
+```
+GC 전:  [살][죽][살][죽][살]
+        ↓ Mark (reachable 표시)
+        ↓ Sweep (dead를 free list에 반환)
+GC 후:  [살][free][살][free][살]
+
+특징:
+   + 빠름 (객체 이동 없음)
+   + 단순
+   - Fragmentation (free 공간 흩어짐)
+   - 큰 객체 할당 시 free 못 찾을 수 있음 → Full GC
+
+적용: 옛 CMS Old gen
 ```
 
-→ GC가 다양하지만 같은 인터페이스. JVM의 다른 부분 (allocator, JIT, interpreter)이 GC 종류 신경 안 씀.
+### 2.3 키워드 2 — Mark-Compact
 
-### Reachability 분석 — Closure 패턴
+```
+GC 전:  [살][죽][살][죽][살]
+        ↓ Mark
+        ↓ Compact (살아있는 객체를 한쪽으로 이동)
+GC 후:  [살][살][살][free][free]
 
-```cpp
-// Mark 함수의 일반화
-class MarkingClosure : public OopClosure {
-public:
-    void do_oop(oop* p) override {
-        oop o = *p;
-        if (o != nullptr && !o->is_gc_marked()) {
-            o->set_gc_marked();
-            worklist->push(o);
-        }
-    }
-};
+특징:
+   + Fragmentation 0
+   + 큰 객체 할당 안전
+   - 객체 이동 비용 큼 (memcpy)
+   - 모든 ref 갱신 필요
 
-// GC Roots iterate
-void iterate_roots(MarkingClosure* cl) {
-    Threads::oops_do(cl, ...);      // stack
-    SystemDictionary::oops_do(cl);  // static
-    JNIHandles::oops_do(cl);         // JNI
-    // ...
-}
+적용: Serial Old, Parallel Old, G1 Full GC
 ```
 
-### Write Barrier (G1 기준 예시)
+### 2.4 키워드 3 — Copying
 
-위치: `src/hotspot/share/gc/g1/g1BarrierSet.cpp`
+```
+GC 전:
+   영역 A: [살][죽][살][죽][살]   ← active (from-space)
+   영역 B: (empty)                  ← inactive (to-space)
+        ↓ Mark + Copy 동시
+GC 후:
+   영역 A: (empty)
+   영역 B: [살][살][살]              ← 다음 GC의 from-space
 
-```cpp
-// JIT가 obj.field = newRef 호출 시 inline
-void g1_write_barrier(oop* field, oop new_value) {
-    // 1. Pre-barrier (SATB)
-    if (G1MarkingActive) {
-        oop old_val = *field;
-        if (old_val != nullptr) {
-            satb_queue->enqueue(old_val);
-        }
-    }
-    
-    // 2. Store
-    *field = new_value;
-    
-    // 3. Post-barrier (Card Table)
-    if (cross_region(field, new_value)) {
-        mark_card_dirty(field);
-        dirty_card_queue->enqueue(card);
-    }
-}
+특징:
+   + 매우 빠름 (live ratio 낮을 때)
+   + Fragmentation 0
+   - 메모리 2배 필요 (두 영역)
+   - live ratio 높으면 비효율
+
+적용: 모든 Young GC (Eden + Survivor)
 ```
 
-→ 모든 ref 쓰기에 추가 코드. 약 5~10% 성능 비용 — concurrent GC 위해 필요.
-
----
-
-## 📜 5단계: 역사
-
-| 연도 | 변화 | 이유 |
-|---|---|---|
-| 1959 | McCarthy — Mark-Sweep (Lisp) | GC의 시작 |
-| 1969 | Cheney — Copying GC | 살아있는 객체 적은 영역 |
-| 1983 | Lieberman & Hewitt — Generational | Weak Generational Hypothesis |
-| 1996 | JDK 1.0 — Serial GC | Mark-Compact + Copying |
-| 2002 | JDK 1.4 — Parallel GC | 멀티코어 활용 |
-| 2002 | JDK 1.4 — CMS | Concurrent Mark-Sweep, low latency |
-| 2009 | JDK 7 — G1 (실험) | Region 기반, 예측 가능한 STW |
-| 2017 | JDK 9 — G1 기본 GC | CMS 대체 |
-| 2018 | JDK 11 — ZGC 실험 | sub-ms STW |
-| 2019 | JDK 12 — Shenandoah | ZGC 대안 |
-| 2020 | JDK 14 — CMS 제거 | G1으로 통합 |
-| 2023 | JDK 21 — Generational ZGC | Weak Hypothesis를 ZGC에 |
-
----
-
-## ⚖️ 6단계: 트레이드오프
-
-### 회수 변환별 트레이드오프
+### 2.5 3가지 비교 표
 
 | | Mark-Sweep | Mark-Compact | Copying |
 |---|---|---|---|
@@ -366,78 +210,350 @@ void g1_write_barrier(oop* field, oop new_value) {
 | Live ratio 적합 | 모든 | 모든 | 낮을수록 좋음 |
 | 적용 영역 | 옛 CMS Old | Serial/Parallel Old, G1 Full | 모든 Young |
 
+### 2.6 한 GC = 영역별 변환 조합
+
+```
+Serial GC:
+   Young = Copying
+   Old   = Mark-Compact
+
+Parallel GC:
+   Young = Copying (multi-thread)
+   Old   = Mark-Compact (multi-thread)
+
+CMS:
+   Young = Copying
+   Old   = Mark-Sweep (compact 없음 → fragmentation)
+
+G1:
+   모든 region에서 Evacuation (Copying의 일반화)
+   Full GC만 Mark-Compact
+
+ZGC / Shenandoah:
+   Concurrent Mark + Concurrent Evacuation (Copying)
+```
+
+→ **모든 GC는 이 3가지의 조합이다**. Mark-Sweep만 쓰는 GC도, Copying만 쓰는 GC도 없음. 영역별 live ratio에 맞춰 다르게 선택.
+
 ---
 
-## 📊 7단계: 측정·진단
+## 3. 가지 ③: Generational Hypothesis — 모든 GC의 출발점
 
-### GC log 활성화
+### 3.1 핵심 질문
 
-```bash
-java -Xlog:gc*:file=gc.log:time:filesize=10M -jar app.jar
+> "왜 Heap을 Young/Old로 분할하나요? 그 분할이 어떤 효과를 주나요?"
+
+### 3.2 키워드 1 — Weak Generational Hypothesis
+
+> **"대부분의 객체는 일찍 죽는다"** — Lieberman & Hewitt 1983.
+
+실측 데이터:
+- 일반 Java 앱 객체의 **80~98%가 첫 Young GC를 못 넘긴다**.
+- 그 후 살아남은 객체 중 다시 80%가 다음 GC에서 죽음.
+- 결국 ~5%만 Old로 promote.
+
+### 3.3 키워드 2 — Young/Old 분할의 효과
+
+```
+[분할 없이 (single-gen)]
+매 GC: 전체 Heap mark + 회수
+   → live ratio 평균 30~50%
+   → Mark + Sweep/Compact 모두 비용 큼
+
+[Young/Old 분할]
+Young GC (자주):
+   - Young만 처리 (전체의 10~30%)
+   - live ratio 5% → 95% 즉시 회수
+   - Copying 매우 효율적
+   - 빈도: 수 초마다, ~10~50ms
+
+Old GC (가끔):
+   - Old 처리 (live ratio 80%+)
+   - Copying 비효율 → Mark-Compact 사용
+   - 빈도: 수 분~수 시간마다, ~수백 ms ~ 수 초
+
+→ 같은 메모리 회수량에 GC 비용 1/5~1/10
 ```
 
-각 GC 이벤트의 상세 시간 + size + cause 기록.
+### 3.4 키워드 3 — Live ratio가 모든 것을 결정
 
-### JFR GC 이벤트
+```
+Young (live ratio ~5%):
+   → Copying이 최적 (5% 복사하면 95% 회수)
 
-```bash
-jcmd <pid> JFR.start name=gc duration=300s settings=profile
-jfr summary gc.jfr | grep -i 'gc\|allocation'
+Old (live ratio ~80%):
+   → Copying 비효율 (80% 복사 비용)
+   → Mark-Compact가 적합 (살아있는 거 압축)
+
+→ "어디는 Copying, 어디는 Mark-Compact"의 선택은
+   live ratio 차이에서 자동 도출
 ```
 
-핵심 이벤트:
-- `jdk.GarbageCollection` — 각 GC 발생.
-- `jdk.GCHeapSummary` — 주기 heap 사용량.
-- `jdk.ObjectAllocationInNewTLAB` — allocation rate.
+### 3.5 분할의 대가 — Cross-generation 참조 추적
 
-### 운영 시나리오
+```
+Young GC 시 Old 전체를 scan하면 효율 0
+   → Young만 scan하고 싶음
+   
+그러나 Old → Young 참조가 있으면 Y는 살아있어야:
+   Old gen 객체 O가 Young gen 객체 Y를 가리킴
+   → Y는 reachable
+   → Y를 살려야 함
+   → 그러나 O는 어떻게 알지?
 
-| 증상 | 진단 | 가능 원인 |
+해결: Card Table
+   - Heap을 512B 카드로 나눔
+   - Old의 어느 카드가 Young 참조를 가지면 dirty 표시
+   - Young GC 시 dirty card만 scan (Old 전체 안 봄)
+```
+
+→ Card Table은 **Generational의 필수 부속**. 자세히는 [Chapter 02-06 GC bookkeeping](../02-runtime-data-areas/06-gc-bookkeeping-and-others.md).
+
+---
+
+## 4. 가지 ④: Mutator 협력 — Write Barrier / Read Barrier
+
+### 4.1 핵심 질문
+
+> "GC가 mutator(application thread)와 어떻게 협력하나요? 그 비용은?"
+
+### 4.2 키워드 1 — Write Barrier
+
+```
+Java 코드: obj.field = newRef;
+   ↓ JIT가 inline
+실제 실행:
+   1. (pre-barrier) GC 작업 (SATB 등)
+   2. obj.field = newRef   ← 원래 store
+   3. (post-barrier) Card Table 갱신, dirty queue 등
+
+비용: 일반 워크로드 ~5~10% throughput 영향
+```
+
+**역할**:
+- **Card Table dirty 마킹** — Old → Young 참조 추적.
+- **SATB queue** (G1, ZGC) — concurrent marking 중 변경 추적.
+- **Cross-region tracking** (G1 RSet).
+- **Concurrent GC의 정확성 보장**.
+
+### 4.3 키워드 2 — Read Barrier (ZGC/Shenandoah)
+
+```
+Java 코드: x = obj.field;
+   ↓ JIT가 inline (ZGC LRB)
+실제 실행:
+   raw = obj.field;
+   if (raw_color != expected) {
+       raw = lrb_slow_path(raw);   // 객체 이동 중이면 새 주소 반환
+   }
+   x = raw;
+
+비용: ~2~5% throughput
+효과: Concurrent Evacuation 가능 (객체 이동 중에도 mutator 진행)
+```
+
+→ Read Barrier는 ZGC/Shenandoah의 sub-ms STW의 핵심. 자세히는 [04. ZGC and Shenandoah](./04-zgc-and-shenandoah.md).
+
+### 4.4 키워드 3 — Barrier 비용의 본질
+
+| Barrier 종류 | 사용 GC | 비용 | 이점 |
+|---|---|---|---|
+| Card Table 갱신 | 모든 generational | ~5% | Young GC 효율 |
+| SATB queue | G1, ZGC | ~5% | Concurrent marking 정확성 |
+| Load Reference Barrier | ZGC, Shenandoah | ~2~5% | Concurrent evacuation |
+
+**시니어 관점**:
+- Barrier는 throughput 비용으로 latency를 산다.
+- "Barrier 없음 = throughput 높음, STW 김" (Serial/Parallel).
+- "Barrier 많음 = throughput 낮음, STW 짧음" (ZGC/Shenandoah).
+- 워크로드에 맞춰 선택.
+
+---
+
+## 5. 가지 ⑤: STW 진화 — Safepoint + Concurrent
+
+### 5.1 핵심 질문
+
+> "왜 STW가 필요한가요? 30년 진화는 어떻게 STW를 줄여왔나요?"
+
+### 5.2 키워드 1 — Safepoint (STW 진입 메커니즘)
+
+```
+1. JVM이 polling page를 mprotect(PROT_NONE)으로 변경
+2. 인터프리터: 메서드 진입/exit, loop back-edge에 poll instruction
+   - polling page 읽기 시도 → SEGV → signal handler → thread 정지
+3. JIT 컴파일된 코드: 같은 위치에 poll 삽입
+4. 모든 thread가 safepoint에서 자발적 정지 → GC 진행
+5. GC 끝나면 polling page를 다시 PROT_READ로 → thread 재개
+
+→ TTSP (Time-To-Safepoint) = 모든 thread가 정지하기까지의 시간
+→ TTSP가 길면 실제 STW = GC 시간 + TTSP
+```
+
+자세히는 [Chapter 05 Threading](../05-threading/).
+
+### 5.3 키워드 2 — STW 없이 Mark 시도하면?
+
+```
+[STW 없는 시나리오]
+GC thread: 객체 A를 reachable로 mark
+        ↓ 동시에
+Mutator: a.field = newObj   ← A의 ref 변경
+        ↓
+GC thread: A의 ref 따라가서 newObj 발견 못 함
+        ↓
+잘못 회수 → 메모리 손상 → JVM crash
+
+[STW 적용]
+GC 시작 → 모든 thread 정지 → 정확한 mark → 회수 → resume
+```
+
+→ **STW는 정확성의 가장 단순한 보장책**. 그러나 모든 thread 정지는 latency 비용 — 30년 진화가 이 비용 축소에 집중.
+
+### 5.4 키워드 3 — 30년 STW 축소사
+
+| 연도 | GC | STW 특성 | 핵심 발상 |
+|---|---|---|---|
+| 1959 | McCarthy Mark-Sweep | 전체 Heap STW | GC 자체의 시작 |
+| 1969 | Cheney Copying | 전체 Heap STW | 살아있는 객체만 복사 |
+| 1996 | JDK 1.0 Serial | 단일 thread STW | Java GC의 시작 |
+| 2002 | Parallel GC | Multi-thread STW (짧아짐) | 멀티코어 활용 |
+| 2002 | CMS | Concurrent Mark, STW는 Sweep만 | 첫 concurrent |
+| 2009 | G1 (experimental) | Region 단위 STW (예측 가능) | region 기반 |
+| 2018 | ZGC (experimental) | sub-ms STW | Colored pointer + Read Barrier |
+| 2023 | Generational ZGC | sub-ms STW + G1 동등 throughput | Generational + ZGC |
+
+**핵심 통찰**: 30년 동안 본질 (Reachability + 3 변환)은 안 바뀜. **STW 축소만**이 진화의 축.
+
+```
+Serial (1996):       [─────── STW ───────] ← 전체
+Parallel (2002):     [── STW ──]            ← 짧아짐 (multi-thread)
+CMS (2002):          [STW] ... [STW] ...    ← Mark는 concurrent
+G1 (2009):           [── STW (예측 가능) ──] ← region 수 조정
+ZGC (2018):          [STW] ...              ← sub-ms
+Gen ZGC (2023):      [STW] ...              ← sub-ms + throughput
+```
+
+---
+
+## 6. 면접 답변 워크플로우
+
+### 6.1 질문 → 가지 매핑
+
+| 면접 질문 | 진입 가지 | 인접 확장 |
 |---|---|---|
-| Young GC 시간 ↑ | GC log Young pause | live ratio ↑ — survivor 부족 |
-| Full GC 빈발 | GC log Full GC cause | Old gen 압박 |
-| Allocation rate ↑ | JFR allocation events | 코드 변경 후 객체 증가 |
+| "GC가 어떻게 살아있는 객체를 판단?" | ① Reachability | GC Roots 4종 |
+| "순환 참조는 어떻게 처리?" | ① Reachability | ref count 한계 |
+| "Mark-Sweep과 Copying 차이?" | ② 회수 변환 | live ratio |
+| "왜 Young/Old로 나누나?" | ③ Generational | Hypothesis 실측 |
+| "Card Table이 뭔가요?" | ③ Generational | ④ Write Barrier |
+| "Write Barrier 비용은?" | ④ Mutator 협력 | concurrent GC |
+| "왜 STW가 필요?" | ⑤ STW | safepoint |
+| "30년 GC 진화 요약?" | ⑤ STW | 축소사 표 |
+
+### 6.2 답변 템플릿
+
+> **루트 문장 한 줄 → 해당 가지 키워드 3개 순서대로 → 듣는 사람 표정 보고 인접 가지로**
+
+예: "Java GC가 reference counting을 안 쓰는 이유는?"
+
+> "GC는 GC Roots에서 도달 가능한 객체만 살리는 reachability 기반입니다 (← 루트).
+> Reference counting을 거부한 이유는 가지 ①에 있습니다.
+> 첫째, **순환 참조 문제**. A→B→A 둘 다 count > 0이라 누수.
+> 둘째, **mutator overhead**. 매 ref 변경마다 count 갱신, 멀티스레드면 atomic 증감 필요.
+> 셋째, **회수 시점 trade-off**. 즉시성을 얻는 대신 매 store에 count 비용.
+> Java는 멀티스레드 친화 + 순환 회수를 위해 reachability + 주기적 GC + STW를 선택. 대가가 STW 비용이고, 30년 진화가 그 축소사입니다 (→ 가지 ⑤로 자연 연결)."
 
 ---
 
-## ⚔️ 8단계: 꼬리질문 트리
+## 7. 꼬리질문 트리 (가지별)
 
-### Q1. Java GC가 reference counting 안 쓰는 이유는?
+### Q1 [가지 ①]. Java GC가 reference counting 안 쓰는 이유는?
 
 > 1. 순환 참조 못 회수 (a→b→a 둘 다 count > 0).
-> 2. ref 변경 시마다 count 갱신 → 성능.
+> 2. ref 변경 시마다 count 갱신 → mutator overhead.
 > 3. Thread-safe atomic 증감 비용.
-> Reachability는 이 모든 문제를 회피. STW 또는 concurrent 필요.
+> Reachability는 이 모두를 회피. 대가는 STW (또는 concurrent).
 
-### Q2. STW가 왜 필요한가요?
+**🪝 Q1-1: GC Roots는 정확히 어떤 게 있나요?**
+> 4종. Stack 기반 (local/operand의 oop), Class 기반 (static field, String pool), Native 기반 (JNI global ref), Thread/Monitor 기반 (ContextClassLoader, synchronized).
 
-> Mutator가 mark 중 객체 그래프 변경 시 incorrect mark 결과.
-> 정확성 보장의 가장 단순한 방법.
+### Q2 [가지 ②]. Mark-Sweep, Mark-Compact, Copying의 차이는?
+
+> Mark-Sweep: 빠르고 단순. 단점 fragmentation.
+> Mark-Compact: fragmentation 0. 단점 객체 이동 비용.
+> Copying: live ratio 낮을 때 매우 빠름. 단점 메모리 2배 사용.
+> 한 GC는 영역별로 다른 변환 조합 — 예: Serial은 Young Copying + Old Mark-Compact.
+
+**🪝 Q2-1: Copying이 Young에 적합한 이유는?**
+> Young의 live ratio가 ~5%. 살아있는 객체만 복사하면 95%의 메모리를 즉시 회수. 이게 Copying의 효율이 극대화되는 조건.
+
+### Q3 [가지 ③]. Weak Generational Hypothesis가 무엇이고 왜 GC 설계의 기반인가?
+
+> "대부분 객체는 일찍 죽는다" — Lieberman & Hewitt 1983. 실측 80~98% 객체가 첫 Young GC를 못 넘김.
+> 효과: Young만 자주 청소 (live ratio 5% → 95% 즉시 회수). Old는 가끔 (live ratio 80%, Mark-Compact).
+> 같은 회수량에 GC 비용 1/5~1/10.
+
+**🪝 Q3-1: 분할의 대가는?**
+> Cross-generation 참조 추적 — Old → Young 참조가 있으면 Young은 살려야 함. Card Table로 해결 (Old의 dirty card만 scan).
+
+### Q4 [가지 ④]. Write Barrier가 무엇이고 왜 필요한가요?
+
+> Mutator의 ref 쓰기에 추가되는 GC 협력 코드. 역할: Card Table 갱신 (Old→Young 추적), SATB queue (concurrent marking), G1 RSet 갱신.
+> 비용: 일반 ~5~10% throughput. Concurrent GC의 전제.
+
+**🪝 Q4-1: Read Barrier는 언제 필요?**
+> Concurrent Evacuation (객체 이동 중 mutator 진행). ZGC의 LRB가 대표. Mutator가 옛 주소 읽을 때 새 주소로 redirect. 비용 ~2~5%.
+
+### Q5 [가지 ⑤]. STW가 왜 필요한가요?
+
+> Mutator가 mark 중 객체 그래프 변경 시 incorrect mark → 잘못 회수 → 메모리 손상.
+> STW가 정확성의 가장 단순한 보장책. 모든 thread 정지 → 정확한 snapshot.
 > 그러나 latency 비용 → concurrent GC가 SATB/IU로 정확성 유지하며 STW 줄임.
 
-### Q3. Young GC가 Old GC보다 빠른 이유는?
+**🪝 Q5-1: Safepoint가 어떻게 동작?**
+> polling page를 PROT_NONE으로 변경. 모든 thread가 메서드 진입/loop back-edge에서 polling page 읽기 시도 → SEGV → signal handler → 자발적 정지. 모든 thread 정지하기까지 시간 = TTSP.
 
-> Live ratio 차이:
-> - Young: ~5% 살아있음 → Copying이 매우 효율.
-> - Old: ~80%+ 살아있음 → Copying 비효율, Mark-Sweep/Compact 사용.
-> Weak Generational Hypothesis가 이 분할의 근거.
+### Q6 (Killer) [가지 ⑤]. 30년 GC 진화를 한 문장으로 요약하면?
 
-### Q4. Write Barrier가 무엇이고 왜 필요한가요?
-
-> Mutator의 ref 쓰기에 추가되는 GC 협력 코드.
-> 역할:
-> - Card Table 갱신 (Old → Young 참조 추적).
-> - SATB queue (concurrent marking).
-> - Cross-region 정보 (G1 RSet).
-> 비용: 일반 ~5~10% 성능. Concurrent GC의 전제.
+> 본질 (Reachability + 3 변환)은 1959년부터 그대로. **진화는 STW를 어떻게 줄였나의 역사**.
+> Serial → Parallel (multi-thread STW), Parallel → CMS (concurrent Mark), CMS → G1 (region 단위 예측 가능), G1 → ZGC (sub-ms via colored pointer + Read Barrier), ZGC → Generational ZGC (G1 동등 throughput + sub-ms).
+> 각 단계의 대가: throughput 일부 손실 또는 메모리 footprint 증가.
 
 ---
 
-## 🔗 다음 단계
+## 8. 학습 체크리스트
 
-- → [02. Generational + Serial/Parallel](./02-generational-and-serial-parallel.md)
-- → [03. CMS and G1](./03-cms-and-g1.md)
-- → [04. ZGC and Shenandoah](./04-zgc-and-shenandoah.md)
-- → [05. Generational ZGC](./05-generational-zgc.md)
-- → [06. GC Tuning and Ops](./06-gc-tuning-and-ops.md)
+면접 전 백지에서 다음을 다 해낼 수 있어야 마스터:
+
+- [ ] 0장 마인드맵을 종이에 1분 이내로 그릴 수 있다 (루트 + 5가지 + 각 키워드 3개)
+- [ ] 가지 ①: GC Roots 4종을 외운다 (Stack/Class/Native/Thread)
+- [ ] 가지 ①: ref count의 3가지 한계 (순환참조, overhead, atomic 비용)를 말한다
+- [ ] 가지 ②: 3가지 변환을 그림으로 그리고 trade-off 표를 적는다
+- [ ] 가지 ②: "한 GC = 영역별 변환 조합" 원칙으로 Serial/CMS/G1을 분해한다
+- [ ] 가지 ③: Weak Generational Hypothesis와 실측 수치 (80~98%)를 인용한다
+- [ ] 가지 ③: Card Table이 generational의 필수 부속임을 설명한다
+- [ ] 가지 ④: Write Barrier의 3가지 역할 (Card, SATB, RSet)을 말한다
+- [ ] 가지 ④: Read Barrier가 Concurrent Evacuation의 핵심임을 설명한다
+- [ ] 가지 ⑤: Safepoint polling 메커니즘을 그린다
+- [ ] 가지 ⑤: 30년 진화 표 (Serial→Gen ZGC)를 STW 축소 관점으로 정리한다
+- [ ] 7장 꼬리질문 6개에 막힘없이 답한다
+
+---
+
+## 다음 단계
+
+- → [02. Generational + Serial/Parallel](./02-generational-and-serial-parallel.md): 가지 ③의 첫 구현
+- → [03. CMS and G1](./03-cms-and-g1.md): 가지 ⑤의 region 진화
+- → [04. ZGC and Shenandoah](./04-zgc-and-shenandoah.md): 가지 ④의 Read Barrier
+- → [05. Generational ZGC](./05-generational-zgc.md): 가지 ③ + ⑤의 결합
+- → [06. GC Tuning and Ops](./06-gc-tuning-and-ops.md): 운영 종합
 - ← [Chapter 02-06 GC Bookkeeping](../02-runtime-data-areas/06-gc-bookkeeping-and-others.md)
+
+## 참고
+
+- **Lieberman & Hewitt (1983) — Generational GC**: "A Real-Time Garbage Collector Based on the Lifetimes of Objects"
+- **JLS §12.6 (Finalization)**: https://docs.oracle.com/javase/specs/jls/se21/html/jls-12.html
+- **HotSpot `collectedHeap.hpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/gc/shared/collectedHeap.hpp
+- **HotSpot `g1BarrierSet.cpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/gc/g1/g1BarrierSet.cpp
+- **Oracle GC Tuning Guide (JDK 21)**: https://docs.oracle.com/en/java/javase/21/gctuning/

@@ -2,37 +2,131 @@
 
 > "Java는 모든 객체가 Heap에 할당된다" — 한 줄 답은 절반 거짓이다.
 > C2가 **Escape Analysis (EA)** 로 "이 객체는 메서드 밖으로 escape하지 않음"을 증명하면, **객체 자체가 만들어지지 않을 수도 있다** — field들을 register로 분해 (Scalar Replacement). Heap allocation 0회, GC 부담 0, 동기화 무시 (Lock Elision).
-> 즉, Java도 사실상 stack allocation에 가까운 효과를 얻는다 — 단, EA가 성공한 경우에만.
+> 즉, Java도 사실상 stack allocation 효과를 얻는다 — 단, EA가 성공한 경우만.
 > 시니어가 알아야 할 것: 단순해 보이는 코드가 EA 덕분에 매우 빠른 이유와, 한 줄만 바꿔도 EA가 깨져 갑자기 GC가 폭증하는 패턴.
 
 ---
 
-## 🗺️ JVM 아키텍처 안에서 이 챕터의 위치
+## 이 문서의 사용법
 
-이 챕터는 [04-c1-and-c2](./04-c1-and-c2.md)의 **C2 phase ③ Inlining + Escape Analysis** 중 EA 풀버전이다. [05-inlining-and-ic](./05-inlining-and-ic.md)와 깊이 연결 — Inlining이 EA의 가장 큰 enabler.
-
-![escape analysis](./_excalidraw/06-escape-analysis.svg)
-
----
-
-## 📍 학습 목표
-
-1. **Escape Analysis**가 무엇이고 왜 JVM 성능에 결정적인지 안다.
-2. **3가지 escape 종류** (NoEscape / ArgEscape / GlobalEscape)를 코드 예시로 식별할 수 있다.
-3. **Scalar Replacement** — 객체의 field들을 register/stack slot으로 분해하는 변환.
-4. EA가 가능하게 하는 **3가지 최적화** (Scalar Replacement, Lock Elision, Lock Coarsening).
-5. **Inlining이 EA의 가장 큰 enabler** 인 이유 — 메서드 경계가 사라지면 객체 lifetime을 정확히 추적 가능.
-6. **Partial Escape Analysis (Graal)** — escape하지 않는 path에서만 객체 안 만드는 더 정교한 기법.
-7. EA가 **흔히 실패하는 패턴** — 객체를 List에 add, 다른 메서드 인자로 전달 후 그 메서드 inline 못 됨, exception throw 등.
-8. `-XX:+PrintEscapeAnalysis`, JFR allocation 이벤트로 EA 효과 측정.
-9. 운영 시나리오: 단순 코드인데 Heap allocation 폭증 / synchronized인데 빠른 이유 / 코드 한 줄 바뀐 후 GC 부담 ↑.
-10. Java 객체 할당과 GC 부담을 줄이는 가장 강력한 도구 — **EA가 작동하도록 코드 작성**.
+1. **0장 마인드맵을 먼저 외운다** — 루트 + 4가지 + 키워드.
+2. **1~4장을 순서대로 학습한다** — 각 장이 마인드맵의 한 가지에 대응.
+3. **5장 면접 워크플로우**, **6장 꼬리질문**.
 
 ---
 
-## 🎨 1단계: 백지 그리기 가이드
+## 0. 마인드맵 — 면접 종이에 그릴 그림
 
-### Step 1: Escape 3종 분류
+### 루트 한 문장 (anchor)
+
+> **"Escape Analysis는 객체 reference가 메서드 밖으로 escape하는지 분석한다. NoEscape면 Scalar Replacement (객체 안 만듦 + field를 register로) + Lock Elision (synchronized 제거) + Lock Coarsening. Inlining이 메서드 경계를 없애 EA의 정확도를 폭증시킨다 — '실효적 stack allocation'의 핵심."**
+
+### 4개 가지 — 순서를 외운다
+
+```
+              [ROOT: 객체 escape 여부에 따른 3-tier 최적화]
+                                  │
+       ┌──────────────┬───────────┼───────────┬──────────────┐
+       │              │           │           │              │
+      ① WHY         ② WHAT        ③ HOW       ④ 운영
+   왜 EA가          3 escape      Connection  (시니어
+   결정적인가?      종류 + 3      Graph +     진단)
+                    최적화        Inline의 역할
+       │              │           │           │
+       │         ┌────┼────┐  ┌───┼───┐  ┌────┼────┐
+   Allocation    NoEscape     알고리즘   PrintEscape  EA  GlobalEscape
+   비용 zero/    ArgEscape    (Choi 1999) Analysis   깨짐 패턴
+   GC 부담 zero/ GlobalEscape  ↓                       (List.add,
+   Stack 효과    + Scalar/    Inlining             /JFR  exception,
+                 Lock Elide/   enabler           alloc  lambda
+                 Coarsen                                 capture)
+```
+
+### 가지별 핵심 키워드 (각 가지 3개씩만)
+
+| 가지 | 키워드 1 | 키워드 2 | 키워드 3 |
+|---|---|---|---|
+| **① WHY 결정적** | Allocation 비용 zero | GC 부담 zero | "implicit stack allocation" |
+| **② WHAT 3종 + 3최적화** | NoEscape / ArgEscape / GlobalEscape | Scalar Replacement | Lock Elision + Lock Coarsening |
+| **③ HOW 알고리즘** | Connection Graph (Choi 1999) | Escape state propagation fixpoint | Inlining이 EA enabler |
+| **④ 운영** | -XX:+PrintEscapeAnalysis | JFR allocation rate | EA 깨짐 패턴 (add/exception/lambda) |
+
+### 면접 답변 흐름
+
+> 면접관 질문 → 루트 → 가지 → 키워드 3개 → 인접
+
+---
+
+## 1. 가지 ①: WHY — 왜 EA가 결정적인가
+
+### 1.1 핵심 질문
+
+> "Java는 객체를 Heap에 만든다는데, EA가 왜 그렇게 중요한가요? 작은 객체 하나 만드는 비용이 그렇게 큰가요?"
+
+### 1.2 키워드 1 — Allocation 비용 Zero
+
+```
+[일반 객체 할당의 비용 (TLAB fast path 기준)]
+1. TLAB top pointer 증가 (~3 instruction)
+2. Heap에서 객체 메모리 zeroing
+3. Object header 초기화 (Mark Word + Klass Pointer)
+4. 생성자 코드 실행
+   → fast path 총 ~10~20 instruction
+
+[Scalar Replacement 후]
+0. 아무것도 안 함. field 값이 register에 직접 들어감.
+   → 0 instruction
+```
+
+→ Fast path도 absolutely 0보다는 비쌈. 매 호출마다 작은 객체를 만드는 hot loop라면, EA의 누적 효과 큼.
+
+### 1.3 키워드 2 — GC 부담 Zero
+
+```
+[객체가 만들어지면]
+- GC가 추후 추적해야 함
+- Card Table에 표시 (write barrier 영향)
+- Young Gen 채워지면 Minor GC 빈도 ↑
+- GC pause 증가
+
+[Scalar Replacement 후]
+- 객체 자체가 없음 → GC 추적 대상 0
+- Allocation rate 0 → Minor GC 부담 0
+```
+
+→ EA가 GC pause를 줄이는 가장 강력한 메커니즘. 한 줄 코드 변경으로 EA 깨지면 GC 빈도 5배 ↑ 가능.
+
+### 1.4 키워드 3 — "Implicit Stack Allocation"
+
+```
+C++:
+  Point p(1, 2);   // 명시적 stack allocation
+  use(p.x + p.y);
+
+Java + EA:
+  Point p = new Point(1, 2);   // 형식상 Heap
+  use(p.x + p.y);
+  
+  → EA가 NoEscape 판정 → Scalar Replacement
+  → 실제 동작: int p_x = 1; int p_y = 2; use(p_x + p_y);
+  → C++의 stack allocation과 효과 동일
+```
+
+Java 사용자가 명시적 stack allocation API를 안 가지지만, **EA 덕분에 실효적으로 stack allocation을 얻음**. C 수준 메모리 효율 가능.
+
+### 1.5 비유로 굳히기
+
+> **택배 상자 비유**: NoEscape = 받자마자 풀어서 안의 물건만 쓰고 상자 안 만듦 (Scalar Replacement). ArgEscape = 상자를 다른 방으로 옮김. 같은 집(inline)이면 결국 NoEscape. 다른 집(escape) 보내면 진짜 상자 필요. GlobalEscape = 창고(static)나 우체국(Heap)에 영구 보관.
+
+---
+
+## 2. 가지 ②: WHAT — 3가지 Escape 종류 + 3가지 최적화
+
+### 2.1 핵심 질문
+
+> "EA의 결과는 어떻게 분류되고, 각각 어떤 최적화로 이어지나요?"
+
+### 2.2 키워드 1 — NoEscape / ArgEscape / GlobalEscape
 
 ```
 [NoEscape]
@@ -58,77 +152,161 @@ void foo() {
 }
 ```
 
-### Step 2: Scalar Replacement 변환
+| Escape 종류 | 정의 | 최적화 |
+|---|---|---|
+| NoEscape | 메서드 안에서만 사용 | Scalar Replacement, Lock Elision, Coarsening |
+| ArgEscape | 다른 메서드 인자로 전달, 그 메서드도 escape 안 함 | callee inline 후 NoEscape 승격 가능 |
+| GlobalEscape | static 필드, 다른 객체의 필드, 컬렉션 추가 등 | 최적화 거의 없음 |
+
+### 2.3 키워드 2 — Scalar Replacement
 
 ```
-[변환 전]
-Point p = new Point(1, 2);
-use(p.x + p.y);
+[변환 전 IR]
+n1 = AllocateNode(Point.class)
+n2 = StoreField(n1, "x", const 1)
+n3 = StoreField(n1, "y", const 2)
+n4 = LoadField(n1, "x")
+n5 = LoadField(n1, "y")
+n6 = Add(n4, n5)
 
-[변환 후 (NoEscape일 때)]
-int p_x = 1;     // 객체 없음
-int p_y = 2;     // 별도 scalar
-use(p_x + p_y);  // = 3 (추가 constant fold)
+[Scalar Replacement 후]
+// Allocation 자체 제거
+n1_x = const 1   // x field를 별도 scalar (register)
+n1_y = const 2   // y field를 별도 scalar
+n6 = Add(n1_x, n1_y)
+// = Add(1, 2) = const 3 (후속 constant fold)
 ```
 
-### Step 3: 3가지 최적화 화살표
+Allocate 노드 자체가 그래프에서 제거됨. 후속 phase가 추가 최적화.
 
+위치: `src/hotspot/share/opto/macro.cpp`:
+
+```cpp
+void PhaseMacroExpand::eliminate_allocate_node(AllocateNode* alloc) {
+    extract_scalar_fields(alloc);     // field를 별도 scalar로
+    igvn().replace_node(alloc, ...);  // AllocateNode 제거
+    update_safepoints();              // SafePointNode oop map 갱신
+}
 ```
-EA 결과:
-  NoEscape ──► Scalar Replacement (객체 안 만듦)
-            ──► Lock Elision (synchronized 제거)
-            ──► (전제: Inlining이 메서드 경계 없앴음)
 
-  ArgEscape (callee inline됨) ──► NoEscape로 승격
-  
-  GlobalEscape ──► 최적화 없음
+### 2.4 키워드 3 — Lock Elision + Lock Coarsening
+
+**Lock Elision**:
+```java
+public String concat(String a, String b) {
+    StringBuffer sb = new StringBuffer();   // NoEscape
+    sb.append(a);   // 내부적으로 synchronized
+    sb.append(b);
+    return sb.toString();
+}
 ```
 
-### 정답 그림
+`sb`가 NoEscape → 다른 thread가 접근 불가능 → synchronized 안전 제거. **StringBuffer가 StringBuilder처럼 동작**.
 
-위의 [06-escape-analysis.svg](./_excalidraw/06-escape-analysis.svg) 참조.
+**Lock Coarsening**:
+```java
+// 변환 전
+synchronized(lock) { a(); }
+synchronized(lock) { b(); }
+synchronized(lock) { c(); }
+
+// 변환 후
+synchronized(lock) { a(); b(); c(); }
+```
+
+3번의 lock/unlock → 1번. CAS 비용 절감. 같은 lock 객체에 대해서만, 단일 메서드 가까운 위치에서만.
+
+### 2.5 흔한 NoEscape vs GlobalEscape 패턴
+
+```java
+// NoEscape (EA 친화)
+public int compute(int x, int y) {
+    Point p = new Point(x, y);
+    return p.distance(0, 0);   // distance()가 inline되면 EA OK
+}
+
+public Optional<String> findName(int id) {
+    String name = lookup(id);
+    return Optional.ofNullable(name);   // 호출 사이트에서 inline + EA
+}
+
+for (String s : list) {   // Iterator 객체 ← EA 성공 시 안 만들어짐
+    process(s);
+}
+
+// GlobalEscape (EA 비친화)
+List<Point> result = new ArrayList<>();
+for (...) {
+    Point p = new Point(x, y);
+    result.add(p);   // ★ caller에 return될 수 있음 → GlobalEscape
+}
+
+throw new ValidationException(p);   // ★ exception은 stack 위로 escape
+executor.submit(() -> use(p));      // ★ lambda capture → GlobalEscape
+this.cachedPoint = p;                // ★ this의 필드 → GlobalEscape
+```
 
 ---
 
-## 🧠 2단계: 직관
+## 3. 가지 ③: HOW — Connection Graph + Inlining의 역할
 
-### 핵심 비유
+### 3.1 핵심 질문
 
-> **택배 상자 비유**:
-> - **NoEscape** = 받자마자 풀어서 안의 물건만 쓰고 상자는 안 만듦. (Scalar Replacement)
-> - **ArgEscape** = 상자를 다른 방으로 옮김. 그 방이 같은 집 안이면 (inline) 결국 NoEscape. 다른 집으로 보내면 (escape) 진짜 상자 필요.
-> - **GlobalEscape** = 상자를 창고(static field)나 우체국(Heap)에 영구 보관. 상자 그대로 보관 필수.
+> "EA는 정확히 어떤 알고리즘으로 동작하고, Inlining과는 어떤 관계인가요?"
 
-### 정확한 정의 (비유와 분리)
-
-| 용어 | 정의 |
-|---|---|
-| **Escape Analysis (EA)** | 객체의 reference가 메서드/스레드 밖으로 escape하는지 분석. C2의 phase 중 하나. |
-| **NoEscape** | 객체가 만들어진 메서드 안에서만 사용. 다른 곳으로 reference 전달 없음. |
-| **ArgEscape** | 객체 reference가 다른 메서드의 인자로 전달되나, 그 메서드가 외부로 escape시키지 않음. |
-| **GlobalEscape** | 객체 reference가 static 필드, 다른 객체의 필드, Heap의 배열 등으로 저장. 또는 thread 간 공유. |
-| **Scalar Replacement** | NoEscape 객체의 field들을 별도 scalar 변수 (register/stack slot)로 분해. 객체 자체를 안 만듦. |
-| **Lock Elision** | NoEscape 객체의 synchronized 블록을 제거. 다른 thread가 접근할 수 없으므로. |
-| **Lock Coarsening** | 같은 lock에 대한 인접 synchronized 블록을 통합. lock/unlock 횟수 감소. |
-| **Partial Escape Analysis (Graal)** | 객체가 일부 path에서만 escape할 때, 그 path에만 객체 생성 코드 두는 정교한 EA. C2는 미지원. |
-
-### 왜 EA가 결정적인가 — Allocation의 진짜 비용
+### 3.2 키워드 1 — Connection Graph (Choi et al., 1999)
 
 ```
-[일반 객체 할당의 비용]
-1. TLAB의 top pointer 증가 (~3 instruction) — fast path
-2. Heap에서 객체 메모리 zeroing
-3. Object header 초기화 (Mark Word + Klass Pointer)
-4. 생성자 코드 실행
-5. GC가 추후 추적해야 함 (write barrier 영향)
+1. Build Escape Connection Graph
+   - 각 객체 allocation site → 노드
+   - reference 흐름 → edge
+   - Field, array element, method parameter, return value 추적
 
-[Scalar Replacement 후]
-0. 아무것도 안 함. field 값이 register에 직접 들어감.
+2. Propagate escape state
+   - 각 노드의 escape state 초기화 (NoEscape)
+   - reference가 escape하면 그 노드 + 도달 가능한 모든 노드를 GlobalEscape
+   - fixpoint까지 반복
+
+3. Use result
+   - NoEscape 노드: Scalar Replacement 후보
+   - ArgEscape: 그 메서드 inline 후 재분석
+   - GlobalEscape: 변경 없음
 ```
 
-→ **fast path 할당도 absolutely 0보다는 느림**. 매 호출마다 작은 객체를 만드는 hot loop라면, EA가 누적 효과 큼.
+위치: `src/hotspot/share/opto/escape.cpp`:
 
-### 왜 Inlining이 EA의 enabler인가
+```cpp
+class ConnectionGraph {
+public:
+    static void do_analysis(Compile* C, PhaseIterGVN* igvn) {
+        ConnectionGraph cg(C, igvn);
+        cg.compute_escape();
+        if (cg.has_non_escaping_obj()) {
+            cg.split_unique_types();   // NoEscape 식별
+        }
+    }
+};
+```
+
+### 3.3 키워드 2 — Escape State Propagation
+
+```cpp
+enum EscapeState {
+    UnknownEscape,
+    NoEscape,
+    ArgEscape,
+    GlobalEscape
+};
+
+class PointsToNode : public ResourceObj {
+    EscapeState _escape_state;
+    Node*       _ideal_node;
+};
+```
+
+각 allocation site에 PointsToNode 1개. Reference 흐름이 connection graph의 edge. fixpoint 반복으로 propagation.
+
+### 3.4 키워드 3 — Inlining이 EA Enabler
 
 ```
 [Inline 안 됨]
@@ -146,35 +324,79 @@ void foo() {
     // print() 본문이 여기에 펼쳐짐
     System.out.println(p.x);
     System.out.println(p.y);
-    // ★ p는 메서드 안에서만 사용됨 → NoEscape
-    // → Scalar Replacement 가능
+    // ★ p는 메서드 안에서만 사용 → NoEscape
+    // → Scalar Replacement
 }
 ```
 
-→ **EA의 정확도는 inlining 깊이에 직접 의존**. inlining이 막히면 EA도 같이 죽음.
+→ **EA의 정확도는 inlining 깊이에 직접 의존**. Inlining 막히면 EA도 같이 죽음. "Inlining is the mother of optimizations"의 한 측면.
 
-### NoEscape의 흔한 패턴
+### 3.5 Partial Escape Analysis (Graal only)
 
 ```java
-// 1. 임시 객체로 계산
-public int compute(int x, int y) {
-    Point p = new Point(x, y);
-    return p.distance(0, 0);   // distance()가 inline되면 EA OK
-}
-
-// 2. Optional 같은 wrapper
-public Optional<String> findName(int id) {
-    String name = lookup(id);
-    return Optional.ofNullable(name);   // ← 호출 사이트에서 inline + EA
-}
-
-// 3. 짧은 lifetime의 Iterator
-for (String s : list) {   // Iterator 객체 ← EA 성공 시 안 만들어짐
-    process(s);
+void foo(boolean rare) {
+    Point p = new Point(1, 2);
+    if (rare) {
+        cache.add(p);   // 1% 경우만 escape
+    } else {
+        use(p.x + p.y);   // 99% 경우는 NoEscape
+    }
 }
 ```
 
-### GlobalEscape의 흔한 패턴
+C2 EA: `p`가 한 path에서라도 escape → 전체를 GlobalEscape → 항상 allocation.
+
+Graal Partial EA: escape하는 path에만 객체 생성 코드. non-escape path는 Scalar Replacement. 결과: 99% 경우 객체 안 만듦.
+
+→ Graal이 C2보다 빠른 워크로드의 한 이유. C2가 안 하는 이유: 1990년대 설계, 구현 복잡도.
+
+---
+
+## 4. 가지 ④: 운영 — 시니어 진단
+
+### 4.1 핵심 질문
+
+> "EA가 잘 동작하는지, 코드 변경으로 EA가 깨졌는지 어떻게 측정하나요?"
+
+### 4.2 키워드 1 — `-XX:+PrintEscapeAnalysis`
+
+```bash
+java -XX:+UnlockDiagnosticVMOptions -XX:+PrintEscapeAnalysis -jar app.jar
+```
+
+출력:
+```
+======== Connection graph for com.foo.Service::compute
+JavaObject(NoEscape) NodeIdx=23 Allocate java/awt/Point
+   Field x:I JavaObject(NoEscape)
+   Field y:I JavaObject(NoEscape)
+JavaObject(GlobalEscape) NodeIdx=45 Allocate java/util/ArrayList
+...
+```
+
+NoEscape 객체가 Scalar Replacement 후보.
+
+### 4.3 키워드 2 — JFR Allocation Rate
+
+```bash
+jcmd <pid> JFR.start name=alloc duration=60s settings=profile filename=alloc.jfr
+jfr summary alloc.jfr | grep -iE 'AllocationSample|TLAB'
+```
+
+핵심 이벤트:
+- `jdk.ObjectAllocationInNewTLAB` — TLAB에 새 객체.
+- `jdk.ObjectAllocationOutsideTLAB` — Eden 직접 할당 (큰 객체).
+
+→ **EA가 잘 동작하면 allocation rate가 의외로 낮음**. Stream/Lambda heavy 코드인데 allocation 적으면 EA 성공.
+
+async-profiler:
+```bash
+asprof -e alloc -d 60 -f alloc.html <pid>
+```
+
+Allocation flame graph. Hot allocation site 식별. 자주 할당되는 site의 코드를 audit해 EA 가능성 검토.
+
+### 4.4 키워드 3 — EA 깨짐 패턴
 
 ```java
 // 1. 컬렉션에 add
@@ -194,316 +416,19 @@ executor.submit(() -> use(p));   // ★ lambda capture → GlobalEscape
 
 // 4. 다른 객체의 필드로 저장
 this.cachedPoint = p;   // ★ this의 필드 → GlobalEscape
-```
 
----
-
-## 🔬 3단계: 구조
-
-### EA 분석 알고리즘 (Choi et al., 1999 — Whaley & Rinard 1999)
-
-```
-1. Build Escape Connection Graph
-   - 각 객체 allocation site → 노드.
-   - reference 흐름 → edge.
-   - Field, array element, method parameter, return value 등 추적.
-
-2. Propagate escape state
-   - 각 노드의 escape state 초기화 (NoEscape).
-   - reference가 escape하면 그 노드 + 도달 가능한 모든 노드를 GlobalEscape로.
-   - fixpoint까지 반복.
-
-3. Use result
-   - NoEscape 노드: Scalar Replacement 후보.
-   - ArgEscape: 그 메서드 inline 후 재분석.
-   - GlobalEscape: 변경 없음.
-```
-
-### Scalar Replacement 변환
-
-```
-[변환 전 IR]
-n1 = AllocateNode(Point.class)
-n2 = StoreField(n1, "x", const 1)
-n3 = StoreField(n1, "y", const 2)
-n4 = LoadField(n1, "x")
-n5 = LoadField(n1, "y")
-n6 = Add(n4, n5)
-
-[Scalar Replacement 후]
-// Allocation 자체 제거
-n1_x = const 1   // x field를 별도 scalar
-n1_y = const 2   // y field를 별도 scalar
-n6 = Add(n1_x, n1_y)
-// = Add(1, 2) = const 3 (추가 constant fold)
-```
-
-→ Allocate 노드 자체가 그래프에서 제거됨. 후속 phase가 추가 최적화.
-
-### Lock Elision 동작
-
-```java
-public String concat(String a, String b) {
-    StringBuffer sb = new StringBuffer();   // ← NoEscape
-    sb.append(a);
-    sb.append(b);
-    return sb.toString();   // toString이 String을 반환 → sb는 escape 안 함
-}
-```
-
-`StringBuffer.append()` 는 내부적으로 `synchronized`. 그러나 `sb`가 NoEscape이므로:
-- 다른 thread가 `sb`에 접근 불가능 (이 메서드의 stack에서만 가시).
-- → synchronized 블록 안전하게 제거.
-- 결과: `StringBuffer`가 `StringBuilder`처럼 동작.
-
-> 옛 코드에 `StringBuffer`가 많이 남아있어도 EA가 동작하면 성능 영향 거의 없음. 단, EA가 실패하면 (예: sb를 다른 곳에 넘김) 그대로 synchronized.
-
-### Lock Coarsening
-
-```java
-// 변환 전
-synchronized(lock) { a(); }
-synchronized(lock) { b(); }
-synchronized(lock) { c(); }
-
-// 변환 후
-synchronized(lock) { a(); b(); c(); }
-```
-
-3번의 lock/unlock → 1번. CAS 비용 절감.
-
-단, 같은 lock 객체에 대해서만. 또한 단일 메서드 안에서 가까운 위치여야 함.
-
-### Partial Escape Analysis (Graal only)
-
-```java
-void foo(boolean rare) {
-    Point p = new Point(1, 2);
-    if (rare) {
-        cache.add(p);   // 1% 경우만 escape
-    } else {
-        use(p.x + p.y);   // 99% 경우는 NoEscape
-    }
-}
-```
-
-C2의 EA:
-- `p`가 한 path에서라도 escape → 전체를 GlobalEscape → 항상 allocation.
-
-Graal의 Partial EA:
-- escape하는 path에만 객체 생성 코드.
-- non-escape path에서는 Scalar Replacement.
-- 결과: 99% 경우 객체 안 만듦.
-
-→ Graal이 C2보다 빠른 워크로드의 한 이유.
-
----
-
-## 🧬 4단계: 내부 구현 — HotSpot
-
-### EA Phase 진입
-
-위치: `src/hotspot/share/opto/escape.cpp`
-
-```cpp
-// C2의 Compile::optimize_loops() 등 phase 중간에 호출
-class ConnectionGraph {
-public:
-    static void do_analysis(Compile* C, PhaseIterGVN* igvn) {
-        ConnectionGraph cg(C, igvn);
-        cg.compute_escape();   // 분석
-        
-        if (cg.has_non_escaping_obj()) {
-            cg.split_unique_types();   // NoEscape 객체 식별
-        }
-    }
-    
-private:
-    void compute_escape() {
-        // 1. Build connection graph
-        build_connection_graph();
-        
-        // 2. Propagate escape state
-        process_call_arguments();
-        compute_escape_for_objects();
-        
-        // 3. Scalar replace candidates 표시
-        find_scalar_replaceable();
-    }
-};
-```
-
-### EscapeState 4단계
-
-```cpp
-enum EscapeState {
-    UnknownEscape,
-    NoEscape,
-    ArgEscape,
-    GlobalEscape
-};
-
-class PointsToNode : public ResourceObj {
-    EscapeState _escape_state;
-    Node*       _ideal_node;
-    // ...
-};
-```
-
-각 allocation site에 PointsToNode 1개. Reference 흐름이 connection graph의 edge.
-
-### Scalar Replacement 적용
-
-위치: `src/hotspot/share/opto/macro.cpp`
-
-```cpp
-void PhaseMacroExpand::eliminate_allocate_node(AllocateNode* alloc) {
-    // 1. 모든 LoadField/StoreField을 별도 scalar로
-    extract_scalar_fields(alloc);
-    
-    // 2. AllocateNode 자체 제거
-    igvn().replace_node(alloc, ...);
-    
-    // 3. 후속 SafePointNode들의 oop map 갱신
-    update_safepoints();
-}
-```
-
-### Lock Elision 적용
-
-위치: `src/hotspot/share/opto/macro.cpp` (`MacroEliminate`)
-
-```cpp
-void PhaseMacroExpand::eliminate_lock(LockNode* lock) {
-    // 객체가 NoEscape면 lock 노드 제거
-    if (lock->obj()->is_scalar_replaceable()) {
-        igvn().remove_node(lock);
-    }
-}
-```
-
-### `-XX:+PrintEscapeAnalysis`
-
-```bash
-java -XX:+UnlockDiagnosticVMOptions -XX:+PrintEscapeAnalysis -jar app.jar
-```
-
-각 메서드의 EA 결과 출력:
-```
-======== Connection graph for com.foo.Service::compute
-JavaObject(NoEscape) NodeIdx=23 Allocate java/awt/Point
-   Field x:I JavaObject(NoEscape)
-   Field y:I JavaObject(NoEscape)
-JavaObject(GlobalEscape) NodeIdx=45 Allocate java/util/ArrayList
-...
-```
-
-NoEscape 객체가 Scalar Replacement 후보.
-
----
-
-## 📜 5단계: 역사
-
-| 연도 | 변화 | 의의 |
-|---|---|---|
-| 1999 | Choi et al. — Connection graph EA 논문 | 기초 알고리즘 |
-| 1999 | Whaley & Rinard — Compositional EA | 메서드 단위 분석 |
-| 2005 | HotSpot 1.6 — EA 첫 도입 (실험) | |
-| 2009 | JDK 6u23 — EA 기본 on | -XX:+DoEscapeAnalysis 기본 true |
-| 2014 | JDK 8 — Lambda + EA 효과 ↑ | lambda capture EA 처리 |
-| 2018 | JDK 11 — Graal Partial EA | C2보다 더 정교 |
-| 2021 | JDK 17 — Sealed class + EA 정확도 ↑ | type 정보 풍부 |
-
-### Choi et al. 알고리즘의 의의
-
-1999년 IBM 논문: "Escape Analysis for Java".
-- Connection graph 표현으로 EA를 일관된 framework로.
-- HotSpot, IBM J9, JikesRVM 등이 이 알고리즘을 채택.
-- 이후 모든 JVM EA의 기초.
-
----
-
-## ⚖️ 6단계: 트레이드오프
-
-### EA 비활성 vs 활성
-
-| `-XX:-DoEscapeAnalysis` | `-XX:+DoEscapeAnalysis` (기본) |
-|---|---|
-| ❌ Heap allocation 폭증 | ✅ NoEscape 객체 Scalar Replacement |
-| ❌ GC 부담 ↑ | ✅ GC 부담 ↓ |
-| ❌ Synchronized 비용 그대로 | ✅ Lock Elision |
-| ✅ 컴파일 시간 ↓ (분석 안 함) | ❌ 컴파일 시간 ↑ |
-| 사용 케이스: 없음 (디버깅용) | 사용 케이스: 정상 |
-
-→ 기본 on. 끄는 경우는 EA 버그 의심 시 재현 용도.
-
-### Code 패턴이 EA에 미치는 영향
-
-```java
-// EA 친화적
-public int sum(int[] arr) {
-    return Arrays.stream(arr).sum();   // Stream 객체 EA로 제거
-}
-
-// EA 비친화적
-public int sum(int[] arr) {
-    List<Integer> list = new ArrayList<>();   // ← GlobalEscape 가능성
-    for (int x : arr) list.add(x);
-    return list.stream().mapToInt(i -> i).sum();
-}
-```
-
-운영 가이드:
-- Hot loop에서 컬렉션 add 피하기 (또는 capacity 미리 할당).
-- 짧은 lifetime 객체 OK (EA가 처리).
-- 객체를 다른 메서드로 자주 넘기되 그 메서드가 inline 가능하게.
-
-### EA 의존의 위험
-
-```java
-// 코드는 같은데 한 줄 추가로 EA가 깨짐
+// 5. 한 줄 추가로 EA 깨짐
 public int compute() {
     Point p = new Point(1, 2);
     int result = p.x + p.y;
-    
     if (DEBUG) log(p);   // ← 이 한 줄로 GlobalEscape 가능
-    
     return result;
 }
 ```
 
-EA 의존 hot path는 **변경 시 측정 필수**. JFR로 allocation rate 비교.
+→ **EA 의존 hot path는 변경 시 측정 필수**. JFR로 allocation rate 비교.
 
----
-
-## 📊 7단계: 측정·진단
-
-### `-XX:+PrintEscapeAnalysis`
-
-각 메서드의 EA 분석 결과. 위에서 다룸.
-
-### JFR Allocation Profiling
-
-```bash
-jcmd <pid> JFR.start name=alloc duration=60s settings=profile filename=alloc.jfr
-jfr summary alloc.jfr | grep -iE 'AllocationSample|TLAB'
-```
-
-핵심 이벤트:
-- `jdk.ObjectAllocationInNewTLAB` — TLAB에 새 객체 할당.
-- `jdk.ObjectAllocationOutsideTLAB` — Eden 직접 할당 (큰 객체).
-
-→ **EA가 잘 동작하면 allocation rate가 의외로 낮음**. Stream/Lambda heavy 코드인데 allocation 적으면 EA 성공.
-
-### `async-profiler -e alloc`
-
-```bash
-asprof -e alloc -d 60 -f alloc.html <pid>
-```
-
-Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**의 코드를 audit해 EA 가능성 검토.
-
-### 운영 시나리오 진단 매트릭스
+### 4.5 운영 시나리오 매트릭스
 
 | 증상 | 진단 | 가능 원인 |
 |---|---|---|
@@ -513,7 +438,7 @@ Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**
 | Stream API 코드 allocation 적음 | EA 성공 | 정상 |
 | 일부만 빠른 path 있음 (rare) | Partial EA 없음 | C2 한계, Graal 검토 |
 
-### 시나리오 1: 코드 한 줄 추가 후 GC 빈도 ↑
+### 4.6 Killer 시나리오 — 코드 한 줄 추가 후 GC 빈도 ↑
 
 ```
 환경: 평소 GC 분당 1회, 코드 한 줄 추가 후 분당 5회
@@ -525,71 +450,81 @@ Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**
 
 조치:
 - log()를 inline 가능하게 (작게 유지).
-- 또는 conditional log: if (LOG.isDebugEnabled()) log(p) — JIT가 LOG.isDebugEnabled 결과로 분기.
+- 또는 conditional log: if (LOG.isDebugEnabled()) log(p)
+  → JIT가 LOG.isDebugEnabled 결과로 분기 → debug=false면 dead code 제거.
 - 또는 hot path에서 log 제거.
 ```
 
 ---
 
-## ⚔️ 8단계: 꼬리질문 트리
+## 5. 면접 답변 워크플로우
 
-### Q1. Escape Analysis가 무엇이고 왜 중요한가요?
+### 5.1 질문 → 가지 매핑
 
-**예상 답변**:
-> 객체의 reference가 메서드 밖으로 escape하는지 분석.
-> 결과 3단계: NoEscape / ArgEscape / GlobalEscape.
-> 
-> 가능하게 하는 최적화:
+| 면접 질문 | 진입 가지 | 인접 확장 |
+|---|---|---|
+| "EA가 뭐고 왜 중요?" | ① WHY | ② 3종 escape |
+| "NoEscape vs GlobalEscape" | ② WHAT | ④ 운영 패턴 |
+| "Scalar Replacement?" | ② WHAT | ③ EA 알고리즘 |
+| "Lock Elision 예시" | ② WHAT | StringBuffer 동작 |
+| "Inlining과 EA 관계" | ③ HOW (enabler) | ① WHY |
+| "Partial EA?" | ③ HOW (Graal only) | C2 한계 |
+| "EA 깨짐 진단" | ④ 운영 | ② GlobalEscape 패턴 |
+
+### 5.2 답변 템플릿
+
+> 루트 → 가지 키워드 3개 → 인접
+
+예: "Escape Analysis가 무엇이고 왜 중요한가요?"
+
+> "Escape Analysis는 객체의 reference가 메서드 밖으로 escape하는지 분석하는 C2의 phase입니다. (← 루트)
+> 3가지 escape 종류로 분류합니다.
+> - **NoEscape**: 객체가 만들어진 메서드 안에서만 사용. 최적화 가장 적극.
+> - **ArgEscape**: 다른 메서드 인자로 전달, 그 메서드도 escape 안 함. callee inline 시 NoEscape 승격.
+> - **GlobalEscape**: static 필드, 컬렉션 추가, exception throw 등. 최적화 거의 없음.
+> NoEscape일 때 3가지 최적화 가능:
+> 1. **Scalar Replacement**: field를 register로 분해, 객체 안 만듦.
+> 2. **Lock Elision**: synchronized 제거 (다른 thread 접근 불가).
+> 3. **Lock Coarsening**: 인접 synchronized 통합.
+> 결과: Java가 사실상 stack allocation 효과를 얻음 — Allocation 비용 zero, GC 부담 zero. EA 성공 + Inlining 깊이가 Java의 hidden performance의 핵심."
+
+---
+
+## 6. 꼬리질문 트리 (가지별)
+
+### Q1 [가지 ①]. Escape Analysis가 무엇이고 왜 중요한가요?
+
+> 객체의 reference가 메서드 밖으로 escape하는지 분석. 결과 3단계: NoEscape / ArgEscape / GlobalEscape.
+> 가능하게 하는 최적화 3가지:
 > 1. **Scalar Replacement**: NoEscape 객체의 field를 register로 분해 → 객체 자체 안 만듦.
 > 2. **Lock Elision**: NoEscape 객체의 synchronized 제거.
 > 3. **Lock Coarsening**: 인접 synchronized 통합.
-> 
 > 중요성: Java가 사실상 stack allocation 효과를 얻는 핵심 메커니즘. EA 성공 시 GC 부담 0, 동기화 비용 0.
 
-#### 🪝 Q1-1: NoEscape, ArgEscape, GlobalEscape의 차이는?
+**🪝 Q1-1: NoEscape, ArgEscape, GlobalEscape의 차이는?**
+> - NoEscape: 객체가 만들어진 메서드 안에서만 사용. 최적화 가장 적극.
+> - ArgEscape: 다른 메서드 인자로 전달, 그러나 그 메서드도 escape 안 함. callee inline 시 NoEscape 승격.
+> - GlobalEscape: static 필드, 다른 객체 필드, 컬렉션 추가 등. 최적화 거의 없음.
 
-> - **NoEscape**: 객체가 만들어진 메서드 안에서만 사용. 최적화 가장 적극.
-> - **ArgEscape**: 다른 메서드 인자로 전달, 그러나 그 메서드도 escape 안 함. callee가 inline되면 NoEscape로 승격.
-> - **GlobalEscape**: static 필드, 다른 객체의 필드, 컬렉션 추가 등. 최적화 거의 없음.
+### Q2 [가지 ②]. Scalar Replacement가 무엇이고 왜 "implicit stack allocation"이라 불리나요?
 
-### Q2. Scalar Replacement가 무엇이고 왜 "implicit stack allocation"이라 불리나요?
-
-**예상 답변**:
 > NoEscape 객체의 field들을 별도 scalar 변수(register 또는 stack slot)로 분해. 객체 자체는 만들어지지 않음.
-> 
-> 예:
-> ```java
-> Point p = new Point(1, 2);
-> int sum = p.x + p.y;
-> ```
-> 변환:
-> ```
-> int p_x = 1; int p_y = 2;
-> int sum = p_x + p_y;   // = 3
-> ```
-> 
-> "implicit stack allocation"이라 부르는 이유: 객체가 Heap에 없고 마치 stack에 있는 것처럼 동작. C++의 stack allocation과 효과 동일.
-> 
-> Java 사용자가 명시적 stack allocation API를 안 가지지만, EA 덕분에 실효적으로 stack allocation을 얻음.
+> 예: `Point p = new Point(1, 2); int sum = p.x + p.y;` → `int p_x = 1; int p_y = 2; int sum = p_x + p_y;` → `= 3`.
+> "implicit stack allocation"이라 부르는 이유: 객체가 Heap에 없고 마치 stack에 있는 것처럼 동작. C++의 stack allocation과 효과 동일. Java 사용자가 명시적 stack allocation API를 안 가지지만, EA 덕분에 실효적 stack allocation.
 
-### Q3. Inlining과 EA의 관계는?
+### Q3 [가지 ③]. Inlining과 EA의 관계는?
 
-**예상 답변**:
-> EA는 객체가 메서드 밖으로 escape하는지 봄. 그러나 다른 메서드로 객체를 넘기면 그 메서드의 본문을 모름 → 보수적으로 GlobalEscape 간주.
-> 
-> Inlining이 그 메서드의 본문을 caller에 펼치면:
+> EA는 객체가 메서드 밖으로 escape하는지 봄. 그러나 다른 메서드로 객체를 넘기면 그 메서드 본문을 모름 → 보수적으로 GlobalEscape 간주.
+> Inlining이 그 메서드 본문을 caller에 펼치면:
 > - 메서드 경계 사라짐.
-> - EA가 객체의 전체 lifetime을 한 메서드 안에서 추적.
-> - ArgEscape → NoEscape로 승격.
+> - EA가 객체 전체 lifetime을 한 메서드 안에서 추적.
+> - ArgEscape → NoEscape 승격.
 > - Scalar Replacement 가능.
-> 
-> 결론: **EA의 정확도는 inlining 깊이에 직접 의존**. inlining이 막히면 EA도 같이 죽음. 이게 "Inlining is the mother of optimizations"의 한 측면.
+> 결론: **EA의 정확도는 inlining 깊이에 직접 의존**. Inlining 막히면 EA도 같이 죽음.
 
-### Q4. Lock Elision이 동작하는 흔한 예시는?
+### Q4 [가지 ②]. Lock Elision이 동작하는 흔한 예시는?
 
-**예상 답변**:
 > `StringBuffer.append` — 옛 코드의 흔한 패턴.
-> 
 > ```java
 > public String concat(String a, String b) {
 >     StringBuffer sb = new StringBuffer();   // NoEscape
@@ -598,36 +533,21 @@ Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**
 >     return sb.toString();
 > }
 > ```
-> 
-> `StringBuffer`는 thread-safe (모든 메서드가 synchronized). 그러나 `sb`가 메서드 안에서만 사용 → NoEscape → 다른 thread 접근 불가 → synchronized 안전하게 제거.
-> 
-> 결과: `StringBuffer`가 `StringBuilder`처럼 빠르게 동작. 옛 코드를 굳이 StringBuilder로 바꿀 필요 줄어듦 (단, EA 성공 가정).
+> `StringBuffer`는 thread-safe (모든 메서드 synchronized). 그러나 `sb`가 메서드 안에서만 사용 → NoEscape → 다른 thread 접근 불가 → synchronized 안전 제거.
+> 결과: `StringBuffer`가 `StringBuilder`처럼 빠르게 동작. 옛 코드를 굳이 StringBuilder로 바꿀 필요 줄어듦 (EA 성공 가정).
 
-### Q5. Partial Escape Analysis가 무엇이고 C2는 왜 안 하나요?
+### Q5 [가지 ③]. Partial Escape Analysis가 무엇이고 C2는 왜 안 하나요?
 
-**예상 답변**:
-> Graal에 있는 더 정교한 EA. C2는 미지원.
-> 
+> Graal에 있는 더 정교한 EA. C2 미지원.
 > 차이:
 > - **C2 EA**: 객체가 한 path에서라도 escape하면 전체를 GlobalEscape 처리.
-> - **Partial EA**: escape하는 path에만 객체 생성 코드 두고, non-escape path는 Scalar Replacement.
-> 
-> 예:
-> ```java
-> Point p = new Point(1, 2);
-> if (rare) cache.add(p);  // 1% escape
-> else use(p.x + p.y);     // 99% NoEscape
-> ```
-> - C2: 항상 allocation (1% 때문에).
-> - Graal: 99%는 allocation 0, 1%만 allocation.
-> 
+> - **Partial EA**: escape하는 path에만 객체 생성 코드, non-escape path는 Scalar Replacement.
+> 예: 99% 경우 NoEscape, 1% 경우 escape. C2는 항상 allocation. Graal은 99% allocation 0, 1%만 allocation.
 > C2가 안 하는 이유: 1990년대 설계, 구현 복잡도. Graal은 Java로 작성되어 더 정교한 알고리즘 적용 가능.
 
-### Q6. (Killer) Stream API 코드가 List.add 코드보다 빠른 경우가 있는 이유는?
+### Q6 (Killer) [가지 ④]. Stream API 코드가 List.add 코드보다 빠른 경우가 있는 이유는?
 
-**예상 답변**:
 > EA가 핵심 차이:
-> 
 > ```java
 > // Stream
 > int sum = list.stream().mapToInt(Integer::intValue).sum();
@@ -637,11 +557,10 @@ Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**
 > for (Integer x : list) tmp.add(x);
 > int sum = tmp.stream().mapToInt(...).sum();
 > ```
-> 
 > Stream 코드의 객체들 (Stream, IntStream, Spliterator 등):
 > - 호출 사이트가 monomorphic이면 inline.
-> - inline 후 EA가 NoEscape 분석 → Scalar Replacement.
-> - 객체들이 사실상 사라지고 단순 loop로 변환됨.
+> - inline 후 EA가 NoEscape → Scalar Replacement.
+> - 객체들이 사실상 사라지고 단순 loop로 변환.
 > 
 > List.add 코드:
 > - `tmp` ArrayList → 누가 잡고 있을 수 있음 → GlobalEscape.
@@ -649,12 +568,28 @@ Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**
 > - 각 Integer 박싱 → 또 allocation.
 > 
 > 결과: Stream이 더 빠를 수도 있음 (EA 효과). 단, lambda 다양성으로 megamorphic이면 반대.
-> 
-> → **EA + Inlining의 조합이 Java의 hidden performance**. 단순 "객체 안 만드는 것보다 안 만들기"가 직관적으로 답이 아님.
+> → **EA + Inlining의 조합이 Java의 hidden performance**.
 
 ---
 
-## 🔗 다음 단계
+## 7. 학습 체크리스트
+
+면접 전 백지에서 다음을 다 해낼 수 있어야 마스터:
+
+- [ ] 0장 마인드맵을 종이에 1분 이내로 그릴 수 있다 (루트 + 4가지 + 키워드 3개)
+- [ ] 가지 ① WHY: Allocation 비용 + GC 부담 + implicit stack allocation 효과 설명한다
+- [ ] 가지 ② WHAT: 3 escape (NoEscape/Arg/Global) 코드 예시로 분류한다
+- [ ] 가지 ② WHAT: 3 최적화 (Scalar Replacement, Lock Elision, Coarsening) 각각 코드 변환을 그린다
+- [ ] 가지 ③ HOW: Choi et al.(1999) Connection Graph 3단계 알고리즘 말한다
+- [ ] 가지 ③ HOW: Inlining이 EA의 enabler인 이유 설명한다 (메서드 경계 제거)
+- [ ] 가지 ③ HOW: Partial EA가 C2에 없는 이유와 Graal에 있는 이유 비교한다
+- [ ] 가지 ④ 운영: EA 깨짐 5가지 패턴 (add/exception/lambda/this 필드/한 줄 추가) 말한다
+- [ ] 가지 ④ 운영: 코드 변경 후 GC 빈도 ↑ 진단 절차 말한다
+- [ ] 6장 꼬리질문 6개에 막힘없이 답한다
+
+---
+
+## 다음 단계
 
 - → [07. Loop and Vector](./07-loop-and-vector.md): Inlining + EA의 cascade — Loop opts
 - → [08. Speculative and Deopt](./08-speculative-and-deopt.md): EA speculation + Deopt
@@ -662,7 +597,7 @@ Allocation flame graph. Hot allocation site 식별. **자주 할당되는 site**
 - ← [04. C1 and C2](./04-c1-and-c2.md): C2 phase 안에서 EA 위치
 - 관련: [05. Threading](../05-threading/) — Lock Elision의 동시성 측면
 
-## 📚 참고
+## 참고
 
 - **Choi et al. — "Escape Analysis for Java" (1999)**: IBM 논문, ECOOP
 - **Whaley & Rinard — "Compositional Pointer and Escape Analysis"**: 1999 OOPSLA

@@ -2,99 +2,229 @@
 
 > `synchronized`는 **하나의 lock이 아니다**. Contention에 따라 자동 승격되는 **3단계 lock 메커니즘**.
 > Biased (uncontended) → Lightweight (light contention) → Heavyweight (heavy contention). Mark Word의 2비트가 현재 상태를 표시.
-> 시니어가 알아야 할 것: JDK 15+에서 Biased 제거됨. 현대 워크로드는 Lightweight ↔ Heavyweight 두 단계. 운영 진단 시 jstack의 BLOCKED는 Heavyweight monitor 대기.
+> 시니어가 알아야 할 것: JDK 15+에서 Biased 제거됨. 현대 워크로드는 Lightweight ↔ Heavyweight 두 단계. **jstack의 BLOCKED는 Heavyweight monitor 대기**.
 
 ---
 
-## 🗺️ 위치
+## 이 문서의 사용법
 
-![mark word lock](./_excalidraw/03-synchronized-mark-word.svg)
-
----
-
-## 📍 학습 목표
-
-1. **Mark Word** — 객체 헤더 첫 8 byte. lock 상태 + GC age + hash 인코딩.
-2. **3단계 Lock** 승격 메커니즘.
-3. **Biased Lock의 동작과 제거 이유** — JDK 15+ deprecated.
-4. **Lightweight Lock** — CAS + Stack의 LockRecord.
-5. **Heavyweight Lock (Monitor)** — OS-level mutex, park/unpark.
-6. **Park/Unpark 의 native 구현** — pthread_cond_wait/signal.
-7. **synchronized vs ReentrantLock** — JVM lock vs Java-level lock.
-8. **Lock Coarsening / Lock Elision** ([Chapter 03-06](../03-execution-engine/06-escape-analysis.md) 와 연결).
-9. **jstack의 BLOCKED 상태** — Heavyweight monitor 대기.
-10. 운영 시나리오: Lock contention 진단 / synchronized vs ReentrantLock 선택 / Virtual Thread + synchronized pinning ([04](./04-virtual-threads-and-loom.md)).
+1. **0장 마인드맵을 먼저 외운다**.
+2. **1~4장을 순서대로 학습한다**.
+3. **5장 면접 워크플로우** + **6장 꼬리질문**.
 
 ---
 
-## 🎨 1단계: 백지 그리기 가이드
+## 0. 마인드맵 — 면접 종이에 그릴 그림
 
-### Step 1: Mark Word 구조
+### 루트 한 문장 (anchor)
+
+> **"synchronized는 Mark Word의 2비트로 상태 표시되는 3단계 lock이다. Biased (JDK 15-) → Lightweight (CAS) → Heavyweight (OS mutex + park). Contention에 따라 자동 승격."**
+
+### 4개 가지 — 순서를 외운다
 
 ```
-64-bit Mark Word (Compressed Oops):
-[unused:25][hash:31][unused:1][age:4][biased:1][lock:2]
-
-lock:2 비트 의미:
-   00: Lightweight (locked)
-   01: Unlocked / Biased
-   10: Heavyweight (Monitor)
-   11: GC marked
+              [ROOT: Mark Word 2비트 + 3단계 자동 승격]
+                                  │
+       ┌──────────────────┬──────────────────┬──────────────────┐
+       │                  │                  │                  │
+     ① Mark Word       ② 3단계 승격         ③ 진단              ④ synchronized vs
+     (객체 헤더)          (Biased/Light/      (jstack /            ReentrantLock
+                          Heavy)              JFR)
+       │                  │                  │                  │
+   ┌───┼───┐         ┌────┼────┐         ┌───┼───┐         ┌────┼────┐
+  Lock GC age   Biased  Light  Heavy   BLOCKED  WAITING    JVM lock  Java lock
+  state hash    (제거)  CAS    OS      (Heavy)  (park)     vs        try/fair/
+  2비트         JDK 15+ Stack  mutex                       AQS       Cond
+                        LockRec park
 ```
 
-### Step 2: 3단계 승격 흐름
+### 가지별 핵심 키워드
+
+| 가지 | 키워드 1 | 키워드 2 | 키워드 3 |
+|---|---|---|---|
+| **① Mark Word** | 객체 헤더 첫 8 byte | lock state 2 bits | GC age + hash 인코딩 |
+| **② 3단계 승격** | Biased (JDK 15+ deprecated) | Lightweight (CAS + LockRecord) | Heavyweight (OS mutex + park) |
+| **③ 진단** | jstack BLOCKED (Heavyweight) | jstack WAITING (parking) | JFR JavaMonitorEnter/Wait |
+| **④ synchronized vs ReentrantLock** | JVM-level vs Java-level (AQS) | Try-lock / 인터럽트 / Condition | Virtual Thread Pinning 차이 |
+
+### 면접 답변 흐름
+
+> 면접관 질문 → 루트 문장 → 해당 가지 → 키워드 3개 → 인접 가지로 확장
+
+---
+
+## 1. 가지 ①: Mark Word — 객체 헤더의 8 byte
+
+### 1.1 핵심 질문
+
+> "Mark Word가 무엇이고 어떤 정보를 담나요?"
+
+### 1.2 키워드 1 — 객체 헤더 구조
+
+```
+Java 객체 메모리 layout:
+   [Mark Word: 8 byte][Klass pointer: 4 또는 8][instance fields...]
+                                  ↑
+                                  객체의 클래스 정보
+
+Mark Word: 객체 헤더의 첫 8 byte. lock 상태 + GC age + hash 인코딩.
+```
+
+### 1.3 키워드 2 — 상태별 인코딩 (개념)
+
+Mark Word의 lock state 2 bits로 4가지 상태 표시:
+
+```
+상태:
+   Unlocked (또는 Biased Disabled): 일반 객체
+   Biased Locked (JDK 15-):          단일 thread bias
+   Lightweight Locked:                CAS lock (LockRecord 포인터)
+   Heavyweight Locked:                OS mutex (ObjectMonitor 포인터)
+   GC marked:                         GC 진행 중
+```
+
+→ 표면 디테일 (몇 bit이 어디 인코딩) 외우지 말고 **"2비트로 4상태 구분, 나머지 영역이 GC age / hash / lock pointer 보관"** 정도만.
+
+### 1.4 키워드 3 — lock state 외 정보
+
+```
+Mark Word에 함께 인코딩되는 정보:
+   - GC age (4 bits): Young GC에서 tenuring 결정
+   - identity hash code: Object.hashCode() 결과
+   - lock 정보: 위 3가지 상태
+   
+충돌 처리:
+   - hash code가 한 번 계산되면 Mark Word에 박힘
+   - 그 후 biased lock 못 함 (slot 충돌)
+   - lightweight lock 시에는 displaced mark word 사용
+```
+
+→ **Mark Word는 정보 밀집**. 객체당 헤더 비용 최소화를 위한 설계.
+
+### 1.5 Project Lilliput (JDK 21+ 진행 중)
+
+```
+목표: Mark Word 64 bit → 8 bit 압축
+   - 객체 헤더 12 byte → 4 byte 가능
+   - Heap footprint 5~10% 절감
+
+방법:
+   lock 정보를 별도 자료구조로 이동
+   GC age 압축
+   hash 별도 저장
+
+모든 lock 메커니즘이 새 Mark Word에 적응 필요
+→ Biased 제거(JDK 15+)가 Lilliput의 사전 작업
+```
+
+---
+
+## 2. 가지 ②: 3단계 승격 — Biased / Lightweight / Heavyweight
+
+### 2.1 핵심 질문
+
+> "synchronized의 3단계 lock 메커니즘은 어떻게 동작하나요?"
+
+### 2.2 키워드 1 — Biased Lock (JDK 15- deprecated)
+
+```
+용도: 단일 thread가 같은 lock을 반복 진입할 때 최적화
+
+동작:
+   1. 첫 lock 시 owner thread ID를 Mark Word에 기록
+   2. 같은 thread 재진입 시: thread ID 비교만 (~수 cycles)
+   3. CAS 없음 → 거의 free
+
+장점: uncontended single-thread 워크로드에 매우 빠름.
+
+단점:
+   - 다른 thread가 시도 시 revoke 비용 큼 (STW 비슷)
+   - 현대 멀티스레드 워크로드에서 효과 작음
+   - 코드 복잡도
+
+→ JDK 15 deprecated (JEP 374), JDK 18+ 사실상 비활성
+```
+
+### 2.3 키워드 2 — Lightweight Lock (CAS + Stack LockRecord)
+
+```
+용도: Light contention. 짧은 critical section.
+
+동작:
+1. T의 stack에 LockRecord 할당:
+   LockRecord {
+       displaced_mark_word;   // 옛 Mark Word 백업
+   }
+
+2. T가 obj의 Mark Word를 read.
+
+3. LockRecord.displaced_mark_word = obj.mark_word.
+
+4. CAS:
+   obj.mark_word ← LockRecord 포인터 + lock state
+   expected ← 옛 mark word (Unlocked 상태)
+
+5a. CAS 성공 → lock 획득 ✅
+    → 비용: ~10~20 cycles (가지 ⑤ Memory Barriers의 CAS 비용)
+
+5b. CAS 실패:
+    5b1. Self-recursive (LockRecord가 T의 stack 안):
+         재진입 count + 1
+    5b2. 다른 thread가 lock 잡음:
+         → Heavyweight로 inflate
+         → ObjectMonitor 생성
+```
+
+### 2.4 키워드 3 — Heavyweight Lock (Monitor + park/unpark)
+
+```
+용도: Heavy contention. 긴 critical section 또는 많은 waiter.
+
+ObjectMonitor (C++ 객체):
+class ObjectMonitor {
+    Thread* _owner;
+    int _recursions;            // 재진입 횟수
+    ObjectWaiter* _WaitSet;      // wait() 대기 thread들
+    ObjectWaiter* _EntryList;    // lock 대기 thread들
+};
+
+Lock 진입 흐름:
+   1. CAS로 _owner = self 시도
+   2. 실패 → 잠시 spin
+   3. 그래도 실패 → _EntryList에 추가, park (CPU yield)
+
+Lock release:
+   1. _owner = null
+   2. _EntryList에서 한 thread unpark
+
+wait() / notify():
+   - wait(): _WaitSet에 추가, park
+   - notify(): _WaitSet → _EntryList 이동, unpark
+
+park/unpark 구현:
+   - native LockSupport.park/unpark
+   - Linux: pthread_cond_wait/signal
+   - 비용: ~수 us
+```
+
+### 2.5 승격 흐름
 
 ```
 [Initial: Unlocked]
    │ 첫 lock
    ▼
-[Biased Lock] (단일 thread)
+[Biased Lock] (JDK 15- only, 단일 thread)
    │ 다른 thread 시도
    ▼ revoke
 [Lightweight Lock] (CAS)
    │ CAS 실패 (contention)
-   ▼
-[Heavyweight Lock] (Monitor)
-   │ Park/Unpark
+   ▼ inflate
+[Heavyweight Lock] (Monitor + park/unpark)
 ```
 
-### Step 3: JDK 15+ 변화
+→ Contention에 따라 **자동 승격**. 운영자가 명시 안 함.
 
-```
-JDK 15-: Biased → Lightweight → Heavyweight
-JDK 15+: (Biased deprecated) → Lightweight → Heavyweight
-JDK 21+: Project Lilliput — Mark Word 압축 진행
-```
-
-### 정답 그림
-
-위의 [03-synchronized-mark-word.svg](./_excalidraw/03-synchronized-mark-word.svg) 참조.
-
----
-
-## 🧠 2단계: 직관
-
-### 핵심 비유
-
-> **회의실 예약 비유**:
-> - **Biased** = 한 사람이 항상 사용 → 명패만 붙임 (가장 빠름).
-> - **Lightweight** = 가끔 다른 사람도 사용 → 명패 갈아 끼움 (CAS, 빠름).
-> - **Heavyweight** = 많은 사람이 경쟁 → 대기 명단 + 알림 (OS mutex, 느림).
-
-### 정확한 정의
-
-| 용어 | 정의 |
-|---|---|
-| **Mark Word** | 객체 헤더 첫 8 byte. lock 상태, GC age, hash code 인코딩. |
-| **Biased Lock** | 단일 thread bias. 같은 thread 재진입 시 CAS 없이 그냥 owner check. JDK 15+ deprecated. |
-| **Lightweight Lock** | CAS로 Mark Word를 LockRecord 포인터로 교환. Stack의 LockRecord 사용. |
-| **LockRecord** | Stack frame에 할당되는 작은 자료구조. Lightweight lock의 owner 정보. |
-| **Heavyweight Lock (Monitor)** | OS mutex 기반. ObjectMonitor 객체 + park/unpark. |
-| **ObjectMonitor** | C++ 객체. wait queue + lock queue + owner 등. |
-| **Park / Unpark** | LockSupport.park/unpark의 native 구현. pthread_cond_wait/signal. |
-| **Inflation** | Lightweight → Heavyweight 승격. ObjectMonitor 생성. |
-
-### 왜 3단계 승격인가
+### 2.6 왜 3단계 (단일 Heavyweight가 아닌 이유)
 
 ```
 [모든 lock을 Heavyweight로]
@@ -103,22 +233,15 @@ JDK 21+: Project Lilliput — Mark Word 압축 진행
    - 99%의 uncontended 경우도 같은 비용
    → 성능 손실
 
-[Biased — uncontended 최적화]
-   - 같은 thread 재진입 시 단순 비교 (~수 cycles)
-   - Contention 없으면 사실상 free
-   
-[Lightweight — light contention]
-   - CAS 1번 (~10-20 cycles)
-   - 다른 thread 대기 안 함 (자기 stack의 LockRecord)
-   
-[Heavyweight — heavy contention]
-   - OS mutex + park/unpark
-   - Thread 진짜 sleep → CPU 사용 0
+[3단계 최적화]
+   Biased — uncontended: ~수 cycles
+   Lightweight — light contention: ~10~20 cycles
+   Heavyweight — heavy contention: ~수 us (단, 진짜 sleep해서 CPU 사용 0)
 
-→ 단계별 최적화로 모든 워크로드 효율
+→ 워크로드별로 적절한 비용
 ```
 
-### JDK 15+ Biased 제거 이유 (JEP 374)
+### 2.7 JDK 15+ Biased 제거 이유 (JEP 374)
 
 ```
 2000년대 Biased 도입 의의:
@@ -127,7 +250,7 @@ JDK 21+: Project Lilliput — Mark Word 압축 진행
 
 2020년대 상황:
    - 멀티스레드 워크로드 보편
-   - Biased revoke 비용이 ↑ (다른 thread 시도 시 STW 비슷)
+   - Biased revoke 비용이 ↑ (다른 thread 시도 시)
    - 코드 복잡도 (HotSpot 유지보수)
    - Project Lilliput (Mark Word 압축)에 방해
 
@@ -136,81 +259,13 @@ JDK 21+: Project Lilliput — Mark Word 압축 진행
 
 ---
 
-## 🔬 3단계: 구조
+## 3. 가지 ③: 진단 — jstack + JFR
 
-### Mark Word의 상태별 인코딩
+### 3.1 핵심 질문
 
-```
-Unlocked (또는 Biased Disabled):
-   [unused:25][hash:31][unused:1][age:4][biased:1=0][lock:2=01]
+> "synchronized의 lock contention을 어떻게 진단하나요?"
 
-Biased (JDK 15-):
-   [thread_id:54][epoch:2][unused:1][age:4][biased:1=1][lock:2=01]
-
-Lightweight Locked:
-   [lock_record_ptr:62][lock:2=00]
-
-Heavyweight Locked:
-   [monitor_ptr:62][lock:2=10]
-
-GC marked:
-   [forwarding_ptr:62][lock:2=11]
-```
-
-### Lightweight Lock 흐름
-
-```
-[Thread T가 obj의 synchronized 진입]
-
-1. T의 stack에 LockRecord 할당:
-   LockRecord {
-       displaced_mark_word;   // 옛 Mark Word
-   }
-
-2. T가 obj의 Mark Word를 read.
-
-3. LockRecord.displaced_mark_word = obj.mark_word.
-
-4. CAS:
-   obj.mark_word ← LockRecord 포인터 + lock:00
-   expected ← 옛 mark word (Unlocked 상태)
-   
-5a. CAS 성공 → lock 획득 ✅
-
-5b. CAS 실패:
-    5b1. 만약 self-recursive (LockRecord가 T의 stack 안):
-         재진입 count + 1
-    5b2. 다른 thread가 lock 잡음:
-         → Heavyweight로 inflate
-         → ObjectMonitor 생성
-         → wait queue 진입
-```
-
-### Heavyweight Lock (Monitor) 동작
-
-```
-[ObjectMonitor 객체]
-class ObjectMonitor {
-    Thread* _owner;
-    int _recursions;        // 재진입 횟수
-    ObjectWaiter* _WaitSet;  // wait() 대기 thread들
-    ObjectWaiter* _EntryList; // lock 대기 thread들
-};
-
-[Lock acquire]
-1. CAS로 _owner = self.
-2. 실패 → _EntryList에 추가, park.
-
-[Lock release]
-1. _owner = null.
-2. _EntryList에서 한 thread unpark.
-
-[wait()]
-1. _WaitSet에 추가, park.
-2. notify()/notifyAll() 시 _EntryList로 이동, unpark.
-```
-
-### 운영 의미 — jstack의 BLOCKED
+### 3.2 키워드 1 — jstack의 BLOCKED (Heavyweight monitor)
 
 ```
 "worker-1" #45 daemon
@@ -220,13 +275,14 @@ class ObjectMonitor {
         - locked by "worker-2"
 ```
 
-- `BLOCKED` = Heavyweight monitor 대기 중.
-- `waiting to lock` = ObjectMonitor의 EntryList 에 있음.
+해독:
+- `BLOCKED` = Heavyweight monitor 대기.
+- `waiting to lock` = ObjectMonitor의 _EntryList에 있음.
 - `locked by` = 현재 owner thread.
 
 → Lock contention 진단의 가장 직접적 정보.
 
-### 운영 의미 — jstack의 WAITING (parking)
+### 3.3 키워드 2 — jstack의 WAITING (parking, AQS lock)
 
 ```
 "worker-1" #45
@@ -235,134 +291,39 @@ class ObjectMonitor {
         - parking to wait for <0x...> (a java.util.concurrent.locks.ReentrantLock$NonfairSync)
 ```
 
+해독:
 - `WAITING (parking)` = LockSupport.park.
 - ReentrantLock, AQS 기반 lock.
 - synchronized의 BLOCKED와 다른 메커니즘.
 
----
-
-## 🧬 4단계: 내부 구현 — HotSpot
-
-### Mark Word
-
-위치: `src/hotspot/share/oops/markWord.hpp`
-
-```cpp
-class markWord {
-    uintptr_t _value;
-    
-    static const int lock_bits = 2;
-    static const int biased_lock_bits = 1;
-    
-    bool is_unlocked() const { return (_value & lock_mask) == unlocked_value; }
-    bool is_biased_anonymously() const { ... }
-    bool has_monitor() const { return (_value & lock_mask) == monitor_value; }
-};
-```
-
-### Monitorenter 구현
-
-위치: `src/hotspot/share/runtime/synchronizer.cpp`
-
-```cpp
-void ObjectSynchronizer::enter(Handle obj, BasicLock* lock, JavaThread* thread) {
-    if (UseBiasedLocking) {
-        // Biased 시도
-        if (revoke_or_rebias(...) == HAS_CAS) return;
-    }
-    
-    // Lightweight 시도
-    if (fast_enter(obj, lock, ...)) return;
-    
-    // Heavyweight (inflate)
-    ObjectMonitor* monitor = inflate(obj);
-    monitor->enter(thread);
-}
-```
-
-### ObjectMonitor::enter
-
-```cpp
-void ObjectMonitor::enter(JavaThread* current) {
-    // 1. CAS로 owner = self 시도
-    if (Atomic::cmpxchg(&_owner, NULL, current) == NULL) {
-        return;  // acquired
-    }
-    
-    // 2. 실패 → spin (잠시)
-    if (try_spin(current)) return;
-    
-    // 3. 그래도 실패 → EntryList 추가 + park
-    enqueue_and_park(current);
-}
-```
-
----
-
-## 📜 5단계: 역사
-
-| 연도 | 변화 |
-|---|---|
-| 2006 | JDK 6 — Biased Lock 도입 |
-| 2014 | JDK 8 — Biased 기본 on |
-| 2020 | JDK 15 — Biased deprecated (JEP 374) |
-| 2022 | JDK 18 — Biased 사실상 비활성 |
-| 2023 | JDK 21 — Project Lilliput 진행 (Mark Word 압축) |
-
-### Project Lilliput
-
-목표: Mark Word를 64 bit → 8 bit으로 압축.
-- 옛 Mark Word의 lock state, GC age, hash 등 압축.
-- 객체 헤더 12 byte → 4 byte 가능.
-- Heap footprint 5~10% 절감.
-- 모든 lock 메커니즘이 새 Mark Word에 적응 필요.
-
----
-
-## ⚖️ 6단계: 트레이드오프
-
-### synchronized vs ReentrantLock
-
-| | synchronized | ReentrantLock |
-|---|---|---|
-| 메커니즘 | JVM Mark Word | Java AQS (AbstractQueuedSynchronizer) |
-| 진입 | monitorenter bytecode | Lock.lock() 메서드 |
-| 공정성 | 비공정 | fair/non-fair 선택 |
-| Try-lock | ❌ | ✅ tryLock |
-| 인터럽트 | ❌ | ✅ lockInterruptibly |
-| Condition | ❌ (wait/notify만) | ✅ 여러 Condition |
-| Virtual Thread pinning | ❌ (JDK 21~23) | ✅ pinning 안 함 |
-| 코드 단순성 | 단순 | 복잡 (try/finally) |
-
-운영 가이드:
-- 단순 mutual exclusion: synchronized.
-- Try-lock, 인터럽트, 여러 Condition 필요: ReentrantLock.
-- Virtual Thread 사용 + synchronized 안의 blocking: ReentrantLock (pinning 회피).
-
----
-
-## 📊 7단계: 측정·진단
-
-### jstack으로 lock contention 분석
-
-```bash
-jstack <pid> | grep -A 5 BLOCKED
-```
-
-BLOCKED 다수 = synchronized contention.
-
-### JFR Monitor 이벤트
+### 3.4 키워드 3 — JFR Monitor 이벤트
 
 ```bash
 jcmd <pid> JFR.start name=lock duration=60s settings=profile
 ```
 
-이벤트:
+핵심 이벤트:
 - `jdk.JavaMonitorEnter` — synchronized 진입 (대기 시간 포함).
 - `jdk.JavaMonitorWait` — Object.wait().
-- 임계 (기본 10ms 이상) 만 기록.
+- 임계 (기본 10ms 이상) 만 기록 — production-safe.
 
-### 운영 시나리오: Lock contention
+분석:
+- Lock 별 대기 시간 분포.
+- Contention hotspot 식별.
+- Wait 패턴 (잠시 wait vs 오래 wait).
+
+### 3.5 BLOCKED vs WAITING 비교
+
+| | BLOCKED | WAITING (parking) |
+|---|---|---|
+| 메커니즘 | Heavyweight monitor | LockSupport.park |
+| 사용 lock | synchronized | ReentrantLock, AQS |
+| jstack 시그니처 | "BLOCKED (on object monitor)" | "WAITING (parking)" |
+| 대기 자료구조 | _EntryList | AQS 큐 |
+
+→ 진단 시 어느 lock인지 식별 — 메커니즘 다름.
+
+### 3.6 운영 시나리오: Lock contention 진단
 
 ```
 환경: 멀티스레드 web 서비스
@@ -370,7 +331,7 @@ jcmd <pid> JFR.start name=lock duration=60s settings=profile
 
 진단:
 1. jstack에 같은 lock의 BLOCKED waiters
-2. "locked by"로 owner 식별
+2. "locked by"로 owner thread 식별
 3. JFR jdk.JavaMonitorEnter 시간 분포
 
 조치:
@@ -382,45 +343,210 @@ jcmd <pid> JFR.start name=lock duration=60s settings=profile
 
 ---
 
-## ⚔️ 8단계: 꼬리질문 트리
+## 4. 가지 ④: synchronized vs ReentrantLock — 선택 기준
 
-### Q1. synchronized의 3단계 lock 메커니즘은?
+### 4.1 핵심 질문
+
+> "synchronized와 ReentrantLock 중 무엇을 선택해야 하나요?"
+
+### 4.2 키워드 1 — 메커니즘 차이
+
+```
+synchronized:
+   - JVM 내장 (Mark Word + ObjectMonitor)
+   - monitorenter / monitorexit bytecode
+   - JIT 최적화 친화 (Lock Coarsening, Elision)
+
+ReentrantLock:
+   - Java 라이브러리 (java.util.concurrent.locks)
+   - AbstractQueuedSynchronizer (AQS) 기반
+   - LockSupport.park/unpark 활용
+```
+
+### 4.3 키워드 2 — 기능 비교 표
+
+| | synchronized | ReentrantLock |
+|---|---|---|
+| 메커니즘 | JVM Mark Word | Java AQS |
+| 진입 | monitorenter bytecode | Lock.lock() 메서드 |
+| 공정성 | 비공정 | fair/non-fair 선택 |
+| Try-lock | 없음 | tryLock |
+| 인터럽트 | 없음 | lockInterruptibly |
+| Condition | wait/notify만 | 여러 Condition |
+| Virtual Thread pinning | 있음 (JDK 21~23) | 없음 |
+| 코드 단순성 | 단순 | 복잡 (try/finally 필수) |
+
+### 4.4 키워드 3 — Virtual Thread Pinning 차이 (중요)
+
+```
+Virtual Thread (JDK 21+) 환경에서:
+   synchronized + blocking → Pinning 발생
+      (carrier thread도 같이 block, 가지 ⑤ Threading 04)
+   
+   ReentrantLock + blocking → Pinning 안 함
+      (Java-level lock, carrier에 묶이지 않음)
+```
+
+→ **Virtual Thread 사용 시 synchronized 안의 I/O는 위험**. ReentrantLock으로 대체.
+
+JDK 24+ (JEP 491)에서 synchronized pinning 해소 예정.
+
+### 4.5 선택 가이드
+
+```
+synchronized:
+   - 단순 mutual exclusion
+   - 짧은 critical section
+   - Virtual Thread 없는 환경
+
+ReentrantLock:
+   - Try-lock 필요 (timeout)
+   - 인터럽트 가능한 lock
+   - 여러 Condition (producer/consumer 분리)
+   - Virtual Thread 환경 + blocking 호출
+   - fair lock 필요
+```
+
+### 4.6 HotSpot 내부 (참고)
+
+**Mark Word** (`src/hotspot/share/oops/markWord.hpp`):
+```cpp
+class markWord {
+    uintptr_t _value;
+    
+    bool is_unlocked() const;
+    bool has_monitor() const;
+    bool is_biased_anonymously() const;  // JDK 15-
+};
+```
+
+**Monitorenter 구현** (`src/hotspot/share/runtime/synchronizer.cpp`):
+```cpp
+void ObjectSynchronizer::enter(Handle obj, BasicLock* lock, JavaThread* thread) {
+    if (UseBiasedLocking) {
+        if (revoke_or_rebias(...) == HAS_CAS) return;
+    }
+    
+    if (fast_enter(obj, lock, ...)) return;   // Lightweight
+    
+    ObjectMonitor* monitor = inflate(obj);    // Heavyweight
+    monitor->enter(thread);
+}
+```
+
+**ObjectMonitor::enter**:
+```cpp
+void ObjectMonitor::enter(JavaThread* current) {
+    if (Atomic::cmpxchg(&_owner, NULL, current) == NULL) return;  // CAS
+    if (try_spin(current)) return;                                  // spin
+    enqueue_and_park(current);                                      // park
+}
+```
+
+---
+
+## 5. 면접 답변 워크플로우
+
+### 5.1 질문 → 가지 매핑
+
+| 면접 질문 | 진입 가지 | 인접 확장 |
+|---|---|---|
+| "Mark Word가 뭐?" | ① Mark Word | 정보 인코딩 |
+| "synchronized 3단계?" | ② 3단계 승격 | 자동 승격 |
+| "Biased Lock 제거 이유?" | ② Biased | JEP 374 |
+| "BLOCKED vs WAITING?" | ③ 진단 | jstack 패턴 |
+| "Lock contention 진단?" | ③ 진단 | JFR |
+| "synchronized vs ReentrantLock?" | ④ 비교 | VT pinning |
+| "Lock-free 자료구조?" | ④ + 다른 chapter | CAS |
+
+### 5.2 답변 템플릿
+
+예: "synchronized의 3단계 lock 메커니즘은?"
+
+> "synchronized는 Mark Word 2비트로 상태 표시되는 3단계 lock입니다 (← 루트).
+> 가지 ②의 키워드 3개로 설명:
+> 첫째, **Biased** (JDK 15- only, deprecated). 단일 thread bias. thread ID 비교만 ~수 cycles.
+> 둘째, **Lightweight**. CAS + Stack LockRecord. ~10~20 cycles. 짧은 critical section.
+> 셋째, **Heavyweight**. ObjectMonitor + park/unpark. ~수 us이지만 진짜 sleep해서 CPU 사용 0.
+> Contention에 따라 자동 승격. JDK 15+ Biased는 JEP 374로 제거, 현대 워크로드는 Lightweight ↔ Heavyweight 두 단계.
+> jstack에서 BLOCKED 보이면 Heavyweight monitor 대기 (가지 ③로 연결)."
+
+---
+
+## 6. 꼬리질문 트리
+
+### Q1 [가지 ②]. synchronized의 3단계 lock 메커니즘은?
 
 > Biased → Lightweight → Heavyweight.
-> 1. Biased (JDK 15-): 단일 thread bias. CAS 없음.
+> 1. Biased (JDK 15-): 단일 thread bias. CAS 없음, thread ID 비교만.
 > 2. Lightweight: CAS + Stack LockRecord.
-> 3. Heavyweight: OS mutex + park/unpark.
-> 
+> 3. Heavyweight: OS mutex + park/unpark (ObjectMonitor).
+>
 > Contention에 따라 자동 승격. JDK 15+에서 Biased deprecated.
 
-### Q2. Biased Lock이 제거된 이유는?
+### Q2 [가지 ②]. Biased Lock이 제거된 이유는?
 
 > 1. 현대 멀티스레드 워크로드에서 효과 작음.
 > 2. Revoke 비용이 큼 (다른 thread 시도 시).
 > 3. 코드 복잡도, Lilliput 같은 차세대 기능에 방해.
 > 4. JEP 374 (JDK 15) deprecated, JDK 18+ 사실상 제거.
 
-### Q3. jstack의 BLOCKED와 WAITING(parking)의 차이는?
+**🪝 Q2-1: Project Lilliput이 뭐?**
+> Mark Word 64 bit → 8 bit 압축 프로젝트. 객체 헤더 12 byte → 4 byte 가능 → Heap footprint 5~10% 절감. Biased 제거가 사전 작업.
 
-> - **BLOCKED**: synchronized monitor 대기. ObjectMonitor의 EntryList에 있음.
+### Q3 [가지 ③]. jstack의 BLOCKED와 WAITING(parking)의 차이는?
+
+> - **BLOCKED**: synchronized monitor 대기. ObjectMonitor의 _EntryList에 있음.
 > - **WAITING (parking)**: LockSupport.park. ReentrantLock, AQS 기반.
-> 
+>
 > 둘 다 lock 대기지만 메커니즘 다름. 진단 시 어느 lock인지 식별.
 
-### Q4. (Killer) 멀티스레드 서비스의 lock contention을 어떻게 진단하고 해결하나요?
+### Q4 [가지 ④]. synchronized vs ReentrantLock 선택은?
+
+> 단순 mutual exclusion: synchronized.
+> Try-lock, 인터럽트, 여러 Condition: ReentrantLock.
+> Virtual Thread 사용 + synchronized 안의 blocking: ReentrantLock (pinning 회피).
+> JDK 24+ 이후엔 synchronized pinning 해소될 예정 (JEP 491).
+
+### Q5 (Killer) [모든 가지]. 멀티스레드 서비스의 lock contention을 어떻게 진단하고 해결?
 
 > 1. **jstack**으로 BLOCKED/WAITING 분포 확인.
 > 2. **같은 lock의 waiter 다수** = contention hotspot.
 > 3. **JFR jdk.JavaMonitorEnter** 시간 분포.
 > 4. **해결**:
->    - Lock 범위 축소.
+>    - Lock 범위 축소 (synchronized block 작게).
 >    - ConcurrentHashMap, AtomicXxx로 lock-free.
 >    - ReentrantLock + ReadWriteLock (read heavy).
 >    - Lock-free 알고리즘 (CAS).
 
 ---
 
-## 🔗 다음 단계
+## 7. 학습 체크리스트
 
-- → [04. Virtual Threads](./04-virtual-threads-and-loom.md)
+- [ ] 0장 마인드맵을 1분 이내로 그릴 수 있다
+- [ ] 가지 ①: Mark Word가 객체 헤더 첫 8 byte이고 lock/age/hash를 인코딩함을 설명한다
+- [ ] 가지 ①: Project Lilliput의 목표 (12 byte → 4 byte)를 인용한다
+- [ ] 가지 ②: 3단계 승격 (Biased → Light → Heavy) 흐름을 그린다
+- [ ] 가지 ②: Lightweight Lock의 LockRecord + displaced mark word를 설명한다
+- [ ] 가지 ②: Heavyweight Lock의 ObjectMonitor (_owner, _EntryList, _WaitSet)를 그린다
+- [ ] 가지 ②: Biased 제거 이유 (JEP 374)를 말한다
+- [ ] 가지 ③: jstack BLOCKED vs WAITING(parking) 차이를 비교한다
+- [ ] 가지 ③: JFR JavaMonitorEnter/Wait 이벤트를 인용한다
+- [ ] 가지 ④: synchronized vs ReentrantLock 표를 그린다
+- [ ] 가지 ④: Virtual Thread Pinning 차이 (synchronized는 pinning, ReentrantLock은 없음)를 설명한다
+- [ ] 6장 꼬리질문 5개에 답한다
+
+---
+
+## 다음 단계
+
+- → [04. Virtual Threads + Loom](./04-virtual-threads-and-loom.md): M:N 모델 + Pinning
 - ← [02. Memory Barriers](./02-memory-barriers.md)
+
+## 참고
+
+- **JEP 374 — Disable and Deprecate Biased Locking**: https://openjdk.org/jeps/374
+- **Project Lilliput**: https://wiki.openjdk.org/display/lilliput
+- **HotSpot `markWord.hpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/oops/markWord.hpp
+- **HotSpot `synchronizer.cpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/runtime/synchronizer.cpp
+- **HotSpot `objectMonitor.cpp`**: https://github.com/openjdk/jdk/blob/master/src/hotspot/share/runtime/objectMonitor.cpp
