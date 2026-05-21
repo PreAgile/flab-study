@@ -19,6 +19,7 @@
 | 03 | [03-oop-history.md](./03-oop-history.md) | Simula 1967 → Smalltalk → C++ → Java → Kotlin (왜 이 순서) |
 | 04 | [04-oop-architecture-bigpicture.md](./04-oop-architecture-bigpicture.md) | OOP의 4대 기둥 + 5대 원칙 한 장 그림 |
 | 05 | [05-oop-vs-fp-bigpicture.md](./05-oop-vs-fp-bigpicture.md) | OOP와 FP가 어떻게 보완 관계인가 — 한 장 비교 |
+| 06 | [06-senior-narrative.md](./06-senior-narrative.md) | 시니어 운영 시각 종합편 — 본질·SOLID·동시성·Java 하이브리드 진화를 한 호흡으로 |
 
 ## 7단 학습 레이어
 
