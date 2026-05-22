@@ -278,26 +278,151 @@ OS → 직접 실행 (JVM 부트스트랩 없음)
 ### 3.5 운영 결정 매트릭스
 
 ```
-┌────────────────────────────┬───────────────────────────┐
-│ 워크로드/조건                │ 권장                     │
-├────────────────────────────┼───────────────────────────┤
-│ Serverless (Lambda 등)      │ Native Image              │
-│ CLI tool                    │ Native Image              │
-│ Microservice cold start ↑↑  │ Native Image              │
-│ Container memory 제한적      │ Native Image 검토         │
-│ 일반 web service            │ JVM (HotSpot)             │
-│ Latency-critical 큰 Heap   │ JVM + ZGC                 │
-│ Peak throughput 최우선      │ JVM + Graal JIT 검토      │
-│ Polyglot 필요 (JS, Python)  │ Truffle                   │
-└────────────────────────────┴───────────────────────────┘
+┌──────────────────────────────────┬──────────────────────────────┐
+│ 워크로드/조건                      │ 권장 (2026 기준)              │
+├──────────────────────────────────┼──────────────────────────────┤
+│ Serverless (Lambda 등)            │ Native Image                 │
+│ CLI tool (kubectl, mvn 류)        │ Native Image                 │
+│ Microservice cold start ↑↑         │ Native Image                 │
+│ Container memory 매우 제한          │ Native Image                 │
+│ Cold start 중간 우선 + 호환성 ↑    │ ★ Leyden (JDK 25+)           │
+│ 기존 코드 변경 최소 + startup ↑    │ ★ Leyden                     │
+│ 일반 web service (long-running)   │ JVM (HotSpot) + AppCDS       │
+│ Latency-critical 큰 Heap         │ JVM + ZGC                    │
+│ Peak throughput 최우선            │ JVM (+ Graal JIT 검토)       │
+│ Polyglot 필요 (JS, Python)        │ Truffle                      │
+└──────────────────────────────────┴──────────────────────────────┘
 ```
 
-### 3.6 Project Leyden과의 관계
+→ 2026년 기준 cold start 단축 옵션은 3-spectrum: **Native Image (극단) ↔ Leyden (중간) ↔ JVM+AppCDS (보수)**. 호환성·peak·운영 위험 vs cold start의 트레이드오프를 워크로드별로 결정.
 
-- **Project Leyden** (OpenJDK 진행 중): AOT compilation을 표준 JDK에 통합.
-- 목표: GraalVM Native Image의 이점을 표준 JDK로 가져오기.
-- 현재 (2026): preview 단계, JDK 25~30 사이에 안정화 예상.
-- **시니어 관점**: GraalVM Native Image는 현재 유일한 production-ready AOT 옵션. Leyden이 성숙하면 선택지 다양화.
+### 3.6 Project Leyden — Native Image의 OpenJDK 대안
+
+#### 3.6.1 한 줄 정의
+
+> **Leyden = OpenJDK의 startup/warmup/footprint를 점진적으로 줄이는 프로젝트.** Native Image의 "closed-world AOT"와 달리, **"필요한 만큼만 빌드 시점으로 끌어오는 selective shifting".** 호환성을 포기하지 않고 startup만 단축.
+
+#### 3.6.2 왜 만들었나 — Native Image와 전통 JVM의 중간 지점
+
+```
+[전통 JVM]                  [Project Leyden]              [Native Image]
+━━━━━━━━━━                 ━━━━━━━━━━━━━━━              ━━━━━━━━━━━━━━
+
+호환성 100%                호환성 거의 100%              호환성 제약 (closed-world)
+Cold start 느림 (수 초)    Cold start 중간 (수백 ms)     Cold start 빠름 (수십 ms)
+Peak 100%                  Peak 100% (JIT 유지)          Peak 80~90% (AOT only)
+JIT 그대로                 JIT + 일부 AOT 혼합           JIT 없음 (전부 AOT)
+Footprint 큼               중간                          작음
+Build 빠름                 Training run 1~2분            Build 수 분~수십 분
+```
+
+→ **"호환성·peak를 포기하지 않으면서 startup만 단축"**. Native Image의 극단성과 전통 JVM 사이.
+
+#### 3.6.3 핵심 아이디어 — "Shifting"
+
+```
+전통 JVM 라이프사이클:
+  build              runtime
+  ─────              ───────
+  .class 컴파일      class load → verify → link → init
+                     → 인터프리터 → profile 수집
+                     → JIT 컴파일 → 정상 실행
+
+Leyden 라이프사이클:
+  build              runtime
+  ─────              ───────
+  ★ 위 작업의 일부를   이미 처리된 결과 load
+    "선택적으로"       → 즉시 정상 실행 진입
+    빌드 시점으로 이동
+  - class load 미리
+  - verify 미리
+  - link 미리
+  - profile 미리 수집
+  - 일부 AOT 컴파일 (JDK 26+ 예정)
+```
+
+→ **"shift and constrain"** — 런타임 작업을 빌드 시간으로 끌어오기. 단, 모든 걸 강제하지 않고 옵션.
+
+#### 3.6.4 Leyden JEP 로드맵
+
+| JEP | 내용 | 출시 |
+|---|---|---|
+| **JEP 483** | Ahead-of-Time Class Loading & Linking | JDK 24 (2025-03) |
+| **JEP 514** | AOT Command-Line Ergonomics | JDK 25 (2025-09) |
+| **JEP 515** | Ahead-of-Time Method Profiling | JDK 25 |
+| **JEP 519** | Compact Object Headers (production) | JDK 25 |
+| (예정) | AOT Code Compilation | JDK 26+ |
+
+#### 3.6.5 Training Run → Production Run 모델
+
+```
+[Step 1: Training Run] — staging에서 한 번
+  java -XX:AOTMode=record -XX:AOTConfiguration=app.aotconf -jar app.jar
+       ↓
+  실행하면서 기록:
+  - 어떤 class가 load됐나
+  - 어떤 method가 hot인가 (profile)
+  - 어떤 inlining 결정이 좋았나
+       ↓
+  app.aotconf 생성 (artifact)
+
+[Step 2: Production Run]
+  java -XX:AOTMode=auto -XX:AOTCache=app.aot -jar app.jar
+       ↓
+  앞서 기록한 정보 미리 load:
+  - class 미리 load + link + (일부) init
+  - profile 미리 보유 → C2가 즉시 좋은 결정
+  - (JDK 26+) AOT 컴파일된 nmethod 일부 미리 보유
+       ↓
+  Cold start + warmup 시간 대폭 단축
+```
+
+→ Native Image의 "build-time AOT"가 아니라 **"train-then-run"** 모델. 빌드 시점이 아니라 staging 실행으로 정보를 모음.
+
+#### 3.6.6 CDS → AppCDS → Leyden 진화
+
+```
+2014 JDK 8     CDS            시스템 class shared archive
+                              → JVM 부팅 ~100ms 단축
+
+2019 JDK 13    AppCDS         사용자 class도 archive 가능
+                              → cold start 30~50% 단축
+
+2025 JDK 24    Leyden JEP 483 + class linking까지 미리
+                              → cold start 50~70% 단축
+
+2025 JDK 25    + AOT profile  warmup 시간도 단축
+                (JEP 515)
+
+2026+ JDK 26+  + AOT code     warmup 거의 사라짐
+                              → Native Image 영역 진입
+```
+
+→ **Leyden = CDS의 진화 + AOT compilation 통합**. 갑작스러운 점프가 아니라 점진적 확장.
+
+#### 3.6.7 Native Image vs Leyden 비교표
+
+| 항목 | GraalVM Native Image | Project Leyden |
+|---|---|---|
+| 배포판 | GraalVM (Oracle 별도) | OpenJDK 표준 |
+| 접근 | Closed-world AOT | Selective shifting |
+| 빌드 모델 | Build-time AOT | Training run → cache |
+| 빌드 시간 | 매우 김 (수 분~수십 분) | 짧음 (training 1~2분) |
+| Cold start | 수십 ms | 수백 ms |
+| Peak throughput | 80~90% | 100% (JIT 그대로) |
+| Reflection | hint files 필요 | 자유 (전통 JVM처럼) |
+| Dynamic class load | 불가 | 가능 |
+| Footprint | 30~100MB | 100~250MB |
+| GC 옵션 | Serial/G1 (SVM) | Serial/Parallel/G1/ZGC/Shenandoah |
+| 결과물 | Standalone binary | 일반 jar + AOT cache 파일 |
+| 호환성 | 제약 많음 (라이브러리 친화 필요) | 거의 100% (기존 코드 그대로) |
+| Production maturity | 성숙 중 (Spring Boot 3+) | 진입 중 (JDK 25+ usable) |
+
+→ **Leyden은 호환성·peak·운영 단순성을 포기하지 않고 Native Image 영역에 점진적으로 다가가는 접근**. 다만 cold start 극단(수십 ms)까지는 못 감.
+
+#### 3.6.8 시니어 의사결정 한 줄
+
+> **Cold start 극단 (수십 ms) 필요 → Native Image. 적당히만 (수백 ms) 줄이고 호환성·peak·운영 단순성이 더 중요 → Leyden. Long-running으로 warmup 한 번이면 충분 → 전통 JVM + AppCDS.**
 
 ---
 
@@ -315,6 +440,8 @@ OS → 직접 실행 (JVM 부트스트랩 없음)
 | "Graal JIT은 C2랑 뭐가 다른가요?" | ① Graal JIT | [Chapter 07 JVMCI] |
 | "Spring Boot 3가 Native 지원?" | ② Spring AOT | ③ 운영 |
 | "Truffle은 언제 쓰나요?" | ① Truffle | Polyglot |
+| "Project Leyden이 뭔가요?" | ③ Leyden | ② Native Image 비교 |
+| "Leyden vs Native Image 차이?" | ③ Leyden 비교표 | ③ 결정 매트릭스 |
 
 ### 4.2 답변 템플릿
 
@@ -379,25 +506,41 @@ OS → 직접 실행 (JVM 부트스트랩 없음)
 
 ### Q7 (Killer) [가지 ③]. Lambda 함수로 배포 중인 Java app의 cold start가 5초입니다. 어떻게 줄이나요?
 
-> 옵션 우선순위:
+> 옵션 우선순위 (2026 기준):
 >
 > 1. **Native Image (GraalVM)**: 5초 → 200ms. 가장 큰 효과.
 >    - Spring Boot 3 사용 시 `native-image` 빌드 지원.
 >    - Quarkus, Micronaut도 Native friendly.
 >    - 비용: Reflection metadata, build 시간 증가, peak 약간 ↓.
 >
-> 2. **AppCDS (JVM)**: 5초 → 2초. 적용 쉬움.
->    - Class data sharing — 클래스 metadata pre-loaded.
->    - Native Image보다 효과는 작지만 변경 비용 거의 0.
+> 2. **Project Leyden (JDK 25+)**: 5초 → 1~1.5초. 코드 변경 거의 없음.
+>    - Training run으로 class loading/linking + profile 미리 캐싱.
+>    - Native Image보다 효과는 작지만 호환성·peak 그대로.
+>    - Reflection 제약 없음 → 옛 라이브러리도 그대로 작동.
 >
-> 3. **Project Leyden** (JDK 22+, 진행 중): AOT 표준. 미래 옵션.
+> 3. **AppCDS (JVM)**: 5초 → 2~3초. 적용 쉬움.
+>    - Class data sharing — 클래스 metadata pre-loaded.
+>    - 변경 비용 거의 0. Leyden보다 효과 작지만 JDK 13+ 어디서나.
 >
 > 4. **Lambda Provisioned Concurrency**: 인프라 비용 ↑로 cold start 회피.
 >
-> **권장**: Spring Boot 3면 Native Image부터 시도, 아니면 AppCDS 먼저 적용 후 Native Image 검토.
+> **권장**: Spring Boot 3 + reflection 적음 → Native Image. 옛 라이브러리/reflection 많음 → Leyden. 빠르게 효과 + JDK 25 못 쓰는 환경 → AppCDS.
 
 **🪝 Q7-1: Native Image 도입 후 무엇을 측정하나요?**
 > Startup time (ms 단위), peak throughput (RPS), memory footprint (RSS), error rate (reflection 누락으로 NoSuchMethodException 등), build 시간 (CI/CD 영향). 특히 reflection 누락은 production에서 터지면 큰 사고 — staging에서 부하 + reflection-heavy path 모두 통과 확인 필수.
+
+### Q8 [가지 ③]. Project Leyden과 GraalVM Native Image의 차이는?
+
+> 둘 다 startup 단축이 목표지만 접근이 다름.
+> **Native Image**: closed-world AOT. 빌드 시점에 모든 class를 알고 미사용 제거 + AOT 컴파일 → standalone binary. JVM 없이 실행. 극단적 startup (수십 ms)과 footprint (30~100MB), 대신 호환성 제약 (reflection hint files, dynamic class load 불가) + peak 10% 손해.
+> **Leyden**: selective shifting. OpenJDK 표준 안에서 class load/link/profile을 training run으로 미리 캐싱 → 일반 jar + AOT cache 파일. 중간 startup (수백 ms), peak 그대로 100%, 호환성 100%. Native Image 대비 효과는 작지만 운영 위험 낮음.
+> 시니어 결정: cold start 극단 + serverless → Native Image. 코드 변경 부담 ↓ + 호환성 우선 → Leyden. JDK 25 (2025-09) production usable.
+
+**🪝 Q8-1: Leyden의 training run은 어떻게 운영하나요?**
+> Staging에서 production과 유사한 부하로 한 번 실행 → `app.aotconf` artifact 생성 → 그 파일을 production deployment에 함께 배포. 부하 패턴이 크게 바뀌면 training run 재실행 필요. CI/CD 파이프라인에 training 단계 추가. Native Image의 "빌드 시 모든 결정" 대신 "staging 실행이 학습 단계" 모델.
+
+**🪝 Q8-2: Leyden이 있으면 Native Image는 필요 없나요?**
+> 아니. Cold start 극단(수십 ms)이 필요한 워크로드 — serverless, CLI tool — 는 Leyden(수백 ms)으로 충분히 못 줄임. 또한 Native Image는 footprint 30~100MB로 메모리 빠듯한 컨테이너에서 결정적. **Leyden = JVM 사용자 95%를 위한 점진 개선, Native Image = cold start/footprint 극단이 필요한 특수 워크로드**. 둘 다 살아남는 두 갈래.
 
 ---
 
@@ -413,8 +556,10 @@ OS → 직접 실행 (JVM 부트스트랩 없음)
 - [ ] 가지 ② Native Image: SubstrateVM이 무엇인지 1줄
 - [ ] 가지 ③ 운영: JVM vs Native Image 트레이드오프 표를 그린다
 - [ ] 가지 ③ 운영: Serverless/CLI vs Web service 결정 기준을 말한다
-- [ ] Lambda cold start 5초 → 줄이는 4가지 옵션을 우선순위 순서로 말한다
-- [ ] 5장 꼬리질문 7개에 막힘없이 답한다
+- [ ] 가지 ③ 운영: Native Image vs Leyden vs 전통 JVM 3-spectrum 비교를 말한다 (closed-world AOT / selective shifting / JIT+AppCDS)
+- [ ] 가지 ③ 운영: Leyden의 training run → production run 모델을 설명한다
+- [ ] Lambda cold start 5초 → 줄이는 4가지 옵션을 우선순위 순서로 말한다 (Native Image / Leyden / AppCDS / Provisioned Concurrency)
+- [ ] 5장 꼬리질문 8개에 막힘없이 답한다
 
 ---
 
@@ -430,6 +575,9 @@ OS → 직접 실행 (JVM 부트스트랩 없음)
 - **GraalVM**: https://www.graalvm.org/
 - **Spring Boot 3 Native**: https://spring.io/blog/2022/11/22/spring-boot-3-0-goes-ga
 - **Project Leyden**: https://openjdk.org/projects/leyden/
+- **JEP 483 (Leyden) Ahead-of-Time Class Loading & Linking**: https://openjdk.org/jeps/483
+- **JEP 514 (Leyden) AOT Command-Line Ergonomics**: https://openjdk.org/jeps/514
+- **JEP 515 (Leyden) Ahead-of-Time Method Profiling**: https://openjdk.org/jeps/515
 - **JEP 243 JVMCI**: https://openjdk.org/jeps/243
 - **Quarkus**: https://quarkus.io/
 - **Micronaut**: https://micronaut.io/

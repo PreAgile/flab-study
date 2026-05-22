@@ -6,6 +6,149 @@
 
 ---
 
+## 한 그림으로 보는 전체 시스템 (Big Picture)
+
+> **이 그림 하나를 백지에 그릴 수 있으면 Tiered Compilation 전체를 설명할 수 있다.** Application thread가 어떻게 컴파일을 트리거하고, 누가 백그라운드에서 컴파일하며, 결과물이 어디로 가서, 다음 호출이 어떻게 그 결과물로 전이되는지 — 모든 흐름이 한 장에.
+
+```
+╔═══════════════════════════════════════════════════════════════════════════╗
+║         JVM Tiered Compilation — 전체 시스템 (한 장)                       ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+
+[Application Thread]                       [Background CompilerThread Pool]
+━━━━━━━━━━━━━━━━━━━                       ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ ┌──────────────────────────┐
+ │ Tier 0                   │
+ │ Template Interpreter     │      ┌──────────────────────────────────┐
+ │ (Non-method segment 거주) │      │     CompileBroker (singleton)    │
+ │  · bytecode 한 줄 실행    │      │                                  │
+ │  · inv_counter++          │      │  ┌────────────────────────────┐  │
+ │  · be_counter++           │      │  │ C1 Queue (Tier 1, 2, 3)    │  │
+ │  · MDO write (profile)   │      │  │  priority: hot + size + age │  │
+ └────────────┬─────────────┘      │  └────────────────────────────┘  │
+              │ 임계 도달            │  ┌────────────────────────────┐  │
+              │ counter_overflow     │  │ C2 Queue (Tier 4)          │  │
+              ▼ stub                │  └────────────────────────────┘  │
+ ┌──────────────────────────┐       │                                  │
+ │ InterpreterRuntime::     │       │  scale_for_load()                │
+ │ frequency_counter_       │──────→│   = 큐 길이 / CICompilerCount    │
+ │ overflow (C++ runtime)    │ push  │   → 임계 ×1~5 동적 조정         │
+ └──────────────────────────┘       └────────┬─────────────────┬───────┘
+   (Application thread는              pickup │             pickup│
+    block 안 함, 인터프리터로            ▼                       ▼
+    계속 실행)                    ┌──────────────┐         ┌──────────────┐
+                                  │ C1 Thread×N₁ │         │ C2 Thread×N₂ │
+                                  │  (~수 ms)    │         │ (수십~수백ms)│
+                                  │  별도 OS thr │         │  별도 OS thr │
+                                  └──────┬───────┘         └──────┬───────┘
+                                         │ read MDO snapshot       │ read MDO snapshot
+                                         │ Bytecode → IR →         │ Bytecode → Sea-of-Nodes
+                                         │ Native code             │ → EA + Inline +
+                                         │ (profile cnt 박힘)      │   Speculation
+                                         │                         │ → Native code
+                                         ▼                         ▼
+        ┌──────────────────────────────────────────────────────────────────────┐
+        │                Code Cache (3 segments)                                │
+        ├──────────────────────────────────────────────────────────────────────┤
+        │ ① Non-method segment ─── JVM 인프라 (영구, 부팅 시 generate)           │
+        │     · Template Interpreter (자기 자신)                                 │
+        │     · dispatch_table[256]                                              │
+        │     · i2c / c2i adapters                                               │
+        │     · counter_overflow / safepoint / exception stubs                   │
+        ├──────────────────────────────────────────────────────────────────────┤
+        │ ② Profiled segment ─── profile counter instrumented된 nmethod들        │
+        │     · Tier 3 C1 nmethod (full profile)        ★ 일반 path             │
+        │     · Tier 2 C1 nmethod (limited profile)     C2 큐 막힘 fallback     │
+        ├──────────────────────────────────────────────────────────────────────┤
+        │ ③ Non-profiled segment ─── profile 없는 nmethod들                      │
+        │     · Tier 4 C2 nmethod (final)               ★ 일반 path             │
+        │     · Tier 1 C1 nmethod (no profile)          trivial 메서드 종착     │
+        └──────────────────────────┬───────────────────────────────────────────┘
+                                   │ nmethod install
+                                   ▼
+        ┌──────────────────────────────────────────────────────────────────────┐
+        │           [Metaspace] Method 객체 — Atomic Patch                      │
+        │                                                                       │
+        │   _from_interpreted_entry  ←─── i2c adapter (stack→register)         │
+        │   _from_compiled_entry     ←─── nmethod의 verified entry point        │
+        │   _code (nmethod*)          ←─── Atomic::release_store               │
+        │   _method_data ──────┐                                                │
+        │                      │  (atomic word write — 진행 중 호출도 안전)    │
+        └──────────────────────┼───────────────────────────────────────────────┘
+                               ▼
+        ┌──────────────────────────────────────────────────────────────────────┐
+        │           [Metaspace] MDO (Method Data Object)                        │
+        │     · inv/be counter, type histogram, branch ratio                    │
+        │     · Writer: Tier 0 인터프리터 + Tier 3 C1 nmethod의 instrumented   │
+        │     · Reader: TieredThresholdPolicy(승격결정) + C1/C2 컴파일러(입력)  │
+        │   ★ 평생 Metaspace 거주 — Code Cache로 절대 옮겨가지 않음             │
+        └──────────────────────────────────────────────────────────────────────┘
+
+[Tier transition — 5-state diagram]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+                       ┌──────────────────────────────────┐
+                       ▼                                  │
+   [Tier 0 Interpreter] ──┬──→ [Tier 3 C1 full profile] ─→[Tier 4 C2 final]
+       (모든 시작점)        │             ↑                       ▲
+                          │             │ (C2 큐 풀리면)          │
+                          ├──→ [Tier 2 C1 limited profile] ──────┘
+                          │     (C2 큐 막힘 fallback, 임시)
+                          │
+                          └──→ [Tier 1 C1 no profile]
+                                (trivial getter, 종착역)
+
+       부하 적응 매트릭스:
+         정상              → 0 → 3 → 4
+         C2 큐 적당히 막힘 → 0 → 2 → 4    (Tier 3 건너뜀)
+         C2 큐 매우 막힘   → 0 → 1        (trivial 메서드 종착)
+         Code Cache 빠듯  → 0 유지       (컴파일 자체 거부)
+
+[Patch 후 다음 호출 — 호출 전이]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+   caller (인터프리터 or compiled): invokevirtual #N
+         │
+         ▼
+   callee._from_interpreted_entry  ──(patch 후)──→  i2c adapter
+                                                      (Non-method seg)
+                                                      ↓ stack 인자
+                                                      ↓ → register 변환
+                                                   nmethod entry
+                                                      (Profiled or
+                                                       Non-profiled seg)
+                                                      ↓ CPU RIP 점프
+                                                   native code 실행
+                                                      ↓ (Tier 3이면 MDO 계속 갱신)
+                                                      ↓ Tier 4 임계 도달
+                                                      └──→ 또 enqueue → C2 컴파일
+```
+
+### 이 그림이 말하는 7가지 핵심
+
+| # | 핵심 사실 | 어디서 자세히 |
+|---|---|---|
+| 1 | **Application thread는 컴파일하지 않음**. 큐에 task만 넣고 즉시 인터프리터로 복귀 → P99 spike 없음 | 1.4, 3.3 |
+| 2 | **CompilerThread는 별도 OS thread**. C1/C2 분리, CICompilerCount개 | 3.3 |
+| 3 | **큐가 길어지면 임계가 올라간다** (scale_for_load) — 시스템 부하에 적응 | 1.4, 3.5 |
+| 4 | **Code Cache는 3 segment**. Non-method (인프라), Profiled (C1), Non-profiled (C2+Tier1) | 2.7.7 |
+| 5 | **MDO ≠ nmethod**. MDO는 Metaspace 데이터(평생 거주), nmethod는 Code Cache 코드 | 2.7.1~2.7.3 |
+| 6 | **Method.\_code의 atomic patch**가 호출 전이의 안전성 보장 | 3.4 |
+| 7 | **i2c adapter**가 인터프리터 caller와 compiled callee 사이 calling convention 번역 | (별도 챕터) |
+
+### 그림으로 백지 설명 연습
+
+이 한 장만 보고 다음 5문장을 줄줄 말할 수 있으면 마스터:
+
+1. "Application thread가 인터프리터로 실행하다 카운터 임계 도달 → counter_overflow stub → InterpreterRuntime → CompileBroker 큐에 push 후 즉시 인터프리터로 복귀."
+2. "백그라운드 CompilerThread가 큐에서 pickup해 C1 또는 C2로 컴파일. 컴파일러는 Metaspace의 MDO를 snapshot으로 읽어 입력으로 사용."
+3. "결과 nmethod를 tier에 맞는 segment에 배치 — Tier 3는 Profiled, Tier 4는 Non-profiled, Tier 1은 Non-profiled (profile 없으니까)."
+4. "Method.\_code 필드를 Atomic::release_store로 patch하고 \_from_interpreted_entry를 i2c adapter로 patch. 진행 중 호출은 옛 path로 완료, 다음 호출부터 새 path."
+5. "C2 큐가 막히면 scale_for_load가 임계를 ×5까지 올려 컴파일 요청을 줄임. 막히는 정도에 따라 Tier 3 우회(→ 2)하거나 Tier 1에서 종착시켜 부하 적응."
+
+---
+
 ## 이 문서의 사용법
 
 1. **0장 마인드맵을 먼저 외운다** — 루트 + 5가지 + 키워드.
@@ -174,6 +317,223 @@ C1 단계가 있으면 인터프리터 → C1 단계로 빠르게 가속. C2 완
 - C2 컴파일 실패: 0 → 3에서 stuck
 - OSR: 동시에 OSR variant도 별도 컴파일 (일반 entry와 다른 nmethod)
 ```
+
+### 2.7 핵심 용어 깊이 사전
+
+> 면접관이 "MDO가 정확히 뭐냐", "Tier 1, 2는 어디 있냐" 파고들 때 답할 수 있는 두 번째 layer. Tier 결정·컴파일·Code Cache 배치를 데이터(MDO)와 코드(nmethod)로 분리해서 본다.
+
+#### 2.7.1 MDO (Method Data Object) — 한 메서드의 통계 buffer
+
+> **MDO = 한 메서드의 실행 통계를 담는 JVM 내부 자료 구조.** 호출 횟수, type 히스토그램, branch 비율 같은 profile **데이터**. 코드가 아니라 데이터.
+
+```cpp
+// src/hotspot/share/oops/methodData.hpp
+class MethodData : public Metadata {
+private:
+    Method*  _method;          // 어느 메서드의 통계인가
+    intptr_t _data[1];         // 가변 길이 — bytecode index별 ProfileData
+    // 안에:
+    //   - 전체 invocation counter
+    //   - 전체 backedge counter
+    //   - call site별 ReceiverTypeData (receiver 클래스 히스토그램)
+    //   - branch별 BranchData (taken / not_taken)
+    //   - ...
+};
+```
+
+**위치 — Metaspace** (Heap도 Code Cache도 아님):
+
+```
+[Metaspace]                            [Code Cache]
+━━━━━━━━━━━                            ━━━━━━━━━━━━
+
+Method 객체                            Non-method segment
+  _method_data ──┐                       - Template Interpreter
+  _code ─────────┼──┐                    - stub, adapter
+                 │  │                    
+                 ▼  │
+              MethodData (MDO)            Profiled segment
+              ┌───────────┐               ┌──────────────────┐
+              │ inv_cnt   │       ┌──────→│ C1 nmethod       │
+              │ be_cnt    │       │       │  · native code   │
+              │ type[]    │       │       │  · profile cnt   │
+              │ branch    │       │       │    instrumented  │
+              └───────────┘       │       └──────────────────┘
+                                  │
+                                  └─ Method._code 가 가리킴
+```
+
+**언제 만들어지나 — Lazy**: 메서드가 어느 정도 hot해질 때 alloc. cold 메서드는 MDO 없음 (메모리 절약).
+
+#### 2.7.2 MDO Writer / Reader 분리
+
+| 역할 | 주체 | 시점 |
+|---|---|---|
+| **Write** | Tier 0 Interpreter의 inline profile 코드 | bytecode 한 줄마다 |
+| **Write** | Tier 3 C1 nmethod 안의 instrumented counter | native code 실행마다 |
+| **Read** | TieredThresholdPolicy | 매 호출의 카운터 갱신 직후 |
+| **Read** | C1 / C2 컴파일러 | 컴파일 시점에 snapshot |
+
+→ **인터프리터와 Tier 3 C1 nmethod가 같은 MDO에 쓴다**. MDO는 메서드당 1개, 평생 동일한 buffer.
+
+#### 2.7.3 자주 헷갈리는 점 — "MDO를 Code Cache로 옮긴다?" NO
+
+```
+[잘못된 멘탈 모델]
+인터프리터가 MDO 모으다가 → MDO를 Profiled segment로 "옮김"
+
+[정확한 멘탈 모델]
+MDO는 평생 Metaspace에 머무름 (이동 없음)
+   ↓
+C1이 MDO를 "읽어서" native code 만듦 (snapshot)
+   ↓
+만들어진 nmethod가 Profiled segment에 배치
+   ↓
+그 nmethod 안의 instrumented 코드가 같은 MDO를 계속 갱신
+   ↓
+C2 시점에 더 풍부해진 MDO를 다시 읽어 더 공격적 최적화
+   ↓
+C2 nmethod가 Non-profiled segment에 배치 (이건 profile counter 없음)
+```
+
+→ **MDO = 데이터 (Metaspace), nmethod = 코드 (Code Cache)**. 둘은 다른 메모리, 다른 책임. nmethod가 MDO를 가리키고 읽고 갱신할 뿐.
+
+#### 2.7.4 라이프사이클 — MDO 입장에서
+
+```
+T+0     Method 로드          _method_data = null  (MDO 없음)
+T+1     첫 호출               MethodCounters의 invocation_counter만 증가
+T+수십  MDO 임계 도달         ★ MethodData::allocate → Metaspace에 MDO 생성
+                              method->_method_data = mdo
+                              인터프리터의 profile 코드가 MDO에 write 시작
+T+~1500 Tier 3 트리거         CompileBroker 큐 enqueue
+                              ─── 백그라운드 CompilerThread ───
+                              C1:
+                                1. bytecode read
+                                2. ★ MDO snapshot read
+                                3. profile 기반 native code 생성
+                                4. ★ native code 안에 MDO 갱신 코드 instrumented
+                                5. nmethod → Profiled segment
+                                6. Method._code = nmethod (atomic patch)
+T+이후  C1 native code 실행   매 호출마다 같은 MDO 계속 갱신
+T+~10K  Tier 4 트리거         C2:
+                                1. ★ 더 풍부해진 MDO read
+                                2. EA, inlining, speculation 적용
+                                3. nmethod → Non-profiled segment (profile 없음)
+                                4. Method._code = 새 nmethod
+                              옛 C1 nmethod → not_entrant → Sweeper 회수
+```
+
+#### 2.7.5 Tier 1 깊이 — Trivial Method 전용 종착역
+
+**조건**: getter/setter 류 매우 작은 메서드. profile해도 inlining 결정에 영향 無.
+
+```java
+int getX() { return x; }   // 한 줄짜리. 어떤 호출 패턴이든 결과 동일.
+```
+
+**왜 profile 안 함**:
+```
+이 메서드는 어차피 작아서 inlining 결정에 type/branch 분포가 무의미
+   ↓
+profile counter 증가 = 순수 overhead
+   ↓
+Tier 1 (C1 no profile)로 컴파일하고 끝
+```
+
+**특징**:
+- **Terminal**: Tier 1에서 4로 안 올라감. profile 없으니 C2도 의미 無.
+- nmethod에 profile counter 없음 → 작은 size.
+- **Code Cache 배치**: **Non-profiled segment** (profile 없으니까).
+
+#### 2.7.6 Tier 2 깊이 — C2 큐 막힘 Fallback
+
+**조건**: 호출 카운터 임계 도달 + C2 큐가 너무 길어 Tier 3가 부담일 때.
+
+**왜 profile 줄였나**:
+```
+[Tier 3 (full profile)]
+type histogram, branch ratio 등 무거운 profile 코드 instrumented
+   ↓
+의미 있으려면 C2가 곧 그 데이터를 읽어 최적화해야 함
+
+[그런데 C2 큐가 막혀있음]
+Tier 3 컴파일해도 C2가 한참 후에야 처리
+   ↓
+무거운 profile 코드가 매 호출마다 실행 → 낭비
+
+→ Tier 2: profile은 invocation/backedge counter만 (Tier 4 승격 판단용)
+   type/branch profile은 생략 → 매 호출 overhead ↓
+```
+
+**특징**:
+- **Transit**: Tier 2 → C2 큐 풀리면 → Tier 4. 임시 단계.
+- nmethod에 카운터만 instrumented (type/branch는 아님).
+- **Code Cache 배치**: Profiled segment (limited profile이라도 있으니).
+
+#### 2.7.7 5단계 State Transition — 전체 그림
+
+```
+                       ┌──────────────────────────────┐
+                       │                              │
+                       ▼                              │
+[Tier 0 Interpreter] ──┬──→ [Tier 3 C1 full prof] ──→ [Tier 4 C2]
+   (모든 시작점)       │       ↑                          ▲
+                       │       │ (C2 큐 풀리면)           │
+                       │       │                          │
+                       ├──→ [Tier 2 C1 limited prof] ────┘
+                       │     (C2 큐 막혔을 때)
+                       │
+                       └──→ [Tier 1 C1 no prof]
+                             (trivial method — 종착)
+
+Segment 배치:
+  Tier 0   → (없음, Non-method segment의 인터프리터 사용)
+  Tier 1   → Non-profiled segment (profile 없음)
+  Tier 2   → Profiled segment (limited profile)
+  Tier 3   → Profiled segment (full profile)
+  Tier 4   → Non-profiled segment (profile 안 함, 이미 컴파일 시 다 읽음)
+```
+
+**부하 적응의 실제 메커니즘**:
+```
+[정상 부하]            Tier 0 → 3 → 4
+[C2 큐 적당히 길어짐]  Tier 0 → 2 → 4   (Tier 3 건너뜀)
+[C2 큐 매우 길어짐]    Tier 0 → 1       (trivial 메서드는 막고 끝)
+[Code Cache 빠듯]      Tier 0 유지       (컴파일 자체 거부)
+```
+
+→ TieredThresholdPolicy가 큐 길이 + Code Cache 상태 보고 path 동적 선택.
+
+#### 2.7.8 운영 관점 — `-XX:+PrintCompilation` 에서 Tier 보기
+
+```
+   142    3     %   4       MyApp::hotLoop @ 12 ...   ← Tier 4 OSR (`%`)
+   150    4         4       MyApp::hotMethod ...      ← Tier 4 정상
+   151    5         3       MyApp::profiling ...      ← Tier 3 정상
+   152    6         1       MyApp::getter (4 bytes)   ← Tier 1, trivial
+   153    7         2       MyApp::small_helper ...   ← Tier 2! C2 큐 막힘 의심
+```
+
+| Tier가 자주 보임 | 의미 |
+|---|---|
+| Tier 4 ↑↑ | 정상 (warmup 완료, hot method가 C2까지 도달) |
+| Tier 1 많음 | 정상 (자바 코드에 getter/setter류 많음) |
+| Tier 2 ↑↑ | **C2 큐 압박** → CICompilerCount 부족 or burst |
+| Tier 3 stuck (Tier 4로 안 올라감) | Profile 불안정 (deopt 반복?) or C2 컴파일 실패 |
+
+#### 2.7.9 한 줄씩 종합
+
+| 용어 | 한 줄 |
+|---|---|
+| **MDO (Method Data Object)** | 한 메서드의 profile 통계 buffer. **Metaspace** 거주. Method._method_data로 매달림. cold 메서드는 없음 (lazy alloc) |
+| **MDO Writer** | Tier 0 인터프리터의 inline profile 코드 + Tier 3 C1 nmethod 안의 instrumented counter. 같은 MDO에 둘 다 write |
+| **MDO Reader** | TieredThresholdPolicy (승격 결정) + C1/C2 컴파일러 (컴파일 입력 snapshot) |
+| **MDO ≠ nmethod** | MDO는 데이터(Metaspace), nmethod는 코드(Code Cache). MDO는 평생 안 옮겨감. C1/C2가 MDO를 read해서 nmethod를 만들 뿐 |
+| **Profiled segment 정체** | 안에 들어있는 건 **C1 nmethod (Tier 2, 3)**. MDO 자체가 아님. 이 nmethod들이 native code 안에 MDO 갱신 코드를 instrumented하고 있어서 "Profiled"라 부름 |
+| **Tier 1** | C1 no profile. Trivial 메서드 (getter)용 **종착역**. Tier 4로 승격 안 됨. Non-profiled segment 배치 |
+| **Tier 2** | C1 limited profile (counter만). **C2 큐 막힘 fallback**. Tier 4로 결국 transit. Profiled segment 배치 |
+| **Tier 1·2 보이는 의미** | Tier 1 많음 = 정상 (getter 많음). Tier 2 많음 = C2 처리 못 따라감, CICompilerCount/큐 확인 |
 
 ---
 
@@ -573,6 +933,8 @@ Graal:
 - [ ] 0장 마인드맵을 종이에 1분 이내로 그릴 수 있다 (루트 + 5가지 + 키워드 3개)
 - [ ] 가지 ① WHY: 3가지 이유 (profile-guided, warmup+peak, 부하 적응) 말한다
 - [ ] 가지 ② WHAT: Tier 0~4 표 그리고 일반 흐름 (0→3→4) 설명한다
+- [ ] 가지 ② 용어: MDO가 Metaspace에 있고 Code Cache로 옮겨가지 않는다는 점을 설명한다 (writer/reader, MDO≠nmethod)
+- [ ] 가지 ② 용어: Tier 1(trivial 종착) vs Tier 2(C2 큐 막힘 fallback) 차이를 말한다 + 각자 어느 segment에 배치되는지
 - [ ] 가지 ③ HOW: Compile Broker 구조 그림 (큐 + CompilerThread 풀) 그린다
 - [ ] 가지 ③ HOW: Method._code의 atomic patch 안전성 설명한다
 - [ ] 가지 ③ HOW: TieredThresholdPolicy의 `scale_for_load` 의사 코드 작성한다

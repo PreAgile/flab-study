@@ -135,6 +135,187 @@ iadd template (의사 코드):
 
 HotSpot은 성능을 위해 구현 복잡도(CPU별 asm) 감수.
 
+### 1.6 핵심 용어 깊이 사전
+
+> 1.2~1.4에서 쓴 용어들의 본질을 한 자리에 모은다. 백지 설명 시 면접관이 "그게 정확히 뭐냐"고 파고들 때를 위한 두 번째 layer.
+
+#### 1.6.1 Opcode와 Template — 가장 밑바닥부터
+
+```
+[bytecode 세계 (JVM 가상 ISA)]      [template 세계 (CPU 명령어)]
+━━━━━━━━━━━━━━━━━━━━              ━━━━━━━━━━━━━━━━━━━
+
+opcode 0x1B  iload_1     ─────→   iload_template (asm ~10줄)
+opcode 0x60  iadd        ─────→   iadd_template  (asm ~10줄)
+opcode 0x3E  istore_3    ─────→   istore_template
+opcode 0xB6  invokevirt  ─────→   invokevirtual_template (asm ~100줄)
+...
+
+opcode = 1바이트 명령어 번호 (.class 파일 안)
+template = 그 opcode를 처리하는 native asm 블록 (Code Cache 안)
+```
+
+→ bytecode 한 줄 실행 = "그 opcode의 template으로 점프해 그 안의 asm 명령들을 CPU가 실행".
+
+#### 1.6.2 Direct vs Indirect Jump — destination을 언제 아나
+
+```asm
+; Direct branch — 명령어 안에 destination 박힘
+jmp 0x40001000        ; CPU가 명령 보는 순간 "어디 갈지" 앎
+
+; Indirect branch (register) — 실행해봐야 destination 앎
+jmp rax               ; rax 값을 알아야 함
+
+; Indirect branch (memory) — Template Interpreter의 dispatch
+jmp [r14 + rbx*8]     ; r14+rbx*8 메모리 내용을 읽어야 destination 결정
+```
+
+인터프리터의 dispatch가 indirect를 쓸 수밖에 없는 이유: 다음에 실행할 코드가 bytecode에 따라 매번 달라짐 → 하드코딩 불가.
+
+#### 1.6.3 Branch Predictor와 BTB — CPU의 "다음 어디 갈지" 회로
+
+```
+[CPU pipeline 배경]
+fetch → decode → rename → dispatch → execute → ... → writeback
+한 명령어가 10~20단계 거치는 동안 다음 명령어들도 동시에 진행
+→ 명령어 흐름이 끊기지 않을 때 최고 성능
+
+[branch 만나면 문제]
+T1: fetch JMP
+T2: ?? 다음 어디로 갈지 모름 ??
+    → pipeline 비움 (수십 사이클 손해)
+
+[Branch Predictor가 해결]
+T2: predictor 추측 "예전 패턴 보니 X로 갈 듯" → fetch X (예측 fetch)
+T10: JMP 실제 결과
+     ├─ 맞음 → 그대로 진행 (0 손해)
+     └─ 틀림 → pipeline 비우고 재시작 (10~20 사이클 = misprediction penalty)
+```
+
+BTB (Branch Target Buffer) — CPU 안의 작은 SRAM:
+
+```
+Branch 주소         최근 target          신뢰도
+─────────────       ──────────           ─────
+0x40010050 (iload jmp)  0x40020000 (iadd)    높음
+0x40010100 (iadd jmp)   0x40020100 (istore)  높음
+```
+
+→ **각 branch 주소마다 자기만의 history**. 같은 branch가 같은 target을 반복하면 hit.
+
+#### 1.6.4 Inline Dispatch — "다음으로 가는 jump"가 각 template 끝에 박혀있음
+
+```
+[Loop dispatch — switch 방식]
+0x1000: opcode 읽기 + indirect jmp     ← 모든 dispatch 여기 통과
+0x2000: handle_iadd ... ret             ← 끝나면 0x1000으로 돌아감
+0x3000: handle_istore ... ret
+
+흐름: iadd → ret → 0x1000(중앙) → indirect jmp → istore
+      ★ 한 곳을 거쳐감 = "dispatch loop"
+      ★ BTB 한 entry가 ~200 target 학습 불가 → MISS
+
+[Inline dispatch — Template 방식]
+0x2000: iadd_template
+          pop/add ...
+          ★ 다음으로 가는 jump가 여기 박혀있음 (inline)
+          movzx rbx, [r13]
+          jmp [r14 + rbx*8]
+
+0x3000: istore_template
+          ...
+          ★ 여기에도 똑같이 박혀있음
+          jmp [r14 + rbx*8]
+
+흐름: iadd → 끝의 jmp → istore (직접)
+      ★ 중간 거점 없음 = "no dispatch loop"
+      ★ BTB 각 jump site가 자기 context 패턴 학습 ("iadd 다음엔 istore")
+```
+
+**"Inline"의 정확한 뜻**: 별도 함수/loop를 거치지 않고, **dispatch 코드가 각 template 끝마다 복사되어 들어가있음**. 함수 call도 ret도 없음.
+
+#### 1.6.5 ASM 손작성과 Register Caching 3종
+
+**"ASM 손작성" = 사람이 어셈블리어를 직접 작성**. 일반 C 컴파일러는 함수마다 register 할당을 다시 결정 → "프로그램 전체에서 rax는 TOS다" 같은 영구 컨벤션 못 만듦. HotSpot은 이걸 하기 위해 손작성 감수.
+
+| 캐싱 대상 | 영구 register | 절감 |
+|---|---|---|
+| **TOS** (Top Of Stack) | `rax` | iadd 같은 연산에서 push/pop 한 쌍을 register 연산으로 → memory access ½ |
+| **BCP** (Bytecode Pointer) | `r13` | 다음 opcode 읽을 때 BCP를 memory에서 load/store 안 함 → memory access 2회 절감 |
+| **Dispatch table base** | `r14` | 매 dispatch마다 64bit immediate load 절감 + instruction 짧음 |
+
+x86_64 인터프리터 register 전체 컨벤션:
+```
+rax → TOS                    rbp → frame pointer
+r13 → BCP                    r15 → JavaThread*
+r14 → dispatch table base    rdx/rcx/rbx → 임시
+```
+
+→ 인터프리터 평생 이 컨벤션 유지. **이게 일반 컴파일러가 못 하는 최적화의 본질**.
+
+#### 1.6.6 dispatch_table vs vtable/itable — 헷갈리지 말 것
+
+같은 "indirect jump + table"이지만 **완전히 다른 layer**의 문제.
+
+| | dispatch_table | vtable / itable |
+|---|---|---|
+| **언제** | bytecode 한 개 실행할 때마다 | `invokevirtual` / `invokeinterface` 처리 안에서 한 번 |
+| **무엇** | "다음 opcode 처리 코드 주소" | "이 객체의 그 메서드 주소" |
+| **크기** | 256 entries (opcode 256개) | 클래스의 메서드 개수 |
+| **위치** | Code Cache의 Non-method segment | 각 클래스 metadata |
+
+```
+실행 흐름의 한 토막:
+   aload_0          ← Template dispatch
+   iload_1          ← Template dispatch
+   invokevirtual #5 ← Template dispatch로 invokevirtual_template 진입
+                       │
+                       │ ★ 그 template 안에서 vtable lookup ★
+                       │   (객체 → klass → klass.vtable[index] → 메서드 주소)
+                       │
+                       └── 끝에서 다시 Template dispatch → 다음 opcode
+   istore_2         ← Template dispatch
+```
+
+→ **dispatch_table은 매 bytecode마다, vtable은 invokevirtual이 나올 때만**. 다른 계층.
+
+#### 1.6.7 iadd template 한 줄 한 줄 — 6개 용어가 한 자리에
+
+```asm
+iadd_template:                     ; ← template (1.6.1)
+                                   ; ← 사람이 직접 손작성 (1.6.5)
+
+    pop  rdx                       ; 두 번째 operand
+    add  rax, rdx                  ; rax(=TOS caching, r-1.6.5) += rdx
+                                   ; ← push 없음, rax가 그대로 새 TOS
+
+    movzx rbx, byte ptr [r13]      ; r13(=BCP caching, 1.6.5)에서
+                                   ;   다음 opcode(1.6.1) 읽기
+    inc  r13                       ; BCP++
+    jmp  [r14 + rbx*8]             ; r14(=dispatch table base caching, 1.6.5)
+                                   ; ← 이 jmp가 indirect jump (1.6.2)
+                                   ; ← 각 template 끝의 inline dispatch (1.6.4)
+                                   ; ← BTB의 한 entry가 자기 context 학습 (1.6.3)
+                                   ;   "iadd 다음엔 자주 istore"
+```
+
+→ 5줄의 asm 안에 7개 개념이 응축. **dispatch 한 번 = 3~5 사이클**. 일반 switch 인터프리터 ~15 사이클 대비 3배 빠른 본질.
+
+#### 1.6.8 한 줄씩 종합
+
+| 용어 | 한 줄 |
+|---|---|
+| **Opcode** | Bytecode 한 줄의 1바이트 명령어 번호. JVM 명세에 ~200개 |
+| **Template** | Opcode 하나를 처리하는 native asm 블록. 부팅 시 generate되어 Non-method segment에 영구 |
+| **ASM 손작성** | 사람이 직접 어셈블리어 작성. C 컴파일러가 못 하는 "register 영구 할당" 트릭을 위해 필수 |
+| **Indirect jump** | destination이 register/memory에 있어 실행해봐야 어디 갈지 아는 점프. 인터프리터 dispatch에 필수 |
+| **Branch predictor** | CPU 회로. branch 만나면 BTB의 history로 미리 fetch. 맞으면 이득, 틀리면 10~20 사이클 penalty |
+| **Inline dispatch** | "다음 opcode로 가는 jump"가 각 template 끝마다 복사되어 박혀있음. 별도 loop/함수 없음 |
+| **TOS caching (rax)** | Operand stack 맨 위 값을 rax에 영구. push/pop memory access ½ |
+| **BCP caching (r13)** | 현재 bytecode pointer를 r13에 영구. dispatch마다 BCP load/store 2회 절감 |
+| **Dispatch table base (r14)** | Dispatch table 주소를 r14에 영구. 매 dispatch마다 64bit immediate load 절감 |
+| **dispatch_table ≠ vtable** | 전자는 매 bytecode dispatch용 (Non-method segment), 후자는 invokevirtual 안의 메서드 lookup용 (klass metadata). 계층 다름 |
+
 ---
 
 ## 2. 가지 ②: WHAT — 2단계 구조 (Generation + Dispatch)
