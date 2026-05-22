@@ -9,9 +9,216 @@
 
 ## 이 문서의 사용법
 
-1. **0장 마인드맵을 먼저 외운다** — 루트 + 4가지 + 키워드.
-2. **1~4장을 순서대로 학습한다** — 각 장이 마인드맵의 한 가지에 대응.
-3. **5장 면접 워크플로우**, **6장 꼬리질문**.
+1. **첫 만남이면 "EA 5분 입문" Q&A 먼저** — EA를 처음 들으면 마인드맵부터 가지 말고 6개 질문에 답해 본다.
+2. **0장 마인드맵을 외운다** — 루트 + 4가지 + 키워드.
+3. **1~4장을 순서대로 학습한다** — 각 장이 마인드맵의 한 가지에 대응.
+4. **5장 면접 워크플로우**, **6장 꼬리질문**.
+
+---
+
+## EA 5분 입문 — 처음 만나는 6가지 질문
+
+> 마인드맵을 보기 전에 "EA가 도대체 뭔지" 6개 질문으로 먼저 잡는다. 한 줄짜리 intro만 읽고는 "Heap에 할당되는 객체도 있고 아닌 객체도 있다는 건가? 그럼 어디에?" 같은 질문이 자연스럽게 생기는데, 그 의문을 차례로 풀어 본다.
+
+### Q1. EA가 정확히 뭔가
+
+> **Escape Analysis (EA) = C2 컴파일러가 "이 객체가 메서드 밖으로 새어 나가나(escape)?"를 정적 분석으로 판단하는 최적화 분석.** 답에 따라 객체를 아예 안 만들거나, lock을 제거하거나, 동기화를 무시할 수 있다.
+
+→ EA는 **분석** (analysis). 결과를 보고 적용하는 **변환**은 별도 (Scalar Replacement, Lock Elision 등). 둘은 한 세트.
+
+### Q2. 어떤 객체가 대상인가 — `.java`의 `new` 모두?
+
+> **네, `.java`에서 `new X()`로 만든 모든 객체가 분석 대상.**
+
+```java
+void example() {
+    Point p = new Point(3, 4);             // ← 이 new가 EA 분석 대상
+    StringBuilder sb = new StringBuilder(); // ← 이것도
+    int[] arr = new int[10];                // ← 이것도
+    ...
+}
+```
+
+→ 우리가 `.java`에 쓴 `new` 키워드 **모두**. JVM이 컴파일 시점에 각 `new`에 대해 escape 여부를 분석.
+
+### Q3. Escape의 3단계 — 얼마나 멀리 나가나
+
+```
+[NoEscape]     ─── 메서드 안에서만 살아있음, 절대 밖으로 안 나감
+                    예: 지역변수, 다른 메서드에 전달 안 함, 필드 저장 안 함
+                    → ★ 최강 최적화 가능
+
+[ArgEscape]    ─── 다른 메서드의 인자로만 전달됨 (그 메서드 안에서 사용)
+                    callee가 inline되면 NoEscape로 격상 가능
+                    → 부분 최적화 가능
+
+[GlobalEscape] ─── 메서드 밖으로 정말 나감 (return, static field, 다른 스레드 등)
+                    → 최적화 못 함. 그냥 Heap에 할당.
+```
+
+**구체 예시 3개**:
+
+```java
+class Example {
+    static List<Point> globalList = new ArrayList<>();
+
+    // ─── ① NoEscape ───
+    int computeNoEscape() {
+        Point p = new Point(3, 4);
+        return p.x + p.y;             // 메서드 안에서만 → NoEscape
+    }
+
+    // ─── ② ArgEscape ───
+    int computeArgEscape() {
+        Point p = new Point(3, 4);
+        return helper(p);             // 다른 메서드 인자로 → ArgEscape
+    }
+    int helper(Point p) { return p.x * 2; }
+    // helper가 inline되면 NoEscape로 격상
+
+    // ─── ③ GlobalEscape ───
+    Point computeReturnEscape() {
+        Point p = new Point(3, 4);
+        return p;                      // ★ return으로 밖으로 → GlobalEscape
+    }
+
+    void computeFieldEscape() {
+        Point p = new Point(3, 4);
+        globalList.add(p);            // ★ static field로 → GlobalEscape
+    }
+}
+```
+
+### Q4. 각 단계의 결과 — 운명이 어떻게 달라지나
+
+```
+NoEscape    →   ★ Scalar Replacement (객체 자체를 안 만들고 field만 register로)
+                ★ Lock Elision (synchronized 무시)
+                → Heap allocation 0회 + GC 부담 0
+
+ArgEscape   →   Inlining 후 NoEscape 가능성 검사
+                inline 못 하면 → 일부 lock elision 정도만
+
+GlobalEscape →  최적화 불가
+                → Heap allocation (정상)
+                → GC 대상
+```
+
+→ **같은 `new`인데 escape 여부에 따라 운명이 완전히 달라짐**. 이게 EA의 본질.
+
+### Q5. 어디에 할당되나 — "Heap? Stack? 아무 데도?"
+
+질문의 핵심. **정확히 답하면**:
+
+```
+[교과서 답 — 대부분 자료]
+NoEscape 객체 → Stack에 할당 (Stack Allocation)
+                "stack allocation으로 GC 부담 없음"
+
+[HotSpot의 실제 — 더 정확함]
+NoEscape 객체 → 객체 자체가 사라짐 (Scalar Replacement)
+                필드들이 분해되어 register 또는 stack slot으로
+                "객체"라는 개념이 native code에 안 남음
+```
+
+**구체적으로** — 같은 코드가 EA 적용 전후로 다른 native code:
+
+```java
+// 자바 소스
+void example() {
+    Point p = new Point(3, 4);
+    System.out.println(p.x + p.y);
+}
+```
+
+```
+[EA 없이 (또는 escape) — Heap 할당]
+  new Point → heap에 16바이트 alloc
+  p.x = 3 (heap write), p.y = 4 (heap write)
+  load p.x, load p.y (heap read)
+  add, print
+
+[EA 적용 (NoEscape → Scalar Replacement)]
+  ★ new 자체가 사라짐
+  ★ p.x, p.y가 register 변수가 됨:
+     r1 = 3
+     r2 = 4
+     r3 = r1 + r2
+     print r3
+  ★ Heap allocation 0회. Point 객체가 존재하지 않음.
+```
+
+→ "stack에 할당"이 아니라 **"객체가 사라지고 필드만 변수처럼 남음"**. 객체 개념이 native code에서 증발.
+
+→ **그래서 "Java는 모든 객체가 heap"이 절반 거짓**. NoEscape 객체는 객체로 존재하지 않으니 heap도 stack도 아닌 **register/operand**.
+
+### Q6. 어떻게 굴러가나 — 단계별 흐름
+
+```
+[T+0] 자바 코드
+  void hot() { Point p = new Point(3, 4); return p.x + p.y; }
+   ↓
+[T+컴파일 시점] C2가 컴파일 시작
+   ↓
+[EA 분석 단계]
+  Sea-of-Nodes 그래프에서 new Point 노드 추적
+  그 객체의 모든 outgoing edge(사용처) 확인:
+    · p.x 읽기 (메서드 안)
+    · p.y 읽기 (메서드 안)
+    · return하지 않음
+    · 다른 메서드에 전달 안 함
+    · static field 저장 안 함
+  → 결론: NoEscape
+   ↓
+[Scalar Replacement 변환 (PhaseMacroExpand)]
+  new Point 노드 → 제거
+  Point의 field x, y → 별도 SSA 변수로 분해
+  field 접근 → 변수 접근으로 치환
+   ↓
+[Native code 생성]
+  mov r1, 3           ; p.x 대체 변수
+  mov r2, 4           ; p.y 대체 변수
+  add r3, r1, r2
+  ret r3
+  ★ new 호출 없음, heap 접근 없음, GC root 등록 없음
+```
+
+### Q+. 의사결정 흐름을 한 그림으로
+
+```
+            void hot() { Point p = new Point(3, 4); ... }
+                              │
+                              ▼
+              [C2 컴파일 시 EA 분석]
+                              │
+            ┌─────────────────┼─────────────────┐
+            ▼                 ▼                 ▼
+       [NoEscape]        [ArgEscape]      [GlobalEscape]
+        │                     │                 │
+        ▼                     ▼                 ▼
+   Scalar Replacement  Inlining 시도      Heap 할당 (정상)
+   (객체 사라짐,        실패 시 일부      ↓
+    field만 register)   lock elision     GC 대상
+   Lock Elision
+   GC 부담 0
+        │                     │                 │
+        ▼                     ▼                 ▼
+   [native code]          [native code]      [native code]
+   add r1, r2 (직접)     일부 heap alloc    new Point() 호출 그대로
+```
+
+### Q&A 6개 핵심 한 줄씩
+
+| 질문 | 한 줄 답 |
+|---|---|
+| **EA가 뭔가** | C2가 "이 객체가 메서드 밖으로 새어 나가나?" 정적 분석. 답에 따라 객체를 안 만들거나 lock 제거 |
+| **`.java` 객체 대상?** | 네, `new X()` 모두 분석 대상 |
+| **Escape 차이?** | NoEscape (안 나감) / ArgEscape (인자만) / GlobalEscape (밖으로). 결과가 완전히 다름 |
+| **Heap만 가는 게 아닌가?** | NoEscape 객체는 native code에 없음 — heap도 stack도 아니라 **register/operand**. C2가 객체를 "분해"해버림 |
+| **Stack allocation?** | 교과서엔 그렇게 적힘. HotSpot 실제는 Scalar Replacement — 객체가 아예 사라짐 |
+| **어떻게 굴러가나** | Sea-of-Nodes에서 객체 노드의 모든 사용처 추적 → escape 판정 → NoEscape면 new 노드 제거 + field를 SSA 변수로 분해 |
+
+→ 여기까지 이해했으면 이제 0장 마인드맵으로 가서 면접용 구조를 외울 준비가 됨.
 
 ---
 
