@@ -188,6 +188,177 @@ HeapWord* allocate(size_t size) {
 
 큰 객체(TLAB보다 크거나 G1 region의 절반 이상 = **Humongous**)는 TLAB 우회 + 가능하면 Old gen 직접.
 
+#### 2.4.1 헷갈리기 쉬운 오해 — TLAB은 Heap 밖이 아니다
+
+> "TLAB은 Heap이랑 다른 영역인가?"
+
+**아니다. TLAB은 Heap → Young Generation → Eden 안에 있는 *작은 구획*이다.** 따로 분리된 메모리 공간이 아니라, Eden을 스레드별로 잘라 나눠준 칸일 뿐.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ [Heap]  ─── 모든 Java 객체가 사는 영역 (GC 관리)                       │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │ Young Generation                                                 │ │
+│  │  ┌────────────────────────────────────────────────┐  ┌────┬───┐ │ │
+│  │  │ Eden                                            │  │S0  │S1 │ │ │
+│  │  │                                                  │  │    │   │ │ │
+│  │  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────┐ │  │    │   │ │ │
+│  │  │  │ TLAB     │ │ TLAB     │ │ TLAB     │ │free│ │  │    │   │ │ │
+│  │  │  │ Thread A │ │ Thread B │ │ Thread C │ │    │ │  │    │   │ │ │
+│  │  │  └──────────┘ └──────────┘ └──────────┘ └────┘ │  │    │   │ │ │
+│  │  │       ↑                                          │  │    │   │ │ │
+│  │  │   ★ TLAB은 Eden을 스레드별로 잘라준 칸             │  │    │   │ │ │
+│  │  └────────────────────────────────────────────────┘  └────┴───┘ │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐ │
+│  │ Old Generation                                                   │ │
+│  └─────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+→ TLAB은 "독립된 메모리 공간"이 아니라 **"Eden의 한 슬라이스"**. Heap 안에 있으므로 GC도 Eden과 같은 사이클로 정리된다.
+
+#### 2.4.2 "Bump the pointer"의 의미 — 단어 그대로의 동작
+
+> **Bump the pointer = "할당 포인터 한 개를 객체 크기만큼 그냥 밀어올리는 것"**
+
+free list 검색도, fit 찾기도, lock도 없음. 그저 `top += size`.
+
+```
+[Thread A의 TLAB — 할당 직전]
+
+start                top                    end
+  ↓                   ↓                      ↓
+  ┌──────────────────┬──────────────────────┐
+  │ ███ 이미 할당됨 ███│ ░░░░░ 빈 공간 ░░░░░│
+  └──────────────────┴──────────────────────┘
+                     ▲
+                     "다음 객체는 여기서 시작"
+
+
+[ new Foo() — size=24바이트 호출 ]
+
+  Step 1: obj = top              ← 새 객체 주소는 top
+  Step 2: new_top = top + 24      ← top을 24 밀어올림
+  Step 3: top = new_top           ← 갱신
+
+
+[할당 직후]
+
+start          old_top  new_top              end
+  ↓               ↓        ↓                  ↓
+  ┌──────────────┬────────┬──────────────────┐
+  │ ███ 기존 ███│██ Foo ██│ ░░░ 남은 빈공간 ░░│
+  └──────────────┴────────┴──────────────────┘
+                ▲          ▲
+              반환된       "다음 객체는
+              obj 주소      여기서 시작"
+```
+
+→ 단 3개 instruction. 메모리 어딘가를 검색하지도, 비교하지도, 정렬하지도 않음. **그냥 포인터 하나를 위로 민다(bump)** — 그래서 이름이 *bump the pointer*.
+
+#### 2.4.3 왜 가능한가 — Free List 방식과 비교
+
+```
+[C++ new / malloc — Free List 방식]
+
+  freelist_head
+       │
+       ▼
+  ┌────┐    ┌─────────┐    ┌────┐    ┌─────────────┐
+  │16B │───►│  64B    │───►│32B │───►│   128B      │───► NULL
+  └────┘    └─────────┘    └────┘    └─────────────┘
+
+  24B 할당 요청:
+    ① 리스트 순회 — 16B? 부족. 64B? 가능.
+    ② 64B 블록을 24B + 40B로 split.
+    ③ 24B 반환, 40B는 다시 리스트에 삽입.
+    ④ 멀티스레드면 lock/CAS로 동기화.
+  → 수십~수백 instruction. 캐시 미스 잦음.
+
+
+[JVM TLAB — Bump the Pointer]
+
+  start ──────── top ──────────────── end
+                  │
+                  ▼ size만큼 밀어올림
+                  top'
+  → 3~5 instruction. 캐시 친화적 (연속 메모리).
+  → free? 안 함. TLAB 단위로 통째 GC가 회수.
+```
+
+**두 가지 트릭으로 가능**:
+- **TLAB은 스레드 전용** → 다른 스레드가 못 건드림 → lock 무필요
+- **객체별 free를 안 함** → GC가 TLAB/Eden을 통째 비우고 살아남은 객체만 옮김 → free list 자료구조 자체가 불필요
+
+→ 결과적으로 TLAB 안은 항상 "연속된 빈 공간 한 덩어리"가 보장되고, 할당이 *포인터 산수*로 끝난다.
+
+#### 2.4.4 어셈블리 의사코드
+
+```asm
+; new Foo() — Foo의 instance size가 r9에 있다고 가정
+; r15 = current thread base
+
+mov   rax, [r15 + tlab_top_off]      ; obj = top
+lea   rdx, [rax + r9]                ; new_top = top + size
+cmp   rdx, [r15 + tlab_end_off]      ; if new_top > end → slow path
+ja    slow_alloc
+mov   [r15 + tlab_top_off], rdx      ; top = new_top
+; rax = 새 객체 주소
+```
+
+→ **5줄 안짝**. 분기 예측 + cache hit 가정하면 ~수 ns. Java의 `new`가 C++ `new`보다 빠를 수 있는 비밀이 이 한 줄.
+
+#### 2.4.5 Slow Path — TLAB이 가득 차면
+
+```
+if (top + size > end) → bump 실패
+     │
+     ▼
+  slow_alloc:
+     ① 옛 TLAB의 남은 작은 공간은 dummy filler 객체로 채움
+        (GC가 "할당된 곳까지가 연속 영역"이라 가정하기 때문)
+     ② Eden의 shared pool에서 새 TLAB 영역 확보 (CAS or 짧은 lock)
+     ③ 새 TLAB로 fast path 재시도
+
+  ★ 이 비용은 평균 새 객체 ~100~1000개당 한 번.
+  ★ amortized 비용은 여전히 거의 무료.
+
+[큰 객체 — TLAB보다 큼]
+  → TLAB 우회, Eden shared portion에 직접 alloc (lock/CAS 발생)
+  → G1 region의 ~50% 이상이면 Humongous로 Old gen 직접
+```
+
+#### 2.4.6 운영 지표
+
+```bash
+java -XX:+PrintTLAB -XX:+UnlockDiagnosticVMOptions ... -jar app.jar
+```
+
+핵심 지표:
+- **refills** — TLAB을 새로 받은 횟수. 너무 많으면 TLAB이 작음
+- **waste** — 옛 TLAB의 남은 자투리로 낭비된 메모리. 너무 크면 TLAB이 큼
+- **slow allocs** — TLAB 우회한 횟수 (큰 객체). 많으면 거대 객체 자주 만드는 코드
+
+```bash
+# JFR로 정밀 추적
+jcmd <pid> JFR.start name=alloc settings=profile duration=60s
+jfr print --events jdk.ObjectAllocationInNewTLAB,jdk.ObjectAllocationOutsideTLAB alloc.jfr
+# OutsideTLAB이 자주 보이면 큰 객체 다수 → 코드 audit
+```
+
+#### 2.4.7 시니어 한 줄
+
+| 질문 | 한 줄 답 |
+|---|---|
+| TLAB이 어디 있나 | Heap → Young Generation → Eden 안의 작은 구획. Heap 밖이 아님 |
+| Bump the pointer가 뭐 | 할당 포인터(`top`)를 객체 크기만큼 그냥 더해서 새 객체 주소로 쓰는 동작 |
+| 왜 빠른가 | free list 검색·split·merge 없음, 동기화 없음, 캐시 친화적 |
+| 왜 가능한가 | TLAB은 스레드 전용 + 객체별 free 없이 GC가 일괄 정리 → 자료구조 단순화 |
+| 시니어 한 줄 | "TLAB은 Eden의 스레드별 슬라이스. Bump the pointer로 할당을 3~5 instruction 포인터 산수로 환원 — 자유 블록 관리를 GC에 위임함으로써 가능" |
+
 ### 2.5 "메모리는 다 Heap이다?" — 아니다
 
 > JVM이 OS에게 받는 메모리는 크게 셋:
@@ -431,7 +602,8 @@ JNI를 대체하려는 시도. **Foreign Function & Memory API** (JDK 22 stable,
 - [ ] 0장 마인드맵을 종이에 1분 이내로 그릴 수 있다 (루트 + 4가지 + 각 키워드 3개)
 - [ ] 가지 ① ClassLoader: 4종 계층 + 부모 위임 + 3단계(Load/Link/Init)를 그린다
 - [ ] 가지 ② Runtime Data Areas: per-process vs per-thread 분리 그림을 그린다
-- [ ] 가지 ② TLAB의 bump-the-pointer 코드 흐름을 설명한다
+- [ ] 가지 ② TLAB의 위치(Eden 안의 스레드별 슬라이스)와 bump-the-pointer 의미를 그림으로 설명한다
+- [ ] 가지 ② TLAB이 왜 빠른가 — Free list 방식과 비교, 스레드 전용 + GC 일괄 정리 두 트릭을 말한다
 - [ ] 가지 ② "메모리는 다 Heap이다"가 왜 틀린지 8가지 영역으로 답한다
 - [ ] 가지 ③ Execution Engine과 ③-b GC의 책임이 다름을 명확히 한다
 - [ ] 가지 ③ Code Cache 3분할(non-profiled/profiled/non-methods) 의미를 설명한다
