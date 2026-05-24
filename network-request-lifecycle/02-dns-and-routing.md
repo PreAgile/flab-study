@@ -79,6 +79,695 @@
 
 ---
 
+## 🌐 일반 케이스 풀버전 — `www.google.com` 요청이 어떻게 IP가 되어 라우터를 타고 가는가
+
+> 이 섹션은 이 문서 전체의 **메인 시나리오**다. 마인드맵(0장)이 "지도", 1~9장이 "각 지역 상세지도"라면 이 섹션은 "서울에서 부산까지 실제로 운전하는 풀 영상"이다.
+>
+> 사용자가 브라우저 주소창에 `www.google.com` 을 치고 Enter를 누른 그 순간부터, 첫 HTTP 응답이 화면에 그려지기 직전까지의 **모든 네트워크 사건**을 한 번에 따라간다. 시니어 후보자가 면접에서 "패킷 한 개가 어떻게 인터넷을 가로지르는가" 질문에 막힘없이 풀어내려면 이 시나리오를 백지에 그릴 수 있어야 한다.
+
+### 0.1 전체 한 장 그림 — 10단계 흐름
+
+```
+[User] 브라우저 주소창에 "www.google.com" 입력 + Enter
+   │
+   │ ┌───────────────────────────────────────────────────────────┐
+   │ │  Part A — hostname을 IP로 바꾸기 (DNS resolution)         │
+   │ ├───────────────────────────────────────────────────────────┤
+   │ │ ① 브라우저: URL 파싱 / IDN 검증 / HSTS preload 확인       │
+   │ │ ② 브라우저 in-memory DNS 캐시 조회                        │
+   │ │ ③ OS 수준 resolver — /etc/hosts → nsswitch → cache        │
+   │ │ ④ Stub resolver가 UDP 53으로 recursive에 질의             │
+   │ │ ⑤ Recursive resolver의 8단계 풀버전:                       │
+   │ │     Root NS → .com TLD NS → google.com Auth NS            │
+   │ │     → A/AAAA/CNAME 결정 → DNSSEC 검증 → 캐시 + 응답       │
+   │ │ ⑥ A vs AAAA 의사결정 (Happy Eyeballs RFC 8305)            │
+   │ └───────────────────────────────────────────────────────────┘
+   │ ┌───────────────────────────────────────────────────────────┐
+   │ │  Part B — IP가 결정된 뒤 실제 패킷이 가는 길 (Routing)    │
+   │ ├───────────────────────────────────────────────────────────┤
+   │ │ ⑦ 호스트 routing table 조회 + ARP로 next-hop MAC 해석     │
+   │ │ ⑧ Hop별 라우터 forwarding — TTL 감소, BGP/OSPF 경로 선택  │
+   │ │ ⑨ Anycast로 가장 가까운 Google PoP에 도달                 │
+   │ │ ⑩ 응답 패킷이 역순(이지만 대칭은 아님)으로 돌아옴         │
+   │ └───────────────────────────────────────────────────────────┘
+   ▼
+[Google GFE — 가장 가까운 PoP의 front-end] 첫 TCP SYN-ACK 응답
+```
+
+> 핵심 통찰: **DNS는 한 번의 query/response가 아니다.** 클라이언트가 보는 건 1번 query지만, 실제로는 브라우저 캐시 → OS 캐시 → stub → recursive를 거쳐 recursive 내부에서 root/TLD/auth와 **다단계 대화**가 일어난다. 그리고 그렇게 얻은 IP는 **시작점일 뿐**, 호스트 라우팅 테이블과 hop별 BGP가 진짜 길을 결정한다.
+
+---
+
+### 0.2 단계 ①: 브라우저가 hostname을 분리
+
+사용자가 입력한 건 `www.google.com` 한 줄이지만, 브라우저는 이걸 **URL 파서**로 잘게 쪼갠다.
+
+```
+입력: "www.google.com"
+   │
+   ▼
+[브라우저 URL parser]
+   ├── scheme 없음 → 자동 보정: "https://" or "http://" 추정
+   ├── host: "www.google.com"
+   ├── port: 없음 → scheme 기본 (HTTPS=443)
+   ├── path: "/"
+   ├── query: 없음
+   └── fragment: 없음
+```
+
+**IDN (Internationalized Domain Name) 검증**:
+- hostname에 ASCII 외 문자가 있으면 **Punycode** (`xn--...`)로 변환해야 DNS에 보낼 수 있음. DNS 프로토콜 자체는 ASCII만 지원.
+- `www.google.com`은 전부 ASCII → punycode 변환 skip.
+- 한글 도메인 예: `한국.kr` → `xn--3e0b707e.kr`.
+- ★ 시니어 운영 관점: **homograph attack** — 키릴 문자 `аррӏе.com`이 시각적으로 `apple.com`처럼 보이게 만드는 공격. 브라우저는 IDN 표시 정책으로 의심스러우면 punycode 그대로 노출.
+
+**HSTS preload 확인** (`https://` 강제):
+- 브라우저는 빌드 시점에 **HSTS preload list**를 내장 (`chrome://net-internals/#hsts`).
+- `google.com`은 preload 등재 → 사용자가 `http://www.google.com`을 입력해도 브라우저가 **DNS 가기 전에** 스스로 `https://www.google.com`으로 rewrite.
+- 즉, **첫 HTTP 평문 요청이 아예 나가지 않음**. SSL strip 공격 무력화.
+
+```
+[브라우저 입력]
+   "www.google.com"
+        │
+        ▼
+   URL 파싱: scheme=?(없음), host=www.google.com, port=?, path=/
+        │
+        ▼
+   ┌─────────────────────────────┐
+   │  HSTS preload list 조회      │
+   │  google.com → 등재됨!         │
+   │  ⇒ scheme=https, port=443    │
+   └─────────────────────────────┘
+        │
+        ▼
+   "https://www.google.com/"  (이제부터 이 정규화된 URL로 진행)
+```
+
+**시니어 운영 관점**:
+- 사내 ALB/CDN 도메인을 HSTS preload에 등재하려면 1년 이상의 strict-transport-security 운영 이력 + 무중단 HTTPS 보장 필요. 한번 등재되면 **회수 시간 수개월** → MSP 이관/도메인 매각 시 발목.
+- 신규 서비스에서는 `Strict-Transport-Security: max-age=31536000; includeSubDomains` 부터 단계적으로.
+
+---
+
+### 0.3 단계 ②: 브라우저 in-memory DNS 캐시
+
+브라우저는 **자기 프로세스 안에서** 직전에 resolve한 hostname → IP 매핑을 잠깐 보관한다. OS 캐시를 거치는 비용조차 아끼는 것.
+
+```
+[Chrome 프로세스 메모리]
+   ┌───────────────────────────────────────────────┐
+   │  DNS in-memory cache (TTL 기반)                │
+   │  ──────────────────────────────────────────    │
+   │  www.google.com  → 142.250.196.132  TTL: 245s  │
+   │  www.naver.com   → 223.130.200.107  TTL: 30s   │
+   │  fonts.gstatic.com → 142.251.220.99  TTL: 88s  │
+   └───────────────────────────────────────────────┘
+            │
+            ▼
+       cache hit? → 즉시 IP 반환, 다음 단계 skip
+       cache miss → 단계 ③ (OS resolver)로
+```
+
+**브라우저별 위치/도구**:
+- Chrome/Edge: `chrome://net-internals/#dns` — 현재 캐시된 모든 hostname 목록 + TTL 잔여. "Clear host cache" 버튼.
+- Firefox: `about:networking#dns` — 같은 기능, 더 자세한 entry 정보.
+- Safari: 별도 UI 없음. mDNSResponder 캐시 flush로 우회.
+
+**TTL 처리 정책 (브라우저별 차이)**:
+- 브라우저는 **DNS TTL을 그대로 따르지 않을 수 있다**. Chrome은 보통 60초 ~ 수 분 사이로 캡 (보안+성능 trade-off). DNS rebinding 공격 방어 목적도 있음.
+- 즉, **auth NS가 TTL 1초로 주더라도 브라우저는 60초 동안 캐싱**할 수 있음. failover 설계 시 함정.
+
+**시니어 운영 관점**:
+- 운영 사고: "auth NS의 A 레코드를 바꿨는데 사내 PC가 옛 IP로 계속 붙는다" → OS 캐시 flush해도 안 풀리면 **브라우저 캐시 의심**. `chrome://net-internals/#dns`에서 "Clear host cache" + 탭 재로드.
+- 모바일 앱(Android/iOS)은 자체 HTTP 클라이언트(OkHttp/URLSession) 안에 별도 DNS 캐시. OS 캐시 무관.
+
+---
+
+### 0.4 단계 ③: OS 수준 DNS 해석
+
+브라우저 캐시 miss면 OS의 `getaddrinfo(3)` syscall로 내려간다. 이게 OS-level DNS의 진입점.
+
+```
+[브라우저 프로세스]
+   getaddrinfo("www.google.com", "443", &hints, &result)
+        │
+        ▼
+[glibc / libc resolver (Linux) — 또는 SCDynamicStore (macOS)]
+   │
+   │ /etc/nsswitch.conf 의 hosts 순서 따름
+   │   예: hosts: files mdns4_minimal dns
+   │
+   ├── [a] files: /etc/hosts 먼저 확인
+   │       127.0.0.1   localhost
+   │       10.0.0.5    db.internal
+   │       ★ 일치하면 즉시 반환, DNS 거치지 않음 (override 가능)
+   │
+   ├── [b] mdns: 로컬 네트워크의 .local 도메인 (Bonjour/Avahi)
+   │
+   └── [c] dns: 진짜 DNS 시작
+           │
+           ▼
+       OS resolver cache (systemd-resolved / nscd / mDNSResponder)
+           │
+           │ hit → 반환
+           │ miss → stub resolver로 (단계 ④)
+           ▼
+       /etc/resolv.conf 의 nameserver 읽음
+```
+
+**플랫폼별 캐시 데몬**:
+- **Linux (systemd 환경)**: `systemd-resolved` (`127.0.0.53:53` 로컬 stub) — `resolvectl statistics`, `resolvectl flush-caches`.
+- **Linux (구식) / 컨테이너 이미지**: `nscd` 또는 캐시 없음. ★ 컨테이너에서 nscd 미설치면 **매 syscall마다 DNS** → 폭주 원인.
+- **macOS**: `mDNSResponder` — `sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`.
+- **Windows**: DNS Client 서비스 — `ipconfig /displaydns`, `ipconfig /flushdns`.
+
+**`/etc/hosts`의 힘**: DNS보다 **무조건 우선** (nsswitch.conf의 `hosts: files dns`에서 files가 먼저). 운영 사고에서 "지금 당장 이 호스트만 다른 IP로 보내야 한다"의 가장 빠른 처방. ★ Kubernetes Pod의 `/etc/hosts`는 Pod 재생성 시 사라짐 → `spec.hostAliases`로 선언적 관리.
+
+**`/etc/nsswitch.conf` 순서가 왜 중요한가**: `hosts: files mdns4_minimal [NOTFOUND=return] dns` — `[NOTFOUND=return]`이 있으면 mdns가 NOTFOUND 응답 시 dns로 안 넘어감 → 잘못 설정하면 외부 hostname 안 풀림. 일부 컨테이너는 nsswitch.conf 없음 → glibc가 dns만 시도.
+
+**`/etc/resolv.conf` 의 핵심 필드**:
+
+```
+nameserver 8.8.8.8           ← 첫 번째 recursive resolver
+nameserver 1.1.1.1           ← fallback (1번이 fail 시)
+nameserver 168.126.63.1      ← (KT DNS)
+search corp.example.com svc.cluster.local
+options ndots:5 timeout:2 attempts:2 rotate
+```
+
+- `nameserver`: 최대 3개. 위에서부터 시도, timeout 시 다음.
+- `search`: hostname에 dot이 `ndots` 미만이면 search 도메인 차례로 append해서 시도.
+- `timeout`: query 타임아웃 (초). 기본 5 → 2로 줄이는 게 운영 관행.
+- `attempts`: nameserver당 재시도 횟수.
+- `rotate`: 매 query마다 nameserver 순서 round-robin.
+
+→ Kubernetes Pod의 resolv.conf 자동 생성 정책이 9.5 패턴 4(CoreDNS NXDOMAIN 폭증)의 원인. 여기서 그 함정의 뿌리를 알게 됨.
+
+---
+
+### 0.5 단계 ④: Stub Resolver → Recursive Resolver
+
+OS 캐시까지 miss하면 진짜 외부로 DNS 패킷이 나간다.
+
+**Stub resolver의 역할**:
+- 클라이언트의 가장 얇은 DNS 클라이언트. `getaddrinfo`가 부르는 라이브러리 함수 안에 내장.
+- **스스로 root/TLD를 묻지 않음**. 단 한 곳, `/etc/resolv.conf`의 nameserver에 "이거 풀어줘" 던지고 응답 받는 게 끝.
+- 이름 그대로 "stub" = 끄트머리.
+
+**Recursive resolver의 역할**:
+- 진짜 작업하는 쪽. 자기가 root → TLD → auth를 다 돌고, 결과를 stub에 돌려줌.
+- "recursive"라는 이름은 **stub 입장에서 한 번에 답을 받는다**는 뜻 (실제 내부 구현은 iterative).
+- 보통 ISP(KT/SKB) 또는 Public DNS(8.8.8.8/1.1.1.1) 또는 사내 (CoreDNS).
+
+```
+[Client host]                              [Recursive Resolver]
+   ┌──────────────────────┐                ┌──────────────────────┐
+   │  brower / app         │                │  자기 큰 cache         │
+   │     ↓ getaddrinfo()   │                │  (수십만 entry)       │
+   │  Stub resolver        │                │                       │
+   │  (libc 안)            │                │  miss 시 root → TLD → │
+   │     │                 │                │  auth 직접 묻음        │
+   └─────┼─────────────────┘                └──────────────────────┘
+         │                                             ▲
+         │  UDP 53 query:                              │
+         │  "www.google.com A?"                        │
+         │  ID=0xABCD, RD=1 (Recursion Desired)        │
+         ├─────────────────────────────────────────────┤
+         │                                             │
+         │  UDP 53 response:                           │
+         │  ID=0xABCD, ANSWER: 142.250.196.132 TTL=300 │
+         ◀─────────────────────────────────────────────┘
+```
+
+**UDP 53 — 왜 UDP인가**:
+- DNS query/response는 보통 작음 (수십~수백 byte). TCP의 3-way handshake 오버헤드 불필요.
+- 손실되면 stub이 timeout 후 재전송 (resolv.conf의 `attempts`).
+- ★ 응답이 **512 byte를 넘으면**? UDP DNS의 원래 spec은 512B 제한.
+  - DNS 헤더의 `TC` (truncated) 비트 set → stub이 "잘림" 인지.
+  - stub은 같은 query를 **TCP 53**으로 재전송 → 큰 응답 전체 받음.
+  - 또는 **EDNS0** (RFC 6891): query의 OPT 레코드에 "나 UDP로 4096 byte까지 받을 수 있어" 명시 → 큰 응답도 UDP로 가능.
+
+```
+[stub의 UDP 53 query 패킷]
+  UDP header (src:54321, dst:53)
+  DNS header (ID:0xABCD, QR=0 query, RD=1 recursion-desired, QDCOUNT=1)
+  Question  (QNAME: www.google.com, QTYPE: A, QCLASS: IN)
+  Additional (EDNS0 OPT — "UDP 4096 byte 가능")
+```
+
+**시니어 운영 관점**:
+- 사내 방화벽이 **UDP 53만 열고 TCP 53 닫혀 있는** 경우 → 큰 응답(DNSSEC, 다수의 A 레코드) 못 받음 → 간헐적 lookup 실패. 방화벽 규칙 점검.
+- 8.8.8.8/1.1.1.1은 anycast → 한국에서 query 시 **서울 PoP**가 응답. 8.8.8.8이 지구 반대편이라 느릴 거라는 흔한 오해.
+
+---
+
+### 0.6 단계 ⑤: Recursive Resolver의 8단계 풀버전 (★ 핵심)
+
+stub이 query를 던지면 recursive resolver는 **자기 cache 먼저 확인**한다. 거기 hit이면 바로 응답 (대부분의 경우). cache miss 또는 expired면 **cold path** — root부터 차근차근 묻기 시작.
+
+```
+                            [Recursive Resolver]
+                                    │
+                                    │ cache miss (cold)
+                                    ▼
+   1. 자기 cache 조회 ───────────────┘ miss
+   ┌──────────────────────────────────────────────────────────┐
+   │                                                          │
+   │  ROOT 서버 (".")                                          │
+   │  ─ a.root-servers.net ~ m.root-servers.net (13 letters)   │
+   │  ─ 각 letter는 anycast로 전세계 수십~수백 instance       │
+   │                                                          │
+   │  Query: "www.google.com A?"                              │
+   │  Root: "나 final 답 모름. .com 은 Verisign이 관리한다."  │
+   │         Authority: a.gtld-servers.net ~ m.~              │
+   │         Additional: 각 gtld-server의 A/AAAA (glue)       │
+   │                                                          │
+   └──────────────────────────────────────────────────────────┘
+                  │
+                  │  (recursive는 .com NS 목록 받음)
+                  ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │  TLD 서버 (".com")                                       │
+   │  ─ Verisign이 운영 (전세계 anycast cluster)               │
+   │                                                          │
+   │  Query: "www.google.com A?"                              │
+   │  TLD:  "나도 final 답 모름. google.com 은 다음 NS가 관리."│
+   │         Authority: ns1.google.com ~ ns4.google.com       │
+   │         Additional: ns1.google.com A 216.239.32.10 (glue) │
+   │                                                          │
+   └──────────────────────────────────────────────────────────┘
+                  │
+                  │  (recursive는 google.com NS 목록 + glue 받음)
+                  ▼
+   ┌──────────────────────────────────────────────────────────┐
+   │  AUTHORITATIVE NS (google.com)                            │
+   │  ─ ns1.google.com ~ ns4.google.com                        │
+   │  ─ Google이 직접 운영 (anycast)                            │
+   │                                                          │
+   │  Query: "www.google.com A?"                              │
+   │  Auth: "★ 142.250.196.132   TTL=300  (이게 final!)"      │
+   │         + RRSIG (DNSSEC 서명, 있으면)                     │
+   │                                                          │
+   └──────────────────────────────────────────────────────────┘
+                  │
+                  │  (recursive는 최종 A 레코드 받음)
+                  ▼
+   2. DNSSEC validation chain 확인 (활성화된 경우):
+         . → .com → google.com 의 DS/DNSKEY/RRSIG 검증
+   3. Recursive는 결과를 자기 cache에 TTL(300s)만큼 저장
+   4. Stub resolver에 응답 → OS cache → 브라우저 cache → 사용자 코드
+```
+
+**Glue record가 왜 필요한가**:
+- TLD가 "google.com NS는 ns1.google.com이야"라고만 답하면 recursive는 `ns1.google.com`의 IP를 또 어딘가에 물어야 함. 그런데 `ns1.google.com`의 권한 NS는 `google.com` 자신 → **순환 의존**.
+- 해결: TLD가 NS 응답에 `ns1.google.com`의 A 레코드도 **같이** 넣어줌. 이게 **glue record**.
+- 부모 zone(.com)이 자식 zone(google.com)의 NS 호스트 IP를 "접착제(glue)"로 들고 있어서 부트스트랩 가능.
+
+**Root server가 13개? 실은 수백 대 (anycast)**:
+- 이름은 `a ~ m` 13개 letter. 각 letter는 **하나의 IP**처럼 보이지만 실제로는 **anycast 광고**되는 수십~수백 instance.
+- 한국에서 root 질의 시 한국 또는 가까운 동아시아 PoP의 instance가 응답.
+- 13인 이유는 IPv4 UDP 512B response에 13개 NS + glue를 다 우겨넣을 수 있는 한계 (역사적). EDNS0 이후엔 더 가능하지만 관습으로 유지.
+
+**왜 .com TLD에 직접 안 가나? — 캐시 hierarchy의 본질**:
+
+```
+이상적: recursive가 처음부터 .com TLD가 누군지 알면 root 생략 가능
+현실:
+   - recursive는 root NS의 IP만 "root hints 파일"로 알고 시작
+   - 한 번 .com NS를 root에서 받으면 그걸 자기 cache에 저장 (TTL 172800s = 2일)
+   - 이후 .com 도메인 질의는 root 거치지 않음 → root는 사실상 cold start에만 hit
+```
+
+→ **root server 부하가 인터넷 규모에 비해 작은 이유**: TLD NS 캐시 TTL이 매우 김 + recursive가 수십만 클라이언트의 query를 흡수해서 root까지 안 보냄.
+
+**DNSSEC validation chain** (recursive resolver가 활성화한 경우):
+
+```
+. (root) ──DS──▶ .com ──DS──▶ google.com ──RRSIG──▶ A 레코드
+        DNSKEY       DNSKEY        DNSKEY
+        (각 zone의 DNSKEY가 부모의 DS와 매치되어야 chain 성립)
+```
+
+- chain of trust: 어디 하나라도 깨지면 SERVFAIL.
+- 모든 zone이 DNSSEC 켜져 있지는 않음 (구글은 켜져 있음, 많은 일반 zone은 미사용).
+
+**시니어 운영 관점**:
+- "왜 우리 회사 도메인은 dig +trace로 끝까지 잘 풀리는데 코드에서는 NXDOMAIN?" → recursive resolver의 cache 상태 차이. 회사 DNS는 캐시했지만 8.8.8.8은 cache miss + auth NS와의 통신 불안정한 경우.
+- 신규 도메인 생성 직후 "DNS propagation"이라고 부르는 현상은 사실 **TLD에 글루 등록되는 시간 + 각 recursive가 자기 cache(negative or positive) refresh하는 시간**. 일반적으로 수 분 ~ 수 시간.
+
+---
+
+### 0.7 단계 ⑥: A vs AAAA vs CNAME 의사결정
+
+`www.google.com`은 사실 **여러 종류의 응답**을 줄 수 있다.
+
+```
+Auth NS의 zone 데이터 (개념적):
+   www.google.com  A      142.250.196.132   TTL 300
+   www.google.com  A      142.250.196.196   TTL 300   (round-robin)
+   www.google.com  A      142.250.196.227   TTL 300
+   www.google.com  AAAA   2607:f8b0:4004:c1b::93  TTL 300
+   www.google.com  AAAA   2607:f8b0:4004:c1b::6a  TTL 300
+```
+
+**클라이언트의 의사결정**:
+
+```
+[Dual-stack 클라이언트 (IPv4 + IPv6 모두 가능)]
+   │
+   ├── A query     ──▶ "142.250.196.132"
+   │
+   ├── AAAA query  ──▶ "2607:f8b0:4004:c1b::93"
+   │
+   ▼
+[Happy Eyeballs (RFC 8305)]
+   ─ AAAA가 먼저 도착하면 IPv6 시도
+   ─ 50~250ms 안에 IPv6 SYN-ACK 못 받으면 IPv4 SYN 병행 시작
+   ─ 먼저 ACK 돌아오는 쪽으로 연결, 늦는 쪽은 RST
+   ─ 결과: 사용자는 IPv6 우선이되 fallback이 매끄러움
+```
+
+**왜 Happy Eyeballs가 필요한가**:
+- 옛날엔 "IPv6 있으면 IPv6, 없으면 IPv4". 그런데 IPv6 경로가 broken (라우팅은 광고하지만 실제 패킷 안 가는) 케이스가 흔했음 → 사용자는 30초 timeout 후 IPv4 fallback → "와이파이가 느리다" 인식.
+- Happy Eyeballs는 **둘 다 시도**하고 빠른 쪽 채택 → broken IPv6도 250ms 안에 IPv4로 우회.
+
+**CNAME alias의 케이스**:
+
+```
+zone 데이터:
+   www.example.com   CNAME   example.com
+   example.com       A       93.184.216.34
+
+resolver의 동작:
+   1. www.example.com A query
+   2. auth NS: "CNAME → example.com" 응답
+   3. resolver가 자동으로 example.com A query 추가 (chasing)
+   4. example.com A 93.184.216.34 응답
+   5. stub에 두 레코드 다 전달 또는 final A만
+```
+
+**ALIAS / ANAME (apex CNAME 대체)**:
+- RFC상 apex(`example.com`)에 CNAME 불가 (NS, SOA와 충돌).
+- 그래서 AWS Route53의 **ALIAS**, Cloudflare의 **CNAME flattening** — NS 측에서 resolve해서 **A 레코드로 평탄화**해 응답.
+- 사용자(stub)는 그냥 A 레코드로 보고, CNAME 관계는 NS 내부에만 존재.
+
+**`www.google.com`의 실제 케이스**:
+- 과거: `www.google.com CNAME www.l.google.com` 같은 식의 alias 운영.
+- 현재: 단순 A/AAAA. Google이 직접 anycast IP로 처리.
+- 단, **`www.l.google.com`이나 `gstatic.com` 등의 sub-asset**는 여전히 CNAME 체인이 있을 수 있음.
+
+---
+
+### 0.8 단계 ⑦: hostname → IP 결정 후, 호스트 라우팅 시작 (L3/L2)
+
+DNS가 끝나고 `142.250.196.132`라는 IP를 손에 쥐었다. 이제부터는 **이 IP로 패킷을 보내는 길**을 찾는 일.
+
+```
+[클라이언트 호스트의 routing table]
+   $ ip route show
+   default via 192.168.1.1 dev wlan0 proto dhcp metric 600
+   169.254.0.0/16 dev wlan0 scope link metric 1000
+   192.168.1.0/24 dev wlan0 proto kernel scope link src 192.168.1.10
+```
+
+**의사결정 흐름**:
+
+```
+dst = 142.250.196.132 (www.google.com의 A 결과)
+   │
+   ▼
+[routing table lookup — longest prefix match]
+   │
+   ├── 142.250.196.132 in 192.168.1.0/24 ?   No
+   ├── 142.250.196.132 in 169.254.0.0/16 ?   No
+   └── default (0.0.0.0/0) ?                 Yes
+        │
+        ▼
+   next-hop = 192.168.1.1 (기본 게이트웨이)
+   out_interface = wlan0
+   src IP = 192.168.1.10
+```
+
+**같은 subnet vs 다른 subnet**:
+
+```
+case A — 같은 subnet (예: dst=192.168.1.50):
+   ┌─────────────────────────────────────┐
+   │ routing table: 직접 송신 (직결)      │
+   │ ARP로 192.168.1.50의 MAC 해석        │
+   │ Ethernet frame:                      │
+   │   src MAC = 내 MAC                   │
+   │   dst MAC = 192.168.1.50의 MAC        │
+   │ → switch가 MAC table 보고 forward    │
+   └─────────────────────────────────────┘
+
+case B — 다른 subnet (예: dst=142.250.196.132):
+   ┌─────────────────────────────────────┐
+   │ routing table: default gateway 경유   │
+   │ ARP로 192.168.1.1 (gateway)의 MAC 해석│
+   │ Ethernet frame:                      │
+   │   src MAC = 내 MAC                   │
+   │   dst MAC = ★ gateway의 MAC          │  ← 중요!
+   │   src IP  = 192.168.1.10              │
+   │   dst IP  = 142.250.196.132           │
+   │ → gateway가 IP는 그대로, L2만 새로    │
+   └─────────────────────────────────────┘
+```
+
+★ **핵심 통찰**: **L3(IP) 주소는 출발지~최종 목적지를 가리키지만, L2(MAC) 주소는 next-hop만 가리킨다**. 패킷이 hop마다 새 L2 frame으로 다시 포장되지만 IP header는 그대로. ARP는 L2와 L3 사이의 helper 프로토콜 (RFC 826) — 자세한 위치는 6.6.3 참조.
+
+**ARP request/reply 흐름과 cache 동작은 6.6.1~6.6.4에서 자세히 다룬다.** 여기서는 "DNS 직후 IP가 결정되면 ARP로 next-hop MAC을 채워 L2 frame을 만든다"만 기억하자.
+
+**시니어 운영 관점 (단계 ⑦ 한 줄)**:
+- 게이트웨이 교체 시 ARP cache 만료(수 분)까지 옛 MAC으로 송신 지속.
+- ARP는 L2 broadcast → 같은 subnet 안에서만. broadcast domain = L2 subnet 경계.
+- IPv6는 ARP 대신 NDP (ICMPv6) → 자세한 비교는 6.6.5.
+
+---
+
+### 0.9 단계 ⑧: 라우터 hop들 — BGP / OSPF / IS-IS
+
+호스트가 패킷을 게이트웨이에 넘긴 후부터는 **라우터들의 연쇄 forwarding**.
+
+```
+[클라이언트] → [홈 라우터] → [ISP edge] → [ISP regional] → [ISP backbone] → [IX]
+                                                                              │
+                              [Google edge] ← [transit] ← [peering point] ←──┘
+                                    │
+                                    ▼
+                              [Google PoP server]
+```
+
+각 hop의 라우터는:
+1. 들어온 패킷의 dst IP 봄.
+2. 자기 routing table (FIB)에서 longest prefix match.
+3. next-hop interface로 forward.
+4. **IP TTL을 -1** (loop 방지 + traceroute 원리).
+5. L2 header는 새로 만듦 (src MAC = 자기, dst MAC = next-hop).
+
+**TTL의 의미**:
+- IP 헤더의 8-bit 필드 (0~255). 보통 OS가 64 또는 128로 set.
+- hop마다 -1. 0이 되면 **drop + ICMP TIME_EXCEEDED를 출발지에 보냄**.
+- 라우팅 루프(잘못 설정으로 두 라우터가 서로 패킷 던지는) 방지 목적.
+
+**traceroute가 이 원리를 역이용**:
+
+```
+$ traceroute -n www.google.com
+
+probe 1: TTL=1로 송신 → 홈 라우터에서 TTL=0 → ICMP TIME_EXCEEDED → 홈 라우터 IP 노출
+probe 2: TTL=2로 송신 → ISP edge에서 TTL=0 → ICMP TIME_EXCEEDED → ISP edge IP 노출
+probe 3: TTL=3 → ISP regional 노출
+...
+probe N: TTL=N → 목적지 도달 → ICMP echo reply 또는 TCP RST
+```
+
+→ 각 hop의 라우터 IP를 차례로 알아내서 **전체 경로**를 그릴 수 있음.
+
+**ISP 내부 라우팅 (IGP)**: OSPF, IS-IS
+- AS(Autonomous System) **안에서** 라우터들이 서로 "내가 어디에 도달 가능해" 광고.
+- 링크 비용 기반 최단 경로 (Dijkstra).
+- OSPF: 일반 기업/ISP. IS-IS: 대형 ISP backbone.
+- 빠른 수렴 (수 초 ~ 수십 초).
+
+**ISP 간 라우팅 (EGP)**: BGP
+- AS **사이에서** "이 IP 대역은 내 AS를 통해 가" 광고.
+- **path vector** 방식 — AS path 길이 + policy로 경로 선택.
+- 수렴 느림 (수 분 ~ 수십 분).
+- 정치/계약(peering vs transit)이 기술만큼 중요.
+
+```
+[BGP 광고 예]
+   AS15169 (Google):
+     "142.250.0.0/15 은 내거야. AS path = [15169]"
+        │
+        ▼ peering으로 전파
+   AS3356 (Lumen):
+     "142.250.0.0/15 → AS path = [3356, 15169]"
+        │
+        ▼ transit 고객에게 전파
+   AS9318 (KT):
+     "142.250.0.0/15 → AS path = [9318, 3356, 15169]"
+```
+
+**`whois`로 AS 확인**:
+```
+$ whois -h whois.cymru.com " -v 142.250.196.132"
+AS      | IP               | BGP Prefix          | CC | Registry | Allocated  | AS Name
+15169   | 142.250.196.132  | 142.250.196.0/24    | US | arin     | 2012-04-16 | GOOGLE, US
+```
+
+→ `142.250.196.132`은 **AS15169 (Google)** 소속. BGP prefix는 `142.250.196.0/24`.
+
+**시니어 운영 관점**:
+- "왜 한국에서 미국 도달하는데 평소 100ms인데 어느 날 갑자기 300ms?" → BGP 경로 변경. Looking glass(`lg.he.net`)로 확인. 보통 transit ISP의 peering link 변경/장애 → 다른 ISP 경유.
+- BGP **수렴 중**에는 경로 깜빡임(flapping) + asymmetric routing 빈발 → P99 spike.
+- **route hijacking** 사고: 누군가가 잘못된 AS path를 광고해 자기 AS로 트래픽 끌어감 (실수 또는 악의). RPKI로 일부 방어.
+
+---
+
+### 0.10 단계 ⑨: AS path와 Anycast — Google PoP까지
+
+`142.250.196.132`는 **anycast IP**다. 즉, 전 세계 Google PoP들이 **같은 IP를 동시에 BGP로 광고**.
+
+```
+                              [Internet BGP table]
+                              "142.250.196.0/24 → AS15169"
+                                       │
+              ┌────────────┬───────────┼───────────┬────────────┐
+              │            │           │           │            │
+         [Tokyo PoP]   [Singapore]  [LA]       [Frankfurt]  [Sydney]
+              ↑            ↑           ↑           ↑            ↑
+              │            │           │           │            │
+         같은 IP       같은 IP      같은 IP     같은 IP       같은 IP
+         142.250.196.x 142.250.196.x 142.250.196.x ...      ...
+```
+
+**한국 사용자가 142.250.196.132로 보내면**:
+1. 자기 ISP(KT)의 BGP가 `142.250.196.0/24`에 대해 **가장 짧은 AS path**를 가진 경로 선택.
+2. 보통 한국 → 일본 또는 한국 직접 PoP (Google은 서울에도 PoP 있음).
+3. 그 PoP의 라우터까지 BGP forwarding.
+
+```
+[한국 사용자]
+   │
+   ▼
+[KT backbone]  ── BGP: 142.250.196.0/24 → next-hop = (Google Tokyo or 서울)
+   │
+   ▼
+[IX 또는 peering]
+   │
+   ▼
+[Google Tokyo PoP의 라우터]
+   │
+   ▼
+[Google front-end (GFE) — 가장 가까운 PoP의 reverse proxy]
+   │
+   ▼
+[Google internal RPC — Stubby, Spanner, Bigtable 등 사내 서비스]
+   │
+   ▼
+[Search index, ad ranking, ... 응답 생성]
+```
+
+**Google Front-End (GFE)의 역할**:
+- TCP/TLS termination을 PoP에서. 사용자와의 TLS handshake는 PoP에서 끝.
+- PoP과 backend 사이는 **별도의 내부 connection** (사내 백본 + 내부 인증).
+- 즉, "anycast TCP의 함정 (PoP 중간 변경)"이 일어나도 사용자 TCP는 PoP까지만 살아있으면 됨.
+
+**시니어 운영 관점**:
+- 우리 회사가 anycast를 도입할 때 가장 흔한 함정: **L4 TCP termination을 anycast IP로 하면 BGP convergence 중 연결 끊김**. 그래서 CDN처럼 PoP에서 TCP 종단 + 내부 연결 분리 패턴이 표준.
+- DNS는 UDP라서 anycast 친화적 (한 query/response 단발성).
+
+---
+
+### 0.11 단계 ⑩: 응답 패킷이 역순으로 돌아옴 (이지만 대칭은 아님)
+
+```
+[Google PoP] ───── 응답 패킷 ─────▶ [한국 사용자]
+   ▲                                    │
+   │                                    │ 요청 패킷이 갔던 경로:
+   │                                    │  KT → IX1 → Tokyo PoP
+   │                                    │
+   │ 응답이 돌아오는 경로:               │
+   │  Tokyo PoP → IX2 → SK → 사용자     │
+   │ (★ 같은 경로 보장 없음 — asymmetric routing)
+```
+
+**왜 asymmetric routing이 발생하나**:
+- 각 방향은 **각자의 BGP table**로 결정. 출발지 ↔ 도착지 BGP 경로가 다를 수 있음.
+- 특히 multi-homed 환경 (여러 ISP 연결)에서 흔함.
+- 단방향 100ms / 반대 200ms 같은 비대칭 latency 가능.
+
+**asymmetric routing의 함정**:
+- **stateful firewall** (NAT, conntrack)는 outbound와 inbound가 같은 장비를 지나가야 state 매칭 가능. asymmetric이면 inbound가 다른 방화벽 거치면 "처음 보는 connection"으로 인식 → drop.
+- 대규모 클라우드(AWS, GCP)는 내부 라우팅을 symmetric으로 유지하지만, 사용자 ↔ 클라우드는 asymmetric 흔함.
+
+**ICMP 응답 처리**:
+- 라우터들은 IP TTL 0 시 ICMP TIME_EXCEEDED 발송. 이게 traceroute의 원리.
+- 일부 라우터는 ICMP rate-limit → traceroute에서 hop이 `* * *`로 보이는 이유.
+- 일부 라우터는 ICMP 완전 차단 → ICMP unreachable 응답 못 받음 → "왜 timeout인지 모름".
+
+---
+
+### 0.12 한 장 정리 — 시퀀스 다이어그램 풀버전
+
+```
+[User]   [Browser]   [OS]   [Stub]   [Recursive]   [Root]   [.com TLD]   [google.com Auth]   [Routers]   [Google PoP]
+  │         │         │       │           │            │          │              │                │            │
+  │ Enter "www.google.com"                              │          │              │                │            │
+  │────────▶│         │       │           │            │          │              │                │            │
+  │         │ URL 파싱+HSTS preload → https://         │          │              │                │            │
+  │         │ in-mem cache? miss                       │          │              │                │            │
+  │         │────▶│   getaddrinfo()                     │          │              │                │            │
+  │         │     │ /etc/hosts → 없음                   │          │              │                │            │
+  │         │     │ resolver cache → miss               │          │              │                │            │
+  │         │     │────▶│ UDP 53 query                  │          │              │                │            │
+  │         │     │     │────────────▶│                  │          │              │                │            │
+  │         │     │     │             │ cache miss     │          │              │                │            │
+  │         │     │     │             │───── ".com NS?" ──▶│          │              │                │            │
+  │         │     │     │             │ ◀──── NS list + glue ────│          │              │                │            │
+  │         │     │     │             │─────────── "google.com NS?" ──▶│              │                │            │
+  │         │     │     │             │ ◀────────── NS list + glue ──────│              │                │            │
+  │         │     │     │             │──────────────── "www.google.com A?" ──────▶│                │            │
+  │         │     │     │             │ ◀─────────────── A 142.250.196.132 TTL=300 ──│                │            │
+  │         │     │     │             │ DNSSEC validate (옵션)   │          │              │                │            │
+  │         │     │     │             │ cache 저장             │          │              │                │            │
+  │         │     │     │ ◀──────────│                         │          │              │                │            │
+  │         │     │ ◀───│                                     │          │              │                │            │
+  │         │ ◀───│                                            │          │              │                │            │
+  │         │                                                  │          │              │                │            │
+  │         │ TCP SYN → 142.250.196.132:443                    │          │              │                │            │
+  │         │────────────────────────────────────────────────────────────────────────────────────▶│            │
+  │         │                                                                                       │ ARP, BGP   │
+  │         │                                                                                       │ hop-by-hop │
+  │         │                                                                                       │────────────▶│
+  │         │                                                                                       │            │
+  │         │ ◀──────────────────────────────────────────────────────────────────────────────────  TCP SYN-ACK
+  │         │ ◀── TLS handshake ── HTTPS GET / ── 응답 ───────────────────────────────────────────│
+  │ ◀──────  렌더링                                                                                  │            │
+```
+
+→ 이 한 장이 머리 속에 있으면 **"브라우저에 google.com 치면 어떻게 돼?" 질문에 막힘없이 흘러갈 수 있다**.
+
+### 0.13 백지 마스터 체크 — 이 시퀀스를 30초 안에 그릴 수 있나
+
+| 단계 | 핵심 한 줄 | 도구 |
+|---|---|---|
+| ① 브라우저 파싱 | URL 분해 + IDN/punycode + HSTS preload | `chrome://net-internals/#hsts` |
+| ② 브라우저 캐시 | in-memory, TTL 캡 60s | `chrome://net-internals/#dns` |
+| ③ OS resolver | /etc/hosts → nsswitch → cache → resolv.conf | `resolvectl statistics`, `dscacheutil` |
+| ④ Stub→Recursive | UDP 53, EDNS0, ID 매칭 | `dig`, `tcpdump -i any udp port 53` |
+| ⑤ Root/TLD/Auth | 8단계 + glue + DNSSEC | `dig +trace +dnssec` |
+| ⑥ A vs AAAA | Happy Eyeballs, CNAME, ALIAS | `dig A`, `dig AAAA` |
+| ⑦ Host routing | longest prefix match + ARP | `ip route`, `arp -a` |
+| ⑧ Hop forwarding | TTL --, OSPF/IS-IS/BGP | `traceroute`, `mtr` |
+| ⑨ Anycast PoP | 같은 IP 여러 위치, 가까운 PoP | `whois -h whois.cymru.com`, `lg.he.net` |
+| ⑩ 응답 역순 | asymmetric routing 가능 | `mtr` 양방향 |
+
+---
+
 ## 1. 가지 ①: DNS 5계층 — hostname이 IP가 되는 경로
 
 ### 1.1 핵심 질문
@@ -250,6 +939,111 @@ example.com.            300     IN      RRSIG   A 8 2 300 ...         ← DNSSEC
 - `[g]` auth NS가 진짜 답 `A 93.184.216.34` 줌. **TTL 300초** (5분). 5분 동안 recursive resolver가 cache.
 
 → 평소엔 recursive에 cache hit이라 [c~f]는 안 일어남. cold start, 즉 첫 질의에서만 일어남.
+
+### 1.7 `dig +trace www.google.com` — 실제 평범한 사이트로 본 풀버전
+
+`example.com`은 RFC 문서용 도메인이라 응답이 정적이다. **실전 면접에서는 `www.google.com`처럼 누구나 아는 도메인**으로 설명하면 즉시 와닿는다.
+
+```bash
+$ dig +trace www.google.com
+; <<>> DiG 9.16.1 <<>> +trace www.google.com
+;; global options: +cmd
+
+# ──────────────────────── [phase 0] local resolver의 root hints ────────────────────────
+.                       86400   IN      NS      a.root-servers.net.
+.                       86400   IN      NS      b.root-servers.net.
+.                       86400   IN      NS      c.root-servers.net.
+.                       86400   IN      NS      d.root-servers.net.
+.                       86400   IN      NS      e.root-servers.net.
+.                       86400   IN      NS      f.root-servers.net.
+.                       86400   IN      NS      g.root-servers.net.
+.                       86400   IN      NS      h.root-servers.net.
+.                       86400   IN      NS      i.root-servers.net.
+.                       86400   IN      NS      j.root-servers.net.
+.                       86400   IN      NS      k.root-servers.net.
+.                       86400   IN      NS      l.root-servers.net.
+.                       86400   IN      NS      m.root-servers.net.
+;; Received 525 bytes from 192.168.1.1#53(192.168.1.1) in 2 ms
+
+# ──────────────────────── [phase 1] 실제 root에 질의: ".com 누구야?" ────────────────────────
+com.                    172800  IN      NS      a.gtld-servers.net.
+com.                    172800  IN      NS      b.gtld-servers.net.
+com.                    172800  IN      NS      c.gtld-servers.net.
+com.                    172800  IN      NS      d.gtld-servers.net.
+com.                    172800  IN      NS      e.gtld-servers.net.
+com.                    172800  IN      NS      f.gtld-servers.net.
+com.                    172800  IN      NS      g.gtld-servers.net.
+com.                    172800  IN      NS      h.gtld-servers.net.
+com.                    172800  IN      NS      i.gtld-servers.net.
+com.                    172800  IN      NS      j.gtld-servers.net.
+com.                    172800  IN      NS      k.gtld-servers.net.
+com.                    172800  IN      NS      l.gtld-servers.net.
+com.                    172800  IN      NS      m.gtld-servers.net.
+com.                    86400   IN      DS      30909 8 2 ...      ← DNSSEC chain
+com.                    86400   IN      RRSIG   DS 8 1 ...
+;; Received 1170 bytes from 198.41.0.4#53(a.root-servers.net) in 50 ms
+
+# ──────────────────────── [phase 2] .com TLD에 질의: "google.com 누구야?" ────────────────────────
+google.com.             172800  IN      NS      ns1.google.com.
+google.com.             172800  IN      NS      ns2.google.com.
+google.com.             172800  IN      NS      ns3.google.com.
+google.com.             172800  IN      NS      ns4.google.com.
+ns1.google.com.         172800  IN      A       216.239.32.10        ← ★ glue record!
+ns2.google.com.         172800  IN      A       216.239.34.10
+ns3.google.com.         172800  IN      A       216.239.36.10
+ns4.google.com.         172800  IN      A       216.239.38.10
+;; Received 663 bytes from 192.5.6.30#53(a.gtld-servers.net) in 12 ms
+
+# ──────────────────────── [phase 3] google.com auth NS에 질의: "www.google.com A?" ────────────────────────
+www.google.com.         300     IN      A       142.250.196.132      ★ FINAL ANSWER
+;; Received 60 bytes from 216.239.32.10#53(ns1.google.com) in 8 ms
+```
+
+**한 줄씩 해설**:
+
+```
+[phase 0] local resolver(192.168.1.1)가 자기 root hints 파일에서 13개 root NS 목록 응답
+   ─ 이건 dig가 "trace 모드 시작점을 어디에 잡을지" 알려고 받는 정보일 뿐
+   ─ 실제 query는 다음 phase부터
+
+[phase 1] a.root-servers.net(198.41.0.4)에 query → "com NS?"
+   ─ .com 의 NS 13개 (Verisign이 운영)
+   ─ DS 레코드 = .com 의 DNSSEC delegation signer (chain of trust)
+   ─ TTL 172800s = 2일 → recursive resolver는 .com NS를 2일간 캐시
+
+[phase 2] a.gtld-servers.net(192.5.6.30)에 query → "google.com NS?"
+   ─ google.com 의 권한 NS 4개 (ns1~ns4.google.com)
+   ─ ★ glue record (ns1.google.com A 216.239.32.10)
+       → ns1.google.com 자체가 google.com 의 권한 NS이므로 순환 의존
+       → TLD가 glue로 IP를 같이 줘서 부트스트랩 가능
+
+[phase 3] ns1.google.com(216.239.32.10)에 query → "www.google.com A?"
+   ─ ★ 진짜 답: 142.250.196.132
+   ─ TTL 300s = 5분 → recursive resolver는 5분간 이 답을 캐시
+   ─ 60 byte 응답 — UDP 512B 한참 아래 (단순 A 레코드는 짧음)
+```
+
+**왜 응답에 IP가 여러 개 안 나오나**: `dig`는 보통 첫 번째 A만 표시 + round-robin이라 시점마다 다른 IP. `dig +short www.google.com`를 여러 번 치면 다른 IP가 나옴.
+
+```bash
+$ for i in 1 2 3 4 5; do dig +short www.google.com | head -1; done
+142.250.196.132
+142.250.207.4
+172.217.31.164
+142.250.66.36
+216.58.220.36
+```
+
+→ 같은 hostname에 **여러 A 레코드** + auth NS가 round-robin → 클라이언트마다 다른 IP. 단, 이건 부하 분산 효과가 약함. 실제로는 위에서 본 **anycast**가 진짜 분산 메커니즘.
+
+**`dig +trace`의 함정**:
+- `dig +trace`는 **재귀를 stub이 직접 흉내내는 모드**. 즉, dig가 root → TLD → auth를 직접 묻는다 (`RD=0`).
+- 평소 어플리케이션의 DNS query는 stub이 recursive에 한 번 던지고 답 받는 게 끝. 이 단계들은 recursive 내부에서 일어남.
+- 그래서 `+trace` 결과는 "교과서 본"이고, 실제 성능은 recursive cache 상태에 좌우.
+
+**시니어 운영 관점**:
+- 신규 도메인 등록 직후 "propagation 안 됐다"는 사용자 불만 → `dig +trace your-domain.com` 으로 phase 1(TLD에 NS 등록) / phase 2(auth NS가 응답) 어디서 끊기는지 확인.
+- `dig @8.8.8.8 www.google.com` (특정 resolver 지정) vs `dig www.google.com` (시스템 기본) 결과가 다르면 사내 resolver cache 또는 split-horizon DNS 의심.
 
 ---
 
@@ -706,6 +1500,176 @@ host A (192.168.1.10) wants to send to 192.168.1.50:
 
 → subnet 넘어가면 dst MAC = **default gateway의 MAC**으로 보냄. gateway가 IP는 그대로 두고 새 L2 frame으로 next hop으로 forward.
 
+#### 6.6.1 ARP와 MAC 주소 — DNS 다음에 진짜로 일어나는 일
+
+> DNS는 hostname을 IP로 바꿔주지만, **IP만 가지고는 frame을 보낼 수 없다**. Ethernet은 L2이고, L2는 MAC 주소로만 frame을 forwards한다. 그래서 IP가 결정된 직후에는 **ARP**가 반드시 끼어든다.
+
+**핵심 한 문장**: ARP는 "이 IP의 next-hop MAC을 알려줘"를 같은 subnet에 브로드캐스트로 묻고, 그 IP를 가진 호스트가 자기 MAC을 응답하는 프로토콜. **RFC 826 (1982)**, 인터넷보다 오래된 프로토콜이 지금도 그대로 살아있다.
+
+**왜 IP만으로는 안 되나**:
+
+```
+[IP packet — L3]
+   src IP: 192.168.1.10
+   dst IP: 142.250.196.132 (www.google.com)
+        │
+        │ "이걸 wire에 어떻게 실을까?"
+        ▼
+[Ethernet frame — L2]
+   src MAC: aa:aa:aa:aa:aa:aa   ← 내 NIC MAC (커널이 앎)
+   dst MAC: ??:??:??:??:??:??   ← ★ 모름! ARP 필요
+   ─────────
+   payload: 위 IP packet
+```
+
+**ARP 흐름 — 같은 subnet 케이스**:
+
+```
+[host A 192.168.1.10, mac aa:aa:..]              [host B 192.168.1.50, mac cc:cc:..]
+   │
+   │ ARP request (broadcast):
+   │   Ethernet dst = ff:ff:ff:ff:ff:ff
+   │   "Who has 192.168.1.50? Tell 192.168.1.10"
+   │
+   ├──────────── 모든 L2 호스트에게 ─────────────▶
+   │                                                │
+   │                                                │ "그거 나야"
+   │                                                │
+   │  ARP reply (unicast to A):                     │
+   │   "192.168.1.50 is at cc:cc:.."                │
+   │ ◀───────────────────────────────────────────── │
+   │
+   ▼
+[A의 ARP cache]
+   192.168.1.50 → cc:cc:..  (TTL 보통 60s ~ 4분)
+   │
+   ▼
+[Ethernet frame로 송신]
+   src MAC: aa:aa:..,  dst MAC: cc:cc:..
+```
+
+**ARP 흐름 — 다른 subnet (대부분의 인터넷 통신)**:
+
+```
+[host A 192.168.1.10]            [Gateway 192.168.1.1, mac bb:bb:..]      [Internet]
+   │
+   │ routing table 결과: default → 192.168.1.1
+   │
+   │ ARP: "192.168.1.1 의 MAC?"
+   │ ─────────▶ (broadcast)
+   │
+   │  reply: "bb:bb:.."
+   │ ◀──────────
+   │
+   ▼
+[Ethernet frame]
+   src MAC: aa:aa:..   (A)
+   dst MAC: bb:bb:..   (★ gateway MAC, 142.250.196.132이 아닌)
+   src IP:  192.168.1.10
+   dst IP:  142.250.196.132   (그대로!)
+        │
+        ▼
+[Gateway 도착]
+   IP packet 은 그대로 두고, Ethernet frame만 새로 만듦:
+   src MAC: bb:bb:..  (자기)
+   dst MAC: ??         ← 다음 hop의 MAC, ARP 또는 미리 알고 있음
+   → 다음 라우터로 forward
+```
+
+★ **핵심**: hop마다 **L2 frame은 새로 만들어지지만 L3 IP header는 그대로**. dst MAC은 next-hop만 가리키고, dst IP는 최종 목적지를 가리킴.
+
+#### 6.6.2 ARP cache — 보관, 만료, 진단
+
+**확인**:
+```bash
+# Linux
+$ ip neigh show
+192.168.1.1 dev wlan0 lladdr bb:bb:bb:bb:bb:bb REACHABLE
+192.168.1.50 dev wlan0 lladdr cc:cc:cc:cc:cc:cc STALE
+
+# macOS / BSD
+$ arp -a
+? (192.168.1.1) at bb:bb:bb:bb:bb:bb on en0 ifscope [ethernet]
+
+# Windows
+> arp -a
+```
+
+**상태**:
+- `REACHABLE`: 최근 통신 성공 + 응답 받음 — 신뢰 가능.
+- `STALE`: 시간 경과로 의심스러움 — 다음 통신 시 재검증.
+- `INCOMPLETE`: ARP request 보냈는데 응답 없음 — 호스트 죽었거나 망 단절.
+- `FAILED`: 재시도 실패 — drop.
+
+**TTL/aging**:
+- Linux 기본 ARP cache 보관: 활성 entry는 60초 정도, idle entry는 수 분 후 expire.
+- `/proc/sys/net/ipv4/neigh/default/gc_stale_time` 등으로 조정.
+- 너무 짧으면 ARP 폭주, 너무 길면 토폴로지 변화 반영 늦음.
+
+**flush**:
+```bash
+# Linux
+$ sudo ip -s -s neigh flush all
+
+# macOS
+$ sudo arp -ad
+```
+
+#### 6.6.3 ARP가 동작하는 OSI 위치 — L2와 L3 사이 (RFC 826)
+
+```
+   ┌──────────────────────────────┐
+   │ L7  application               │
+   │ L6  presentation              │
+   │ L5  session                   │
+   │ L4  transport                 │
+   ├──────────────────────────────┤
+   │ L3  network (IP)              │  "이 IP로 보내고 싶다"
+   ├═══════════════════════════════┤
+   │ ★ ARP                         │  "그 IP의 MAC을 알려줘"  ← 어디에도 명확히 안 속함
+   ├═══════════════════════════════┤
+   │ L2  data link (Ethernet)      │  "이 MAC으로 frame 보냄"
+   │ L1  physical                  │
+   └──────────────────────────────┘
+```
+
+**ARP 패킷 자체는 Ethernet payload (EtherType=0x0806)**라서 L2 위에 직접 얹힘. IP 위에서 동작하는 ICMP/UDP/TCP와 달리 IP가 필요 없음. 그래서 엄밀히는 "L2.5" 또는 "L3와 L2를 잇는 helper"로 부른다.
+
+#### 6.6.4 ARP spoofing 공격과 방어
+
+```
+정상:
+   host A → "192.168.1.1 의 MAC?" ──▶ broadcast
+                                       ◀── Gateway: "bb:bb:.."
+   host A → 그 MAC으로 frame 송신
+
+공격:
+   attacker M (192.168.1.99) → broadcast로 거짓 광고:
+       "192.168.1.1 is at MM:MM:.."  (자기 MAC을 광고)
+       "192.168.1.10 is at MM:MM:.."  (gateway에게도 자기를 A로 광고)
+   ↓
+   A의 ARP cache: 192.168.1.1 → MM:MM:..
+   Gateway의 ARP cache: 192.168.1.10 → MM:MM:..
+   ↓
+   A ↔ Gateway 사이의 모든 트래픽이 M을 경유 (MITM 성립)
+```
+
+**방어**:
+- **DAI (Dynamic ARP Inspection)** — 사내 스위치 기능. DHCP snooping table과 매칭 안 되는 ARP를 drop.
+- **Static ARP** — 중요한 IP(서버, gateway)는 호스트에 static 매핑.
+- **사용자 PC 격리** — VLAN 분리, port-security, 802.1X.
+- **암호화 의존** — TLS/IPsec이 있으면 패킷 가로채도 평문은 못 봄.
+
+#### 6.6.5 IPv6의 NDP — ARP의 대체
+
+IPv6는 ARP 없음. 대신 **NDP (Neighbor Discovery Protocol, RFC 4861)** — ICMPv6 위에서 동작 (L3). ARP request/reply 대신 Neighbor Solicitation/Advertisement를 **multicast** (solicited-node multicast)로 주고받음 → broadcast 부담 없음. 라우터도 Router Advertisement로 자기 존재 알림 → DHCP 없어도 SLAAC 자동 설정. 보안은 SEND(RFC 3971) 대신 스위치의 RA Guard/DHCPv6 snooping에 의존.
+
+#### 6.6.6 GARP, Proxy ARP, ARP storm — 특수 케이스 짧게
+
+- **Gratuitous ARP (GARP)**: 묻지 않았는데 자기 IP→MAC을 broadcast로 알림. IP 충돌 감지 + HA failover 시 active 교체 후 ARP cache 즉시 갱신 (VRRP, keepalived의 핵심).
+- **Proxy ARP**: 라우터가 자기 subnet 너머 IP에 대해 자기 MAC 응답. 옛 NAT/special routing. 현재 거의 안 쓰임.
+- **ARP storm**: 잘못된 설정 또는 broadcast 폭주로 ARP가 폭발 → 큰 broadcast domain일수록 위험 → subnet 분할의 이유.
+
 **CIDR (Classless Inter-Domain Routing)**: `192.168.1.0/24` 표기. `/24`는 앞 24비트가 네트워크, 나머지 8비트가 host. `/24`면 256개 IP (broadcast 등 제외 254 usable).
 
 **NAT (Network Address Translation)**:
@@ -1087,7 +2051,141 @@ dnsConfig:
 
 **해결**: TTL은 60s 정도가 합리. 진짜 failover는 health-check 기반 DNS (Route53) + connection retry 패턴으로.
 
-### 9.7 시나리오 매트릭스
+### 9.7 패턴 6 — DNS lookup latency가 P99 spike의 원인
+
+**증상**: 평균 latency는 정상 (10ms 미만)인데, **P99만 200~500ms** spike. 디버깅 어렵다. APM에서 "처음 요청은 느리고 그 다음은 빠름" 패턴 보임.
+
+**원인 분리**:
+
+```
+[요청 수명]
+   │
+   ├─ DNS lookup       ← ★ 여기서 spike?
+   │  ├─ stub → recursive UDP 53     (정상 1~5ms)
+   │  ├─ recursive cache miss
+   │  │  ├─ root → TLD               (수십 ms)
+   │  │  └─ TLD → auth NS            (수십~수백 ms)
+   │  │     ★ auth NS가 멀거나 응답 느리면 P99 spike
+   │  └─ UDP 응답 손실 + 재시도        (resolv.conf timeout × attempts)
+   │
+   ├─ TCP connect
+   ├─ TLS handshake
+   ├─ HTTP request/response
+   ▼
+```
+
+**진단 절차**:
+
+```bash
+# 1. DNS lookup time만 측정
+$ dig +stats www.google.com | grep "Query time"
+;; Query time: 132 msec        ← spike 시 100ms+
+
+# 2. tcpdump로 stub → recursive RTT 확인
+$ sudo tcpdump -i any -n udp port 53 -tttt
+
+# 3. JVM 애플리케이션이라면 DNS lookup 횟수 측정
+JFR / async-profiler 로 InetAddress.getByName 호출 빈도
+```
+
+**JVM `networkaddress.cache.ttl` 기본 30초 (보안 매니저 없으면)**:
+- Java 8까지: 보안 매니저 미설치 시 기본값 `-1` (영구 캐시) 또는 30초 — 환경 의존.
+- Java 11+: 일관되게 30초.
+- 30초마다 같은 hostname을 다시 풀면, 그 30초 경계 시점 트래픽은 DNS lookup 포함 → P99 spike의 일반 원인.
+
+**해결**:
+1. **`networkaddress.cache.ttl` 명시적 설정** — 보통 60s ~ 300s. 너무 길면 failover 늦음.
+2. **`networkaddress.cache.negative.ttl`** — 기본 10초. NXDOMAIN 캐싱.
+3. **`getaddrinfo()` 호출 횟수 줄이기** — HTTP client 재사용 + connection keep-alive로 매 요청마다 lookup 안 하도록.
+4. **NodeLocal DNSCache** (Kubernetes) — node 자체에 DNS cache daemon.
+
+```java
+// JVM 옵션 또는 java.security 파일
+// -Dnetworkaddress.cache.ttl=60
+// -Dnetworkaddress.cache.negative.ttl=5
+```
+
+### 9.8 패턴 7 — DNS 캐시 poisoning + Kaminsky 공격
+
+**옛 공격 (Kaminsky 2008)**:
+
+```
+1. 공격자가 victim에 메일/링크 등으로 "nonexistent-1.example.com" 같은 random 이름 query 유도
+2. recursive resolver가 cache miss → auth NS에 query 시작 (UDP 53)
+3. 공격자는 동시에 위조 응답 폭격:
+   "nonexistent-1.example.com NS = ns.attacker.com"
+   + Additional: "ns.attacker.com A = (공격자 IP)"
+   (transaction ID brute-force)
+4. recursive가 위조 응답 받아들이면 cache에 "ns.attacker.com" 저장
+5. 이후 그 zone 전체 query가 공격자 NS로 → www.example.com까지 hijack
+```
+
+**방어**:
+- **DNSSEC** — 위조 응답은 서명 검증 실패 → 무시. 단, 도메인 owner가 DNSSEC 활성화 + recursive가 검증 활성화 필요.
+- **Source port randomization** — UDP query의 src port를 매번 random → transaction ID(16-bit) + port(16-bit) 합쳐 32-bit brute-force → 사실상 불가.
+- **0x20 encoding** — query name의 대소문자 random화 → 응답에 같은 case로 echo 와야 valid. transaction ID 보강.
+
+**현재 추가 방어**:
+- **DoT/DoH** — DNS 자체를 TLS 위에 → wire에서 위조 불가.
+- **DNSSEC chain validation** — recursive resolver가 `+dnssec` 플래그로 chain 검증.
+
+**시니어 운영 관점**:
+- 공공 cache resolver(8.8.8.8 등)는 DNSSEC 검증을 켜고 운영. 사내 corporate DNS는 DNSSEC 미적용인 경우 多.
+- 사내에서 DNSSEC 켤 때 흔한 함정: 사내 split-horizon zone과의 충돌, key rollover 실수로 SERVFAIL.
+
+### 9.9 패턴 8 — Anycast IP 변경이 client 캐시 때문에 즉시 반영 안 됨
+
+**시나리오**:
+- 회사가 anycast PoP A에서 PoP B로 트래픽 이전 (`my-cdn.example.com`).
+- DNS 응답 IP를 새 anycast로 바꿈 + TTL 300초.
+- 그런데 실제로 사용자 traffic의 cutover는 **5분이 아니라 30분~수 시간**.
+
+**원인 hierarchy** (Auth NS는 즉시 바뀌어도 클라이언트까지 도달은 다단 cache의 합):
+
+```
+Auth NS  →  Recursive (TTL 기반, 일부는 무시)
+         →  OS resolver cache (수 분)
+         →  브라우저 in-memory (TTL 무시 가능)
+         →  앱 자체 DNS cache (JVM 기본 30s ~ 영구)
+         →  HTTP keep-alive connection (idle/max-lifetime까지 옛 IP 유지)
+```
+
+**해결**:
+- 사전 TTL 단축 (cutover 24시간 전 60초 또는 5초로 미리 내림 → DNS 캐시 흡수).
+- 양쪽 PoP 동시 운영하다가 traffic이 자연스럽게 빠진 뒤 옛 PoP 회수.
+- **HTTP keep-alive max-age 짧게** + 강제 connection rotation.
+- JVM 앱은 `networkaddress.cache.ttl` 짧게 + connection pool의 idle eviction.
+
+### 9.10 패턴 9 — AWS Route53 health-check failover RTO
+
+**구성**: `example.com` ALIAS — primary → ALB(ap-northeast-2), secondary → ALB(us-west-2), failover routing 기반.
+
+**Route53 health-check 동작**: 전세계 여러 PoP에서 endpoint에 HTTP/HTTPS/TCP probe. 기본 30초 간격 × 3회 연속 fail → unhealthy (=90초). 일부 PoP만 fail이면 healthy 유지. unhealthy 시 DNS 응답에서 primary 제거 → secondary만 응답.
+
+**실제 RTO 계산**:
+
+```
+T+0    : primary endpoint 장애 발생
+T+90   : Route53 health-check unhealthy 판정
+T+90~  : DNS 응답이 secondary로 전환 (Auth NS 즉시 적용)
+T+150  : 사용자 측 recursive resolver cache 만료 (TTL 60s 가정)
+T+180  : 브라우저/앱 캐시까지 만료
+   ↓
+RTO ≈ 90 + TTL + 앱 캐시 ≈ 2~3분
+```
+
+**RTO를 줄이려면**:
+- health-check 간격을 **fast (10초)**로 + failure threshold 줄임 (3 → 2) → 약 20~30초.
+- TTL 60초 유지 (더 줄이면 부하 폭증).
+- 앱 측 DNS cache TTL 명시적 단축.
+- 단, 다 합쳐도 RTO 30~60초가 한계. **진짜 무중단은 L7 retry + circuit breaker + multi-region client routing**으로 보강.
+
+**대안 패턴**:
+- **multi-A record + client retry**: primary와 secondary IP 모두 응답에 포함 + 클라이언트가 fail 시 다음 IP 시도. RTO ≈ TCP timeout (몇 초).
+- **GSLB (Global Server Load Balancing)**: F5 BIG-IP, NS1 등. health-check 더 정교, 가격 비쌈.
+- **Anycast + BGP withdraw**: PoP 자체가 죽으면 BGP withdraw → BGP convergence (수 초~분).
+
+### 9.11 시나리오 매트릭스
 
 | 증상 | 진단 명령 | 가능한 원인 |
 |---|---|---|
@@ -1099,8 +2197,12 @@ dnsConfig:
 | TLS handshake 느림 | tcpdump TCP 443 | edge PoP까지 거리, OCSP stapling 미설정 |
 | CoreDNS NXDOMAIN 폭증 | `kubectl logs coredns` | ndots:5, search 도메인 5개 |
 | Anycast 연결 중간에 끊김 | TCP RST 추적 | PoP 라우팅 변경 (TCP는 anycast 함정) |
+| SERVFAIL 가끔 | `dig +dnssec`, recursive 로그 | DNSSEC chain 깨짐, auth NS 응답 시간 초과 |
+| 사용자 PC만 옛 IP 가짐 | `chrome://net-internals/#dns`, `dscacheutil` | 브라우저/OS cache, HSTS pinning |
+| ARP cache 잘못된 MAC | `ip neigh show`, `arp -a` | ARP spoofing, GARP 폭주, gateway 교체 |
+| Route53 failover 늦음 | Route53 health-check 콘솔 | 30s × 3 검사 + DNS TTL + 클라이언트 cache |
 
-### 9.8 도구 한 줄 요약
+### 9.12 도구 한 줄 요약
 
 ```bash
 # DNS

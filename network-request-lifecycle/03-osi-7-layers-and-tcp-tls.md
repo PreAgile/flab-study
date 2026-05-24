@@ -329,6 +329,615 @@ QUIC:        UDP 8 + QUIC variable + TLS 통합
 
 ---
 
+## 2-2. 🎯 한 요청을 따라가는 캡슐화 풀버전 — URL부터 MAC까지 (대규모 보강)
+
+> 이 섹션은 한 줄의 요청 `GET /users/김면수`이 **L7부터 L1까지 어떻게 옷을 갈아입고**, **각 계층이 무엇을 검증**하며, **MAC 주소가 hop마다 어떻게 갱신**되는지를 byte 단위로 풀어낸다.
+> 백지 면접에서 "OSI 7층을 처음부터 끝까지 풀어보세요"라는 요청을 받았을 때 막힘없이 풀 수 있는 분량.
+
+### 2-2.1 OSI 7계층 책임 매트릭스 ⭐ (강화된 표)
+
+| 계층 | 이름 | 책임 (한 줄) | PDU | 대표 헤더/프로토콜 | 주소 단위 | 검증 메커니즘 |
+|---|---|---|---|---|---|---|
+| **L7** | Application | end-user data **의미론** | message | HTTP, gRPC, FTP, SMTP, DNS | URL/path/method | semantic 검증 (Content-Length 일치, 비즈니스 규칙) |
+| **L6** | Presentation | encoding / encryption / compression | message | TLS, JSON, ASN.1, gzip, MIME | n/a | TLS HMAC (1.2) / AEAD (1.3) |
+| **L5** | Session | 세션 시작·유지·종료 | n/a | TLS handshake, NFS, RPC session | session id / ticket | session token 검증 |
+| **L4** | Transport | end-to-end **신뢰성·순서·다중화** | segment (TCP) / datagram (UDP) | TCP, UDP, QUIC, SCTP | port | TCP checksum + seq/ack |
+| **L3** | Network | end-to-end **라우팅** | packet | IPv4, IPv6, ICMP, IGMP | IP address | IP header checksum + TTL |
+| **L2** | Data Link | next-hop **frame 전달** | frame | Ethernet, Wi-Fi, ARP, PPP, VLAN | MAC address | Ethernet FCS (CRC-32) + dst MAC 매치 |
+| **L1** | Physical | **bit 전송** | bit | 광/구리/무선 | n/a | 신호 무결성 (이중 부호화, CSMA/CD) |
+
+**시니어 사고법** — 이 표를 외우는 게 아니라, "어떤 책임이 어디서 처리되는가"를 본능적으로 매핑할 수 있어야 한다.
+
+```
+   "P99 latency가 튄다" → 어떤 계층?
+
+   ├── L7 응답 자체가 느림           → 서버 코드 / DB / GC
+   ├── L4 retransmit 多              → 손실 환경, BBR로 전환
+   ├── L4 cwnd가 작음                → bufferbloat, 혼잡 제어 튜닝
+   ├── L3 TTL 짧아 ICMP TIME_EXCEED  → VPN/multi-hop routing 검토
+   ├── L3 fragmentation              → MTU mismatch, PMTUD 점검
+   ├── L2 frame error 증가           → NIC/케이블/스위치 하드웨어
+   └── L1 신호 noise                 → 광케이블·무선 환경
+```
+
+### 2-2.2 한 요청의 캡슐화 풀 시각화 — 헤더가 쌓이는 그림 ⭐
+
+```
+─────────────────────────────────────────────────────────────────────────────────
+ STEP 1 — L7 (Application)
+─────────────────────────────────────────────────────────────────────────────────
+ 브라우저가 만든 HTTP 메시지 (사람이 읽을 수 있는 텍스트):
+
+   GET /users/%EA%B9%80%EB%A9%B4%EC%88%98 HTTP/1.1\r\n
+   Host: example.com\r\n
+   User-Agent: Mozilla/5.0 ...\r\n
+   Accept: text/html\r\n
+   \r\n
+
+   ▶ 한글 '김면수'는 RFC 3986에 따라 percent-encoding (UTF-8 9 byte → 9 × %XX = 27 byte)
+   ▶ method, path, version, headers, blank line(\r\n\r\n), body 구조
+   ▶ 이게 L7의 PDU = "message"
+
+─────────────────────────────────────────────────────────────────────────────────
+ STEP 2 — L6 (Presentation / TLS)
+─────────────────────────────────────────────────────────────────────────────────
+ HTTPS이면 TLS record가 HTTP message를 감싼다:
+
+   ┌───────────────────────┬─────────────────────────────────┬──────────────┐
+   │ TLS Record Header (5) │ Encrypted Payload (HTTP bytes)  │ MAC / Auth   │
+   ├───────────────────────┼─────────────────────────────────┼──────────────┤
+   │ type=0x17 (app data)  │ AES-GCM 등으로 암호화된 HTTP    │ AEAD tag 16B │
+   │ version=0x0303        │                                 │              │
+   │ length (16bit)        │                                 │              │
+   └───────────────────────┴─────────────────────────────────┴──────────────┘
+
+   ▶ TLS 1.3 AEAD 사용 시 별도 MAC 필드는 없고 ciphertext 끝에 auth tag 16B
+   ▶ 이 시점부터 path('/users/김면수')는 wire 상에서 암호화 → 도청자는 못 봄
+   ▶ 다만 SNI(host)는 평문 (TLS 1.3 ECH 없으면 그대로 노출)
+
+─────────────────────────────────────────────────────────────────────────────────
+ STEP 3 — L4 (Transport / TCP)
+─────────────────────────────────────────────────────────────────────────────────
+ OS의 TCP stack이 TLS record bytes를 받아 TCP segment로 포장:
+
+   ┌────────────────────────────────────────┬──────────────────────────────┐
+   │ TCP Header (20~60 byte)                │ TLS record bytes (= payload) │
+   └────────────────────────────────────────┴──────────────────────────────┘
+
+   TCP header 핵심 (사용자가 외워야 할 4가지):
+     ▶ src_port = 54321 (ephemeral, OS가 할당)
+     ▶ dst_port = 443
+     ▶ seq      = 1000   (이번 segment의 첫 byte 번호)
+     ▶ ack      = 2000   (상대로부터 1999까지 잘 받았다)
+     ▶ flags    = ACK+PSH
+     ▶ window   = 65535  (내 recv buffer 여유)
+     ▶ checksum = 0xABCD  ← L4 검증 (pseudo-header + 전체 segment)
+
+   ▶ checksum 실패 시 segment 자체 폐기 → ACK 안 줌 → 재전송
+   ▶ seq/ack 덕분에 손실·순서뒤바뀜 복구
+
+─────────────────────────────────────────────────────────────────────────────────
+ STEP 4 — L3 (Network / IP)
+─────────────────────────────────────────────────────────────────────────────────
+ OS의 IP layer가 TCP segment를 IP packet으로 포장:
+
+   ┌──────────────────────────┬─────────────────────────────────────────────┐
+   │ IP Header (20 byte)      │ TCP segment bytes (header + payload)         │
+   └──────────────────────────┴─────────────────────────────────────────────┘
+
+   IP header 핵심 (4가지):
+     ▶ src_ip   = 10.0.0.5            (내 호스트 IP)
+     ▶ dst_ip   = 142.250.0.0         (서버 IP, DNS 해결 결과)
+     ▶ ttl      = 64                  (hop limit, router 한 번 거칠 때마다 -1)
+     ▶ protocol = 6                   (= TCP, UDP는 17, ICMP는 1)
+     ▶ checksum = 0x1234              ← L3 검증 (header 만! payload는 아님)
+
+   ▶ IP header checksum 실패 → router가 즉시 polic. 통째로 drop
+   ▶ TTL = 0이면 router가 ICMP TIME_EXCEEDED 회신 → traceroute의 동작 원리
+
+─────────────────────────────────────────────────────────────────────────────────
+ STEP 5 — L2 (Data Link / Ethernet)
+─────────────────────────────────────────────────────────────────────────────────
+ NIC(또는 NIC driver)가 IP packet을 Ethernet frame으로 포장:
+
+   ┌──────────────────┬──────────────────────────────────────────┬──────────┐
+   │ Eth Header (14)  │ IP packet bytes                          │ FCS (4)  │
+   └──────────────────┴──────────────────────────────────────────┴──────────┘
+
+   Ethernet header (14 byte):
+     ▶ dst_mac   = AA:BB:CC:DD:EE:FF   ← 게이트웨이 MAC! (ARP로 알아냄)
+     ▶ src_mac   = 00:1A:2B:3C:4D:5E   (내 NIC MAC)
+     ▶ ethertype = 0x0800              (= IPv4, IPv6는 0x86DD, ARP는 0x0806)
+   FCS (4 byte trailer):
+     ▶ Frame Check Sequence — CRC-32, frame 전체 검증
+
+   ⭐ 핵심: dst_mac은 "최종 서버의 MAC"이 아니라 "다음 hop의 MAC"
+   ⭐ IP는 end-to-end, MAC은 hop-to-hop
+
+─────────────────────────────────────────────────────────────────────────────────
+ STEP 6 — L1 (Physical)
+─────────────────────────────────────────────────────────────────────────────────
+ NIC가 frame을 비트 스트림으로 변환 → 매체(구리/광/무선)에 신호로 송출:
+
+   10101010 11110000 11001100 ...  (실제는 Manchester 같은 line code로 부호화)
+
+   ▶ 이더넷은 frame 앞에 preamble (7 byte) + SFD (1 byte) 추가 → 수신측 클럭 동기
+   ▶ frame 사이엔 IFG (Inter-Frame Gap, 96bit time) 두어 충돌 회피
+```
+
+**총 오버헤드 정리** (한 HTTPS GET 요청, IPv4):
+
+```
+   Eth 14 + IP 20 + TCP 20 + TLS record 5 + AEAD tag 16  =  75 byte 오버헤드
+   + Eth FCS 4 + preamble/SFD 8 + IFG (gap)              =  실제 wire 86+ byte
+   HTTP payload 500 byte 라면 → 약 14% 오버헤드
+   payload가 짧을수록 오버헤드 비율 폭증 (small packet 문제 = Nagle)
+```
+
+### 2-2.3 헤더 byte 단위 풀 분해 (시각화)
+
+#### TCP 헤더 풀 byte map (20 byte 기본)
+
+```
+  bit offset:   0           16          32          48          64
+                ├───────────┼───────────┼───────────┼───────────┤
+   byte 0~3   │  Source Port (16)        │  Dest Port (16)       │
+              ├───────────────────────────┴───────────────────────┤
+   byte 4~7   │  Sequence Number (32)                              │
+              ├───────────────────────────────────────────────────┤
+   byte 8~11  │  Acknowledgment Number (32)                        │
+              ├──┬─────┬──────┬───────────────────────────────────┤
+   byte 12~13 │HL│ rsv │flags │  Window Size (16)                  │
+              │ 4│  6  │  6   │                                    │
+              ├──┴─────┴──────┴───────────────────────────────────┤
+   byte 14~15 │  Checksum (16)            │  Urgent Pointer (16)   │
+              ├───────────────────────────┴───────────────────────┤
+   byte 16~19 │  Options (MSS, WScale, SACK, Timestamp, ...)        │
+              └───────────────────────────────────────────────────┘
+```
+
+| 필드 | 시니어가 외울 것 | 운영 의미 |
+|---|---|---|
+| src/dst port | 4-tuple의 절반 | 어느 process socket인가 |
+| seq | 이번 byte 첫 번호 | 재전송·순서 보장 핵심 |
+| ack | 다음에 받을 byte 번호 | 흐름 제어 핵심 |
+| flags 6개 | SYN/ACK/FIN/RST/PSH/URG | 운영 진단 90%가 flag 조합 |
+| window | recv buffer 여유 | 흐름 제어, 과부하 방지 |
+| checksum | L4 검증 | pseudo-header 포함, payload 손상 감지 |
+
+#### IP 헤더 풀 byte map (IPv4, 20 byte 기본)
+
+```
+   bit:        0     4     8        16            24           32
+              ├─────┼─────┼────────┼─────────────┼────────────┤
+   byte 0~3   │ Ver │ IHL │ ToS/DS │  Total Length (16)        │
+              ├─────┴─────┴────────┼─────┬─────────────────────┤
+   byte 4~7   │ Identification (16) │Flags│  Frag Offset (13)  │
+              ├─────────────────────┴─────┴─────────────────────┤
+   byte 8~11  │ TTL (8)  │ Protocol (8)  │  Header Checksum (16) │
+              ├──────────┴───────────────┴────────────────────────┤
+   byte 12~15 │ Source IP (32)                                     │
+              ├───────────────────────────────────────────────────┤
+   byte 16~19 │ Destination IP (32)                                │
+              └───────────────────────────────────────────────────┘
+```
+
+| 필드 | 시니어 의미 | 운영 시그널 |
+|---|---|---|
+| src/dst IP | end-to-end 식별 | NAT 없으면 양 끝까지 그대로 |
+| TTL | hop limit | traceroute가 이걸 이용 |
+| protocol | 위 layer 식별 | 6=TCP, 17=UDP, 1=ICMP |
+| total_len | IP packet 전체 | fragmentation 결정 기준 |
+| frag 필드 | 분할 정보 | DF=1이면 분할 금지 → ICMP unreachable |
+| header checksum | header 검증 | router가 매 hop 재계산 (TTL 변하므로) |
+
+#### Ethernet header + FCS (14 + 4 byte)
+
+```
+   ┌──────────────────────────┬──────────────────────────┬──────────────┐
+   │ Destination MAC (48bit)  │ Source MAC (48bit)       │ EtherType(16)│
+   ├──────────────────────────┴──────────────────────────┴──────────────┤
+   │ Payload (46~1500 byte)                                              │
+   ├────────────────────────────────────────────────────────────────────┤
+   │ Frame Check Sequence (CRC-32, 32bit)                                │
+   └────────────────────────────────────────────────────────────────────┘
+
+   EtherType:
+     0x0800 = IPv4         0x86DD = IPv6
+     0x0806 = ARP          0x8100 = VLAN tag (802.1Q)
+     0x88CC = LLDP         0x8847 = MPLS unicast
+```
+
+### 2-2.4 각 계층의 검증·체크 메커니즘 ⭐⭐ (사용자 요청 핵심)
+
+```
+                    "패킷이 위조되거나 손상되면?"
+                    각 계층이 독립적으로 검증한다.
+                    ────────────────────────────
+
+   L7  ┃ 비즈니스 검증 (서버 코드)
+       ┃   ▶ Content-Length 일치
+       ┃   ▶ JSON 스키마 / header 유효성
+       ┃   ▶ 인증 토큰 / CSRF
+       ┃   실패 → 4xx 응답
+       ┃
+   L6  ┃ TLS HMAC / AEAD tag
+       ┃   ▶ 1.2: HMAC-SHA256으로 record 무결성
+       ┃   ▶ 1.3: AES-GCM 같은 AEAD로 confidentiality + integrity 한 번에
+       ┃   실패 → fatal alert → connection 종료
+       ┃
+   L4  ┃ TCP checksum + seq/ack
+       ┃   ▶ checksum: pseudo-header(src/dst IP, proto, len) + TCP header + payload
+       ┃           1's complement sum (16bit). 실패 → segment 폐기 → ACK 없음 → 재전송
+       ┃   ▶ seq: 손실/순서 뒤바뀜 감지
+       ┃   ▶ ack: 수신 확인. RTO 안에 못 받으면 재전송
+       ┃   ▶ window: 받을 buffer 부족하면 0 win 광고 → 송신 정지
+       ┃
+   L3  ┃ IP header checksum + TTL + fragmentation
+       ┃   ▶ checksum: header만 검증 (payload는 L4 책임)
+       ┃           ★ router가 매 hop마다 재계산 (TTL이 변하니까)
+       ┃   ▶ TTL: 0 되면 ICMP TIME_EXCEEDED 회신 + drop
+       ┃           → 무한 routing loop 방지
+       ┃   ▶ DF + MTU 초과 → ICMP "Fragmentation Needed" → PMTUD
+       ┃
+   L2  ┃ FCS (CRC-32) + dst MAC match
+       ┃   ▶ FCS: frame 전체 (header+payload) CRC. 실패 → NIC가 즉시 drop
+       ┃           통계에 'RX errors' 증가
+       ┃   ▶ dst_mac이 내 MAC / broadcast / 가입한 multicast 아니면 NIC 폐기
+       ┃           (promiscuous mode면 통과)
+       ┃
+   L1  ┃ 신호 무결성
+       ┃   ▶ Manchester / 8b/10b 같은 line code → DC balance, clock recovery
+       ┃   ▶ CSMA/CD (half-duplex): 충돌 감지 시 jam signal + 백오프
+       ┃   ▶ 광/구리: BER (Bit Error Rate)이 높으면 L2 FCS 실패 폭증
+```
+
+**시니어 통찰** — 왜 같은 데이터를 **여러 계층에서 중복 검증**할까?
+
+```
+   "TCP checksum이 있으면 Ethernet FCS는 왜 또 있나?"
+
+   계층별 책임 분리:
+     ▶ FCS는 link-local 에러 (NIC 결함, 케이블 누전, 광 노이즈)를 즉시 폐기
+        → router가 손상된 frame을 IP layer까지 올리지 않게
+     ▶ TCP checksum은 end-to-end 에러 (router의 메모리 손상,
+        kernel buffer 오염 등 link 이외 원인)를 잡음
+     ▶ TLS HMAC/AEAD는 악의적 변조 (active attacker)를 잡음
+        → checksum/FCS는 우연한 손상만 잡지, 적대적 변경은 못 잡음
+
+   각 계층은 다른 신뢰 모델을 가정한다 — defense in depth.
+```
+
+### 2-2.5 MAC 주소가 hop마다 어떻게 바뀌는가 ⭐⭐⭐ (★ 사용자 명시 요청)
+
+> "IP는 end-to-end, MAC은 hop-to-hop" — 이 한 문장이 네트워크 흐름의 핵심.
+
+#### 그림: 3-hop 경로에서 IP/MAC 변화
+
+```
+   ┌────────────┐       ┌─────────────┐      ┌─────────────┐      ┌──────────┐
+   │  Client    │       │  Router1    │      │  Router2    │      │  Server  │
+   │ 10.0.0.5   │       │ 10.0.0.1    │      │ 192.0.2.1   │      │142.250.. │
+   │ 00:1A:..   │       │ AA:BB:..1A  │      │ DD:EE:..2A  │      │ 99:88:.. │
+   │            │       │   ..1B (out)│      │   ..2B (out)│      │          │
+   └─────┬──────┘       └──────┬──────┘      └──────┬──────┘      └────┬─────┘
+         │                     │                    │                  │
+         │  ┌──────────────────────────────────────────────────────┐   │
+         │  │ Hop 1: Client → Router1                              │   │
+         │  │   IP   src=10.0.0.5     dst=142.250.0.0  (end-to-end)│   │
+         │  │   MAC  src=00:1A:..     dst=AA:BB:..1A  ← Router1 MAC│   │
+         │  └──────────────────────────────────────────────────────┘   │
+         │                                                              │
+         │                ┌─────────────────────────────────────────┐   │
+         │                │ Hop 2: Router1 → Router2                │   │
+         │                │   IP   src=10.0.0.5  dst=142.250.0.0     │   │
+         │                │            (그대로!)                      │   │
+         │                │   MAC  src=AA:BB:..1B  dst=DD:EE:..2A    │   │
+         │                │            (Router1 OUT → Router2 IN)    │   │
+         │                │   TTL: 64 → 63                            │   │
+         │                │   IP checksum: 재계산                     │   │
+         │                └─────────────────────────────────────────┘   │
+         │                                          │                   │
+         │                          ┌──────────────────────────────┐    │
+         │                          │ Hop 3: Router2 → Server      │    │
+         │                          │   IP   src=10.0.0.5          │    │
+         │                          │        dst=142.250.0.0        │    │
+         │                          │   MAC  src=DD:EE:..2B         │    │
+         │                          │        dst=99:88:..  ← Server│    │
+         │                          │   TTL: 63 → 62               │    │
+         │                          └──────────────────────────────┘    │
+         │                                                              │
+         ▼                                                              ▼
+
+   ★ IP src/dst: 처음부터 끝까지 동일 (NAT 없으면)
+   ★ MAC src/dst: 매 hop마다 변경
+   ★ TTL: hop마다 -1
+   ★ IP header checksum: TTL이 변하니 매 hop 재계산
+   ★ L4 이상은 router가 절대 건드리지 않음 (그게 router의 본질)
+```
+
+**왜 MAC이 hop마다 변하나?**
+
+```
+   MAC 주소는 같은 LAN(broadcast domain) 안에서만 의미가 있다.
+   Router는 LAN의 경계.
+
+   ┌─────────────────────┐         ┌──────────────────────┐
+   │  LAN A              │ Router  │  LAN B               │
+   │  10.0.0.0/24        │  ┌──┐   │  192.0.2.0/24        │
+   │                     │  │  │   │                      │
+   │  10.0.0.5 ──────────┼──┤  ├───┼─────  192.0.2.10     │
+   │  (00:1A:..)         │  └──┘   │  (44:55:..)           │
+   │                     │ 10.0.0.1│  192.0.2.1            │
+   │                     │ AA:BB..1A│  AA:BB..1B           │
+   └─────────────────────┘         └──────────────────────┘
+
+   ▶ 10.0.0.5가 192.0.2.10에게 보낼 때:
+     LAN A 안에선 dst_mac = 게이트웨이(10.0.0.1)의 MAC = AA:BB..1A
+   ▶ Router가 frame을 받음 → MAC 헤더 떼버림
+   ▶ Router의 라우팅 테이블에서 192.0.2.0/24는 LAN B 인터페이스로
+   ▶ LAN B 인터페이스의 MAC(AA:BB..1B)을 src로, 192.0.2.10의 MAC(44:55..)을 dst로
+     하여 새 Ethernet frame 조립
+   ▶ 그래서 매 hop마다 MAC 갱신
+```
+
+#### Router의 일 — 한 frame이 들어와서 나갈 때까지
+
+```
+   ┌────────────────────────────────────────────────────────────┐
+   │ Router 내부 처리                                              │
+   ├────────────────────────────────────────────────────────────┤
+   │                                                              │
+   │ 1. NIC가 frame 수신                                           │
+   │    ▶ FCS 검증                                                 │
+   │    ▶ dst_mac == 내 MAC인지 확인                              │
+   │    ▶ OK면 Ethernet header/FCS 떼버림 → IP packet만 남김       │
+   │                                                              │
+   │ 2. IP packet 검사                                             │
+   │    ▶ IP header checksum 검증                                  │
+   │    ▶ TTL > 1 인지 (1이면 -1 후 0 → ICMP TIME_EXCEEDED 회신)  │
+   │    ▶ TTL -= 1                                                 │
+   │    ▶ dst_ip로 routing table 조회                              │
+   │       └ 다음 hop의 IP + outgoing interface 결정              │
+   │                                                              │
+   │ 3. 다음 hop MAC 조회                                          │
+   │    ▶ ARP cache에 next-hop IP 있나? 있으면 그 MAC 사용         │
+   │    ▶ 없으면 ARP request broadcast → 응답받아 cache 저장      │
+   │                                                              │
+   │ 4. 새 Ethernet frame 조립                                     │
+   │    ▶ src_mac = outgoing interface MAC                         │
+   │    ▶ dst_mac = next hop MAC                                   │
+   │    ▶ ethertype = 0x0800 (IPv4 그대로)                         │
+   │    ▶ IP header checksum 재계산 (TTL 바뀌었으니까)             │
+   │    ▶ FCS 재계산                                               │
+   │                                                              │
+   │ 5. outgoing NIC로 frame 전송                                  │
+   │                                                              │
+   │ ★ TCP 이상은 절대 건드리지 않음 (그게 "router"의 정의)        │
+   │   * NAT/firewall이 있으면 src_ip/src_port를 바꿀 수도 있지만 │
+   │     그건 "router의 본업"이 아니라 부가 기능                   │
+   └────────────────────────────────────────────────────────────┘
+```
+
+### 2-2.6 ARP — 같은 LAN에서 IP → MAC 알아내기 ⭐ (사용자 명시 요청)
+
+> "내가 10.0.0.1(게이트웨이)에게 frame을 보내고 싶은데, 걔 MAC을 모른다. 어떻게 알아내지?"
+
+#### ARP 동작 시퀀스
+
+```
+   상황: 클라이언트 10.0.0.5가 처음으로 게이트웨이 10.0.0.1과 통신하려 함
+        ARP cache는 비어 있음
+
+   STEP 1 — ARP Request (broadcast)
+   ────────────────────────────────────────────────────────────
+   클라이언트가 같은 LAN의 모든 호스트에게 외친다.
+
+   Ethernet frame:
+     ┌──────────────────────────────────────────────────────────┐
+     │ dst_mac = FF:FF:FF:FF:FF:FF   ← broadcast                │
+     │ src_mac = 00:1A:2B:3C:4D:5E   ← 내 MAC                   │
+     │ ethertype = 0x0806            ← ARP                       │
+     ├──────────────────────────────────────────────────────────┤
+     │ ARP payload:                                              │
+     │   htype = 1 (Ethernet)                                    │
+     │   ptype = 0x0800 (IPv4)                                   │
+     │   hlen = 6, plen = 4                                      │
+     │   operation = 1 (request)                                 │
+     │   sender_mac = 00:1A:2B:3C:4D:5E                          │
+     │   sender_ip  = 10.0.0.5                                   │
+     │   target_mac = 00:00:00:00:00:00  (모름)                  │
+     │   target_ip  = 10.0.0.1                                   │
+     │                                                            │
+     │   "Who has 10.0.0.1? Tell 10.0.0.5"                       │
+     └──────────────────────────────────────────────────────────┘
+
+   STEP 2 — LAN 모든 호스트가 frame 받음
+   ────────────────────────────────────────────────────────────
+     ▶ broadcast이므로 NIC는 통과시킴
+     ▶ 각 호스트는 ARP target_ip == 자기 IP인지 확인
+     ▶ 자기 거 아니면 그냥 drop (단 sender 정보는 cache할 수도)
+
+   STEP 3 — 10.0.0.1이 ARP Reply (unicast)
+   ────────────────────────────────────────────────────────────
+     ┌──────────────────────────────────────────────────────────┐
+     │ dst_mac = 00:1A:2B:3C:4D:5E   ← 클라이언트                │
+     │ src_mac = AA:BB:CC:DD:EE:FF   ← 게이트웨이                │
+     │ ethertype = 0x0806                                         │
+     ├──────────────────────────────────────────────────────────┤
+     │ ARP payload:                                               │
+     │   operation = 2 (reply)                                    │
+     │   sender_mac = AA:BB:CC:DD:EE:FF                           │
+     │   sender_ip  = 10.0.0.1                                    │
+     │   target_mac = 00:1A:2B:3C:4D:5E                           │
+     │   target_ip  = 10.0.0.5                                    │
+     │                                                             │
+     │   "10.0.0.1 is at AA:BB:CC:DD:EE:FF"                       │
+     └──────────────────────────────────────────────────────────┘
+
+   STEP 4 — 클라이언트 ARP cache 저장
+   ────────────────────────────────────────────────────────────
+     10.0.0.1 → AA:BB:CC:DD:EE:FF (expire in 60s ~ default)
+
+     이후 같은 LAN의 frame은 cache로 즉시 보냄.
+     expire되면 다시 ARP request.
+```
+
+#### ARP는 몇 계층? — "L2.5"
+
+```
+   ARP는 L2(MAC)와 L3(IP) 사이를 잇는다.
+
+   ┌─────────────────────────────────────────────────────────┐
+   │ ARP는 L3 정보(IP)를 알지만, 자기 자신은 L2 frame으로 전송 │
+   │ 보통 'L2.5' 또는 'L2와 L3 사이'라고 부른다                │
+   │                                                          │
+   │ TCP/IP 모델에선 link layer에 포함 (실용주의 분류)        │
+   └─────────────────────────────────────────────────────────┘
+```
+
+#### ARP의 흥미로운 변형 — Gratuitous ARP
+
+```
+   "Gratuitous ARP" — 묻지도 않았는데 자기 IP의 MAC을 알리는 broadcast.
+
+   언제 쓰나?
+     1. failover: VRRP/keepalived가 가상 IP를 새 노드로 옮길 때
+        → "이제 10.0.0.100은 내 MAC이야!"라고 LAN 전체에 알림
+        → 다른 호스트들 ARP cache 즉시 갱신
+     2. IP 충돌 감지: 시작 시 자기 IP에 대해 broadcast → 응답 오면 충돌
+     3. 일부 NIC가 link up 시 자동 발송
+```
+
+#### ARP의 보안 함정 — ARP Spoofing / Cache Poisoning
+
+```
+   ARP는 인증이 없다. 누구나 reply를 보낼 수 있다.
+
+   공격 시나리오:
+     ▶ 공격자가 LAN에서 "10.0.0.1(게이트웨이)는 내 MAC이야"라고 거짓 reply
+     ▶ 피해자 ARP cache가 오염되어 게이트웨이 향한 frame이 공격자에게 감
+     ▶ 공격자는 sniff/MITM 후 진짜 게이트웨이로 forward
+     ▶ 평문 통신 노출 (HTTPS는 TLS 덕분에 그래도 안전)
+
+   방어:
+     ▶ static ARP entry (소수 중요 호스트)
+     ▶ DAI (Dynamic ARP Inspection) — 엔터프라이즈 스위치 기능
+     ▶ TLS 강제 (어차피 L7부터 암호화면 sniff 무력화)
+```
+
+### 2-2.7 한 frame이 NIC를 떠나 wire에 비트로 나가는 그림
+
+```
+   ┌──────────────────────────────────────────────────────────────┐
+   │ Kernel space                                                  │
+   │                                                                │
+   │  TCP segment 생성 (kernel TCP stack)                          │
+   │       ↓                                                        │
+   │  IP packet 생성 (kernel IP stack)                              │
+   │       ↓ (routing table 조회 → outgoing interface 결정)         │
+   │  Netfilter hooks (iptables, nftables)                          │
+   │       ↓                                                        │
+   │  qdisc (queueing discipline: pfifo, fq, fq_codel)              │
+   │       ↓                                                        │
+   │  Driver TX ring                                                │
+   │       ↓                                                        │
+   └───────│───────────────────────────────────────────────────────┘
+           ▼ (DMA로 NIC가 직접 메모리 읽음)
+   ┌──────────────────────────────────────────────────────────────┐
+   │ NIC hardware                                                  │
+   │                                                                │
+   │  1. Ethernet header 부착 (kernel이 미리 만들어 둠)             │
+   │  2. FCS 계산 + 부착                                            │
+   │  3. preamble (7B 0x55 반복) + SFD (1B 0xD5) 부착               │
+   │  4. PHY 칩이 비트를 line code(예: 4B/5B, 8b/10b)로 부호화       │
+   │  5. 전기 신호 / 광 펄스 / 무선 전파로 변환 → wire 송출         │
+   │                                                                │
+   │  ★ TCP/IP checksum offload, TSO/GRO, RSS 등은 NIC가 가속      │
+   │     커널이 큰 segment 하나 넘기면 NIC가 MTU로 잘게 쪼개기      │
+   └──────────────────────────────────────────────────────────────┘
+           ▼
+        ─── wire (구리/광/무선) ───
+           ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ 수신측 NIC                                                     │
+   │                                                                │
+   │  1. PHY가 line code 복호화 → bit stream                        │
+   │  2. preamble로 clock 동기                                      │
+   │  3. SFD 만나면 frame 시작                                      │
+   │  4. FCS 검증 → 실패면 즉시 drop ('RX errors' 증가)             │
+   │  5. dst_mac 매치 확인 → 아니면 drop (promisc 제외)             │
+   │  6. DMA로 kernel buffer에 frame 적재                           │
+   │  7. IRQ 또는 NAPI poll로 커널에 통지                            │
+   │                                                                │
+   │  ★ kernel은 GRO로 여러 frame을 합쳐 한 segment로               │
+   │  ★ XDP가 있으면 user space보다 빨리 packet 처리·drop 가능      │
+   └──────────────────────────────────────────────────────────────┘
+```
+
+### 2-2.8 IP는 end-to-end / MAC은 hop-to-hop — 한 그림 요약 ⭐
+
+```
+   ┌──────────────────────────────────────────────────────────────┐
+   │ "이 패킷의 어떤 필드가 변하고, 어떤 게 그대로인가?"             │
+   └──────────────────────────────────────────────────────────────┘
+
+            Hop 1            Hop 2            Hop 3            Hop 4
+   ┌──────┐  │   ┌──────┐    │   ┌──────┐    │   ┌──────┐    │
+   │Client├──┼──►│  R1  ├────┼──►│  R2  ├────┼──►│  R3  ├────┼──► Server
+   └──────┘  │   └──────┘    │   └──────┘    │   └──────┘    │
+
+   ─────────────────────────────────────────────────────────────────
+   필드            Hop 1       Hop 2       Hop 3       Hop 4
+   ─────────────────────────────────────────────────────────────────
+   src_ip          C           C           C           C           ← 불변
+   dst_ip          S           S           S           S           ← 불변
+   src_mac         C           R1_out      R2_out      R3_out      ← 변동
+   dst_mac         R1_in       R2_in       R3_in       S_mac       ← 변동
+   TTL             64          63          62          61          ← 감소
+   IP checksum     A           B           C           D           ← 재계산
+   TCP seq         1000        1000        1000        1000        ← 불변
+   TCP checksum    X           X           X           X           ← 불변
+   payload         ★           ★           ★           ★           ← 불변 (암호화)
+   ─────────────────────────────────────────────────────────────────
+
+   ★ NAT 박스가 있으면 src_ip / src_port도 hop 어디선가 바뀜
+     - 그래서 NAT는 "L4 inspection을 하는 무거운 router"
+```
+
+### 2-2.9 캡슐화 풀버전 면접 답변 흐름 (백지 4분)
+
+```
+  면접관: "URL을 입력했을 때 패킷이 어떻게 만들어져서 서버까지 가는지 OSI 관점에서 설명하세요"
+
+  ▶ 1분 — 큰 그림
+    "L7부터 L1까지 단계마다 header를 입히는 캡슐화 과정이고,
+     수신측은 반대로 한 층씩 벗기는 디캡슐레이션입니다."
+
+  ▶ 2분 — 단계별
+    "L7에서 HTTP 메시지가 생기고, HTTPS면 L6에서 TLS record로 암호화,
+     L4(TCP)에서 src/dst port + seq/ack를 붙여 segment,
+     L3(IP)에서 src/dst IP + TTL을 붙여 packet,
+     L2(Ethernet)에서 src/dst MAC + ethertype + FCS를 붙여 frame,
+     L1에서 NIC가 비트로 변환해 와이어로 송출합니다."
+
+  ▶ 3분 — 검증
+    "각 계층마다 독립적인 검증이 있습니다.
+     L2 FCS는 link error, L3 checksum은 header 무결성 + TTL로 무한루프 방지,
+     L4 TCP checksum + seq/ack로 end-to-end 신뢰성, L6 TLS는 변조 감지,
+     L7은 비즈니스 검증입니다."
+
+  ▶ 4분 — MAC이 변하는 이유
+    "여기서 핵심은 IP는 end-to-end, MAC은 hop-to-hop이라는 점입니다.
+     router는 LAN의 경계이고, MAC은 같은 LAN에서만 의미가 있습니다.
+     매 hop마다 router가 Ethernet frame을 떼고 새로 조립하면서
+     src/dst MAC을 갱신합니다. 다음 hop의 MAC은 ARP로 알아냅니다.
+     ARP는 'IP를 가진 사람 누구?'라고 broadcast로 묻고 unicast로 답받는
+     L2.5 프로토콜이고, 60초 정도 cache합니다."
+```
+
+---
+
 ## 3. 가지 ③ 진입 전 — 각 계층의 실제 프로토콜 한눈에
 
 ### 3.1 계층별 프로토콜 매트릭스
@@ -1231,6 +1840,112 @@ sslscan example.com
 
 **진단**: Chrome `chrome://net-export/` 또는 `nginx -V 2>&1 | grep quic` (서버 빌드 확인).
 
+### 9.8 시나리오 8: MTU 1500 초과 응답이 깨진다 (PMTUD 실패)
+
+**증상**: 대용량 응답 (PDF, 큰 JSON) 다운로드 중 hang. 작은 요청은 정상. VPN 환경에서 자주 발생.
+
+**원인** (한 줄): **DF(Don't Fragment) 비트가 켜진 큰 packet이 작은 MTU 구간을 만남 → ICMP "Fragmentation Needed"가 차단되어 송신자가 모름**.
+
+```
+   클라이언트 (MTU 1500) ──── VPN tunnel (MTU 1400) ──── 서버 (MTU 1500)
+                                  │
+                                  ▼
+   서버가 1500 byte segment를 DF=1로 보냄
+   → tunnel router가 "MTU 초과! DF니까 못 자름" → drop + ICMP unreachable 회신
+   → 그런데 방화벽이 ICMP를 막아버림 (보안 정책으로 흔함)
+   → 서버는 응답 없음만 받음 → 무한 재전송 → hang
+
+   이게 PMTU Discovery black hole.
+```
+
+**진단**:
+```bash
+# 다양한 size로 ping 보내 어디서 잘리는지
+ping -M do -s 1472 example.com   # 1472 + 28(ICMP/IP header) = 1500
+ping -M do -s 1372 example.com   # 작은 MTU에서 통과하는 size
+# tracepath: PMTU 자동 측정
+tracepath example.com
+```
+
+**해결**:
+- **MSS clamping**: VPN/iptables에서 SYN 패킷의 MSS option을 낮춰 처음부터 작은 segment 강제
+  ```
+  iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN \
+     -j TCPMSS --clamp-mss-to-pmtu
+  ```
+- **방화벽에서 ICMP "Fragmentation Needed" (type 3, code 4) 통과 허용** — 보안 명분으로 ICMP 전체 차단하지 말 것
+- **PLPMTUD (RFC 4821)** 활성화 — ICMP 의존 안 하고 packet 손실로 PMTU 추정 (Linux: `net.ipv4.tcp_mtu_probing=1`)
+
+### 9.9 시나리오 9: ARP cache poisoning / 게이트웨이 MAC 이상
+
+**증상**: 같은 LAN 내 호스트의 통신이 갑자기 끊기거나, 외부 통신은 되는데 응답이 느려짐. `arp -a`에 게이트웨이 MAC이 평소와 다름.
+
+**원인**:
+1. **ARP spoofing 공격** — 누군가 게이트웨이를 사칭하는 ARP reply broadcast
+2. **gratuitous ARP race** — 같은 VIP를 여러 노드가 동시에 claim (잘못 설정된 keepalived)
+3. **NIC MAC duplicate** — 가상화 환경에서 MAC 중복 (드물지만 발생)
+
+**진단**:
+```bash
+# 현재 ARP cache
+arp -an
+
+# 정상 게이트웨이 MAC과 비교 (관리자 기록 필요)
+# 의심되면 tcpdump로 ARP 캡처
+tcpdump -i eth0 -nn arp
+
+# 어떤 MAC이 어떤 IP를 광고하는지 분석
+# 같은 IP를 여러 MAC이 광고하면 충돌 또는 공격
+```
+
+**해결**:
+- **단기**: `arp -d <ip>`로 cache 비우고 다시 학습. static ARP entry 강제
+  ```
+  arp -s 10.0.0.1 AA:BB:CC:DD:EE:FF
+  ```
+- **장기**: 스위치의 **DAI (Dynamic ARP Inspection)** 활성화 — DHCP snooping과 연동해 위조 ARP 자동 차단
+- 중요 서버는 **L7 TLS 강제** — MITM이 되어도 평문 노출 막음
+
+### 9.10 시나리오 10: TTL 소진 → 도달 못 함
+
+**증상**: 특정 외부 서비스만 unreachable. `ping`은 가는데 application은 timeout. `traceroute`가 중간에 `* * *` 무한.
+
+**원인** (한 줄): **VPN/SD-WAN/clouds를 거치며 hop이 누적되어 TTL이 0이 되어 drop**.
+
+```
+   현대 클라우드/멀티 VPN 환경:
+     사용자 → corporate VPN → cloud VPN → service mesh sidecar → another vpc peering → 최종 서버
+     hop 수가 25~30+ 되는 경우 흔함
+
+   기본 TTL:
+     ▶ Linux: 64
+     ▶ Windows: 128
+     ▶ macOS: 64
+
+   64 hop 안에 못 도달하면 마지막 router가 ICMP TIME_EXCEEDED 회신 + drop
+   → 송신자는 "Time exceeded" 또는 그냥 timeout
+```
+
+**진단**:
+```bash
+# hop 수 추적
+traceroute -n example.com
+# 또는 mtr (real-time)
+mtr example.com
+
+# 마지막에 도달하기 전 끊기면 그 hop 이후가 문제
+# * * * 가 끝까지 가면 ICMP 차단된 경로
+```
+
+**해결**:
+- **TTL 키우기**:
+  ```
+  sysctl -w net.ipv4.ip_default_ttl=128
+  ```
+  (default 64로는 글로벌 멀티 VPN 환경에서 부족할 수 있음)
+- **경로 최적화** — 불필요한 hop 줄이기. service mesh의 sidecar 1 hop도 무시 못 함
+- **MTR로 모니터링** — 평소 패킷 loss와 hop 변화 트래킹
+
 ---
 
 ## 10. 트레이드오프 종합표 ⭐
@@ -1379,6 +2094,156 @@ sslscan example.com
 **꼬리 6-1**: "측정 도구를 어떤 순서로?"
 - → 위에서 아래로: 우선 `curl -w` 같은 클라이언트 도구 (DNS/connect/TLS/TTFB 분리) → 의심 단계에서 `tcpdump`/`ss`/`openssl s_client`.
 
+### Q7. "OSI 7계층 모델과 TCP/IP 모델의 차이는?"
+
+**예상답**:
+- OSI: ISO/ITU가 1984년 표준화한 7계층 추상 모델. 교육·이론적 분류용.
+- TCP/IP: IETF가 실제 인터넷을 구현하며 자라난 4~5계층 모델. 실무 표준.
+
+```
+   OSI 7층 ↔ TCP/IP 4~5층 매핑
+   ─────────────────────────────────
+   L7 Application  ┐
+   L6 Presentation │  → Application
+   L5 Session      ┘
+   L4 Transport     → Transport
+   L3 Network       → Internet
+   L2 Data Link    ┐
+   L1 Physical     │  → Link (or Network Access)
+   ─────────────────────────────────
+```
+
+- **왜 TCP/IP가 이겼나**: OSI는 표준이 먼저 나오고 구현이 따라가는 방식, TCP/IP는 구현이 먼저 (BSD/Berkeley) 표준화는 나중. "rough consensus and running code" 정신.
+- **실무에서 OSI를 쓰는 이유**: 7계층 분류가 "어디서 문제 났나"를 분리해서 보는 데 유용. 운영 진단 시 "L3 문제? L7 문제?"로 좁히는 사고법.
+
+**꼬리 7-1**: "그럼 OSI는 죽은 모델인가?"
+- → 모델 자체는 살아 있음. ISO OSI 프로토콜 스택(X.25, X.400)은 죽었음. 모델은 개념적 분류 도구로 영구.
+- → 7계층이 5계층보다 더 세밀해서 trouble-shoot할 때 유용.
+
+### Q8. "L4 LB와 L7 LB의 차이는?"
+
+**예상답** (한 줄): L4는 **port까지만 보고 분산**, L7은 **HTTP path/header/cookie까지 보고 분산**.
+
+```
+   L4 LB (Layer 4, Transport)
+   ─────────────────────────────────
+   ▶ TCP/UDP 헤더의 src/dst IP + port만 inspect
+   ▶ TLS 종단 안 함 (pass-through)
+   ▶ packet 단위 forwarding (DSR 가능)
+   ▶ 빠름 (수십만 connection/sec), 가벼움
+   ▶ 알고리즘: round-robin, least-conn, hash
+   ▶ 예: AWS NLB, HAProxy (TCP mode), IPVS
+
+   L7 LB (Layer 7, Application)
+   ─────────────────────────────────
+   ▶ HTTP method, path, header, cookie까지 본다
+   ▶ TLS 종단 (인증서 보유)
+   ▶ "GET /api/* → backend A, /static/* → backend B"
+   ▶ sticky session (cookie 기반), WAF, compression
+   ▶ 느림 (TLS+parsing 비용), 풍부함
+   ▶ 예: AWS ALB, Nginx, Envoy, HAProxy (HTTP mode)
+```
+
+**꼬리 8-1**: "둘 다 운영하면 어떤 토폴로지?"
+- → 외부에 L4 (DDoS 흡수, SSL passthrough)→ 내부에 L7 (path routing).
+- → AWS는 NLB → ALB 또는 ALB 단독.
+
+**꼬리 8-2**: "DSR(Direct Server Return)이 뭔지?"
+- → L4 LB의 특수 기법. client → LB → server까지는 LB 경유, 응답은 server → client 직행 (LB 안 거침).
+- → trick: server가 LB의 VIP를 loopback에 추가 + ARP 응답 안 함. 응답 packet src=VIP로 그대로 client 도달.
+- → 응답 트래픽이 LB를 안 거치니 throughput 폭증. 단점: TLS 종단·L7 inspection 불가.
+
+### Q9. "MAC 주소는 hop마다 변하는데 IP는 안 변한다. 왜?"
+
+**예상답** (한 줄): **MAC은 same-LAN(broadcast domain) 안에서만 유효**한 next-hop 주소이고, **IP는 end-to-end 식별자**라서.
+
+- MAC은 NIC 제조사가 박은 hardware 주소. 같은 LAN의 호스트끼리만 직접 통신 가능.
+- LAN을 넘는 순간 (router) MAC 헤더는 떼버리고 다음 LAN의 next-hop MAC으로 다시 조립.
+- IP는 논리적 주소. routing table을 통해 어느 LAN을 거치든 끝까지 동일.
+
+**꼬리 9-1**: "그럼 NAT에선 IP도 변하는가?"
+- → 네. NAT는 router가 본업을 넘어 L4까지 inspection하면서 src_ip/src_port를 갈아치움.
+- → 본래 IP의 end-to-end 원칙이 깨진 케이스 — IPv6는 충분한 주소로 NAT 불필요하게 설계.
+- → NAT 너머에선 진짜 client IP는 안 보임 → X-Forwarded-For, PROXY protocol로 우회.
+
+**꼬리 9-2**: "그럼 MAC 주소는 영원히 안 변하나?"
+- → 영구 MAC(BIA, Burned-In Address)은 NIC 제조 시 박힘. 그러나 OS 레벨에서 변경 가능:
+  ```
+  ip link set eth0 address 02:11:22:33:44:55
+  ```
+- → 가상화/컨테이너는 가상 MAC 발급. 사생활 보호 모드(MAC randomization)는 Wi-Fi에서 매번 다른 MAC 사용.
+
+### Q10. "TCP checksum이 있으면 Ethernet FCS는 왜 또 있나? 중복 아닌가?"
+
+**예상답** (한 줄): **계층별 책임 분리** — FCS는 link-local 에러, TCP checksum은 end-to-end 에러, TLS HMAC은 의도적 변조를 잡는다.
+
+```
+   defense in depth — 각 계층이 다른 신뢰 모델 가정
+   ─────────────────────────────────────────────────
+   L1 신호 자체:       광 노이즈, 전기 간섭
+                       → L2 FCS가 link error로 잡음
+   L2 FCS:            link-local 에러 (NIC 결함, 케이블)
+                       → router/스위치가 손상 frame을 IP까지 안 올림
+   L3 IP checksum:    header만 (TTL 등 router가 만지는 부분)
+                       → 손상된 routing 정보가 침투 안 함
+   L4 TCP checksum:   pseudo-header + 전체 segment
+                       → router 메모리 손상, kernel buffer 오염 같은
+                         link 이외 원인 잡음
+   L6 TLS HMAC/AEAD:  암호학적 검증
+                       → 적대적 active attacker의 의도적 변조 잡음
+                       (checksum은 random 손상만 잡지 의도적 변경 못 잡음)
+```
+
+**꼬리 10-1**: "TCP checksum이 약하다고 들었는데?"
+- → 16bit 1's complement sum. 충분히 강하진 않음. 일부 burst error는 통과 가능.
+- → 그래서 진짜 안전이 필요하면 TLS HMAC/AEAD 필수.
+
+**꼬리 10-2**: "TLS가 있으면 TCP checksum은 필요 없나?"
+- → 필요함. checksum 실패는 즉시 재전송 트리거. TLS 실패는 fatal alert + connection 종료.
+- → checksum이 random 손상을 일찍 잡아주면 TLS layer 부담 감소.
+
+### Q11. "URL을 입력하면 어떻게 서버까지 가나? 7계층으로 풀어보세요" ⭐
+
+**예상답** (4분 답변 — 2-2.9 참조):
+1. **L7**: 브라우저가 HTTP 메시지 생성. `GET /users/김면수 HTTP/1.1` + Host + headers.
+2. **L6 (TLS)**: HTTPS면 TLS record로 암호화. AEAD tag 16B로 무결성 보장.
+3. **L4 (TCP)**: src/dst port + seq/ack 붙여 segment. checksum 계산.
+4. **L3 (IP)**: src/dst IP + TTL 붙여 packet. header checksum.
+5. **L2 (Ethernet)**: src/dst MAC + ethertype + FCS 붙여 frame. **dst MAC은 다음 hop(게이트웨이) MAC, ARP로 알아낸 것**.
+6. **L1**: NIC가 비트로 변환, line code(예: 4B/5B) 부호화 후 wire에 송출.
+7. **hop마다**: router가 L2/L1 헤더 떼고 IP 보고 routing, 새 MAC으로 frame 재조립, TTL -1, IP checksum 재계산.
+8. **수신측**: 역순으로 디캡슐레이션. 각 계층에서 검증 (FCS → IP checksum + TTL → TCP checksum + seq/ack → TLS AEAD → HTTP semantic).
+
+**꼬리 11-1**: "ARP가 어떻게 다음 hop MAC을 알아내나?"
+- → broadcast로 "Who has 10.0.0.1? Tell 10.0.0.5" 외침. dst_mac=FF:FF:FF:FF:FF:FF.
+- → 해당 IP의 호스트가 unicast reply. 60초 cache.
+
+**꼬리 11-2**: "DNS는 언제 발생하나?"
+- → L7 단계 이전. 브라우저가 `example.com → 142.250.0.0` 변환을 위해 resolver에게 DNS 쿼리.
+- → 02 챕터(DNS) 참조.
+
+### Q12. "각 계층에서 어떤 검증을 하는지 모두 말해보세요" ⭐
+
+**예상답**:
+- **L1**: 신호 무결성 (line code의 DC balance, clock recovery).
+- **L2**: FCS (CRC-32, frame 전체) + dst MAC match (자기 MAC/broadcast/multicast 아니면 drop).
+- **L3**: IP header checksum (header만, payload는 L4) + TTL > 0 + fragmentation 정합성.
+- **L4 (TCP)**: TCP checksum (pseudo-header + segment 전체) + seq/ack 일관성 + window 검증.
+- **L5/L6 (TLS)**: AEAD tag (AES-GCM 등) 또는 HMAC-SHA256 (TLS 1.2 CBC) + 인증서 chain 검증 + SNI 일치.
+- **L7**: Content-Length 일치, JSON 스키마, 인증 토큰, CSRF token, 비즈니스 규칙.
+
+**시니어 통찰**: 검증이 실패했을 때 layer마다 반응이 다르다.
+
+| Layer | 실패 시 동작 |
+|---|---|
+| L2 FCS | NIC가 즉시 drop. `RX errors` 카운터 증가 |
+| L3 checksum | router가 즉시 drop. 통계만 |
+| L3 TTL=0 | drop + ICMP TIME_EXCEEDED 회신 |
+| L4 checksum | segment drop. ACK 없으니 sender 재전송 |
+| L4 seq 이상 | 재정렬 또는 재전송 트리거 |
+| L6 TLS auth fail | fatal alert → connection 종료 |
+| L7 fail | HTTP 4xx/5xx 응답 |
+
 ---
 
 ## 12. 백지 마스터 체크리스트
@@ -1386,7 +2251,15 @@ sslscan example.com
 이 챕터를 마쳤다면 다음을 종이에 그릴 수 있어야 한다.
 
 - [ ] OSI 7계층 + 각 PDU 이름 + 대표 프로토콜 (1.3 표).
-- [ ] `GET /users/김면수`의 캡슐화 (HTTP→TCP→IP→Eth→bits) + 헤더 사이즈 (2.2).
+- [ ] OSI 7계층 책임 매트릭스 + 계층별 검증 메커니즘 (2-2.1, 2-2.4).
+- [ ] `GET /users/김면수`의 캡슐화 (HTTP→TCP→IP→Eth→bits) + 헤더 사이즈 (2.2, 2-2.2).
+- [ ] TCP/IP/Ethernet 헤더 byte 단위 풀 분해 (2-2.3).
+- [ ] MAC은 hop-to-hop, IP는 end-to-end — 매 hop마다 어떤 필드가 변하는지 (2-2.5, 2-2.8).
+- [ ] Router 내부 동작 (frame 수신 → IP routing → 새 frame 재조립) (2-2.5).
+- [ ] ARP 동작 (request broadcast / reply unicast / L2.5 위치) + spoofing (2-2.6).
+- [ ] 한 frame이 NIC를 떠나는 과정 (kernel → driver TX ring → NIC → wire) (2-2.7).
+- [ ] PMTUD black hole 진단·해결 (MSS clamping, ICMP allow) (9.8).
+- [ ] TTL 소진 진단 (traceroute, mtr, default TTL 변경) (9.10).
 - [ ] TCP 3-way handshake 상태 전이 + 각 단계 seq/ack/flag (4.1).
 - [ ] TCP state diagram 11개 상태 (4.2).
 - [ ] TIME_WAIT 2MSL의 이유 2가지 (4.8).

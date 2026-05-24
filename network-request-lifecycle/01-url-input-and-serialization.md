@@ -20,6 +20,388 @@
 
 ---
 
+## 서장. 왜 한글을 URL에 그대로 못 넣는가 — 본질에서 시작
+
+> "그냥 `https://example.com/users/김면수` 라고 메모리에 들고 있으면 안 되는 이유는?
+>  왜 굳이 `%EA%B9%80%EB%A9%B4%EC%88%98` 라는 흉한 형태로 변환해서 보내야 하는가?"
+
+이 질문 하나만 깊이 답해도 1~6장의 뒤따르는 디테일이 모두 자연스러워진다. 한 줄 답부터 박는다.
+
+> **HTTP·URL은 1990년대 초 ASCII-only world에서 태어났다. 그 위에 비-ASCII (한글, 이모지, 라틴 확장) 를 얹기 위한 transport-encoding이 percent-encoding이다.**
+
+### 서.1 HTTP는 본질적으로 ASCII protocol
+
+HTTP의 모든 RFC는 wire format을 **US-ASCII (7-bit, 0x00~0x7F)** 로 정의한다.
+
+```
+1991  HTTP/0.9 — Tim Berners-Lee, CERN
+       "GET /index.html\r\n"  ← 한 줄짜리. ASCII가 당연.
+
+1996  HTTP/1.0 (RFC 1945)
+       "request-line = Method SP Request-URI SP HTTP-Version CRLF"
+       각 토큰은 ASCII printable (RFC 822/MIME 영향).
+
+1999  HTTP/1.1 (RFC 2616 → 후속 RFC 7230~7235 → RFC 9110~9112)
+       "field-name = token = 1*tchar"
+       tchar = ASCII visible (0x21~0x7E) 의 부분집합.
+
+2015  HTTP/2 (RFC 7540 → RFC 9113)
+       Binary framing이지만 header field name은 여전히 ASCII lower-case 강제.
+
+2022  HTTP/3 (RFC 9114)
+       QUIC 위지만 마찬가지. ASCII 헤더.
+```
+
+**왜 ASCII로 고정했나** — 3가지 이유.
+
+```
+① 1990년대 transport 다양성
+   - Telnet (line-oriented, 7-bit), SMTP (7-bit MIME), NNTP, FTP
+   - 일부 게이트웨이/relay는 7-bit clean만 보장 (8-bit byte를 stripping)
+   - HTTP가 이런 transport 위로 tunneling되어도 깨지지 말아야 함
+   → ASCII-only이면 모든 7-bit transport에서 안전
+
+② 모든 OS·언어 공통 기본
+   - C `char` 가 ASCII로 시작 (1972, K&R)
+   - PostScript, troff, awk, sed, grep — 모두 ASCII line-oriented
+   - HTTP를 ASCII로 만들어두면 어떤 도구로든 디버깅 가능
+   → telnet으로 80 포트에 붙어 손으로 GET 칠 수 있어야 함 (실제 가능)
+
+③ Wire format의 디버깅 가능성 (= 운영 자산)
+   - tcpdump -A 가 그대로 사람 읽음
+   - access log, error log에 그대로 박혀도 깨지지 않음
+   - 1990년대엔 binary protocol = 디버깅 지옥의 동의어 (그래서 SMTP, HTTP, IRC 모두 text-based)
+```
+
+이 결정의 **잔해**가 오늘도 production을 지배한다. HTTP/2가 binary framing으로 갔어도, header field name과 value는 여전히 ASCII 기반(또는 ISO-8859-1로 약간 확장). 사람이 telnet으로 손치는 시대는 끝났지만, **"ASCII이면 어디서나 안전하다"** 는 invariant는 30년이 지난 지금도 깨지지 않았다.
+
+### 서.2 URL의 "safe character" 정의 — RFC 3986 §2
+
+URL이라는 **문자열 자체**의 grammar도 ASCII subset으로 정의되어 있다. RFC 3986 §2가 모든 octet을 3분류한다.
+
+```
+unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+              ─────   ─────                     ─
+              A-Za-z  0-9                        tilde
+
+  → "어디서나, 어떤 컴포넌트에서나, escape 없이 그대로 쓸 수 있는 글자"
+  → 26+26+10+4 = 66종.
+
+reserved    = gen-delims / sub-delims
+
+  gen-delims = ":" / "/" / "?" / "#" / "[" / "]" / "@"
+                ─    ─    ─    ─    ─    ─    ─
+                컴포넌트 구분 (scheme:, path/, ?query, #frag, [IPv6], user@host)
+
+  sub-delims = "!" / "$" / "&" / "'" / "(" / ")"
+             / "*" / "+" / "," / ";" / "="
+                ─    ─    ─    ─    ─
+                각 컴포넌트 안에서 별도 의미 (예: query의 & = 다음 key 시작)
+
+  → "URL의 구조를 만드는 글자. 데이터로 쓰려면 반드시 percent-encode"
+
+그 외 모든 octet (0x00~0x7F 중 위에 없는 것 + 0x80~0xFF 모두)
+  → 무조건 percent-encoding 필요.
+  → 여기에 한글(EA B9 80 등), 이모지, 라틴 확장, ASCII control chars 모두 포함.
+```
+
+이 grammar의 본질을 한 줄로:
+
+> **URL은 "어떤 byte도 ASCII printable 70여 종으로 표현 가능"이라는 invariant를 지킨다. 그 invariant를 지키기 위한 escape 메커니즘이 percent-encoding이다.**
+
+비유: Base64가 binary를 email-safe ASCII로 옮기는 transport-encoding이라면, percent-encoding은 임의 byte를 URL-safe ASCII로 옮기는 transport-encoding이다. 둘은 같은 발상의 다른 구현.
+
+### 서.3 한글이 raw byte로 들어가면 생기는 문제 5가지
+
+"그냥 UTF-8 byte를 URL에 그대로 넣으면 안 되나?" — 정확히 다음 5개 지점에서 깨진다.
+
+```
+[1] HTTP parser가 0x7F 이상 byte를 거부하거나 stripping
+   - 일부 구식 HTTP/1.1 구현 (특히 ALB/CDN의 strict mode)이
+     request-line에 비-ASCII byte 발견 → 400 Bad Request 반환
+   - Nginx의 ignore_invalid_headers off (default on이지만 변경 시), client_max_body_size 우회 등의
+     상호작용으로 의도 외 거부 발생
+   - 일부 임베디드 HTTP stack (IoT, 산업용 PLC)은 8-bit clean 보장 안 함
+
+[2] 중간 proxy/middlebox가 byte 검증에 실패
+   - 기업 NAT/방화벽의 DPI (Deep Packet Inspection) 가 HTTP request-line을 검사
+     → 비-ASCII byte를 "tampering"으로 판단 → drop
+   - WAF (Web Application Firewall) 의 default rule이 "request-line은 ASCII만"
+   - CDN edge에서 "URL normalization" 단계가 비-ASCII byte를 마음대로 변환
+
+[3] URL 길이 한계 계산이 byte 기준
+   - HTTP RFC는 길이를 정의 안 하지만, 구현체들은 buffer 단위 (Nginx 8KB, Tomcat 8KB)
+   - 한글 1자 = 3 byte → 길이가 3배로 폭증
+   - 한글 2000자 query = 6000 byte (limit 안)
+     vs raw 한글 = 메모리상 2000자지만 wire 6000 byte (똑같음)
+   - 단, percent-encoded면 한글 1자 = 9 char (%EA%B9%80) → 18000 byte (limit 초과)
+   → 한글 길이 제한은 항상 "percent-encoded 후 byte 길이"로 계산해야 함
+
+[4] log analyzer/grep이 깨짐
+   - access log가 latin-1 또는 ASCII로 가정하고 파싱하는 도구 (구식 logrotate, awk 스크립트)
+   - grep '한글패턴' /var/log/nginx/access.log 가 매치 안 됨 (raw byte 비교)
+     → percent-encoded 형태로 grep해야 매치
+   - ELK, Splunk, Datadog 같은 분석 도구는 UTF-8 처리하지만, 중간 transport 단계에서 깨짐
+
+[5] charset 협상 안 된 경로에서 모지바케
+   - 가장 흔한 증상: "í¬", "ê¹€", "ë©´" 같은 라틴 확장 + 액센트 조합
+   - UTF-8 byte를 ISO-8859-1로 잘못 decode한 결과
+   - 어느 한 계층 (Nginx, Tomcat, Filter, JDBC) 에서 charset 가정이 어긋나면 즉시 발생
+```
+
+이 5가지 문제 때문에 RFC 3986은 "raw 비-ASCII byte는 URL에 들어갈 수 없다"고 못박았다. percent-encoding이 강제된 이유.
+
+### 서.4 올바른 단계별 변환
+
+논리적 문자열 "김면수"가 wire에 도달하기까지 5단계.
+
+```
+[사용자 입력]   "김면수"
+       │
+       │ ① 텍스트 → Unicode codepoint
+       │    (운영체제 입력기 / 브라우저가 담당)
+       ▼
+[Unicode]      U+AE40 U+BA74 U+C218
+                 (한글 음절 영역 U+AC00~U+D7A3)
+       │
+       │ ② UTF-8 encoding (codepoint → 1~4 byte)
+       │    RFC 3629 — variable-length encoding
+       ▼
+[UTF-8 byte]   0xEA 0xB9 0x80 0xEB 0xA9 0xB4 0xEC 0x88 0x98
+                ─── 김 ───   ─── 면 ───   ─── 수 ───
+                각 한글 음절 = 3 byte (U+0800~U+FFFF 범위)
+       │
+       │ ③ URL safety check (RFC 3986)
+       │    0x80 이상 byte → unreserved 아님 → percent-encoding 필요
+       ▼
+[percent-enc]  %EA%B9%80%EB%A9%B4%EC%88%98
+                각 byte → "%" + 2-digit uppercase hex
+                결과는 ASCII printable 27자
+       │
+       │ ④ HTTP message 조립 (RFC 9112)
+       │    method SP request-target SP version CRLF
+       │    field-name ":" SP field-value CRLF
+       │    CRLF (body 시작 또는 끝)
+       ▼
+[HTTP request] GET /users/%EA%B9%80%EB%A9%B4%EC%88%98 HTTP/1.1\r\n
+               Host: example.com\r\n
+               \r\n
+       │
+       │ ⑤ TCP segment → IP packet → Ethernet frame
+       │    OS socket layer가 byte stream을 그대로 전송
+       │    (ASCII이므로 추가 변환 없음)
+       ▼
+[wire bytes]   0x47 0x45 0x54 0x20 0x2F 0x75 0x73 0x65 0x72 0x73 0x2F 0x25 0x45 0x41 ...
+               G    E    T    SP   /    u    s    e    r    s    /    %    E    A   ...
+```
+
+대조: ASCII-only URL은 ①~③ 단계를 **우회**한다.
+
+```
+[사용자 입력]   "www.google.com"
+       │
+       │ (모든 글자가 unreserved → 변환 없음)
+       │ (운영체제 입력 → ASCII codepoint → ASCII byte는 무손실)
+       ▼
+[HTTP request] GET / HTTP/1.1\r\n
+               Host: www.google.com\r\n
+               \r\n
+       │
+       ▼
+[wire bytes]   0x47 0x45 0x54 0x20 ...
+```
+
+ASCII로 시작하면 wire까지 1:1 사상. **변환이라는 개념 자체가 안 등장한다.** 그래서 영어권 개발자는 charset/encoding을 평생 안 마주칠 수 있다 — "그냥 string 처리하면 되잖아". 한글·일본어·중국어 환경에서는 이 변환을 **하루에 100번 마주친다.**
+
+### 서.5 각 단계의 책임 주체
+
+위 5단계가 누구의 책임인지 정확히 매핑.
+
+```
+단계 ①  텍스트 → Unicode codepoint
+   주체: 운영체제 입력기 (IME — Input Method Editor)
+   - macOS: HIToolbox + ATOK/Korean IM
+   - Windows: TSF (Text Services Framework) + MS-IME
+   - Linux: ibus, fcitx
+   - 브라우저: OS의 IME를 그대로 사용, codepoint를 받음
+   책임 실패: 거의 없음 (입력기 자체 버그는 드묾)
+
+단계 ②  Unicode codepoint → UTF-8 byte
+   주체: 브라우저의 URL 모듈 (또는 fetch/XHR 구현)
+   - Chrome/Edge: //url/url_canon.h (Blink) + ICU
+   - Firefox: nsIURI + libidn2
+   - Safari: WebCore/platform/URL + CFNetwork
+   책임 실패: 매우 드묾 (브라우저 모두 UTF-8 강제)
+
+단계 ③  byte → percent-encoding
+   주체: 브라우저 URL canonicalization 모듈
+   - "주소창에 친 텍스트" 입력 시 자동 인코딩
+   - JavaScript에서는 명시적 API 두 종:
+       encodeURI(url)            — 전체 URL용. reserved(:/?#[]@!$&'()*+,;=) 는 보존
+       encodeURIComponent(str)   — 컴포넌트 값용. reserved도 모두 encode
+     예: 검색 쿼리 "a&b=c"
+         encodeURI("a&b=c")          = "a&b=c"     ← &, = 보존 (의미 있다고 간주)
+         encodeURIComponent("a&b=c") = "a%26b%3Dc" ← 모두 escape (데이터로 간주)
+   - 잘못 쓰면: query value 안의 &가 다음 key 시작으로 오인 → 파싱 깨짐
+
+단계 ④  HTTP message 조립
+   주체: 브라우저 HTTP stack (네트워크 라이브러리)
+   - Chrome: net/ (Chromium net stack), QUIC for HTTP/3
+   - Firefox: necko, neqo (HTTP/3)
+   - curl: libcurl
+   - Java: java.net.HttpURLConnection / HttpClient (JDK 11+)
+   책임 실패: Host 헤더 누락, CRLF 깨짐 (사용자 입력 sanitization 실패 시)
+
+단계 ⑤  byte → TCP/IP packet
+   주체: OS 커널의 socket layer + TCP/IP stack
+   - Linux: net/ipv4/tcp_*.c
+   - macOS: XNU의 BSD socket + TCP stack
+   - 책임 실패: 거의 OS 버그 영역
+
+서버 측 단계 ②'~③' 의 역변환
+   - Tomcat: server.xml의 URIEncoding="UTF-8" 또는
+             Spring Boot의 server.tomcat.uri-encoding=UTF-8 (Tomcat 8 이후 기본값 UTF-8)
+   - Spring MVC: @PathVariable, @RequestParam 자동 decode
+                 (Tomcat이 decode한 결과를 그대로 받음)
+   - Servlet API: HttpServletRequest.getParameter() → decoded string
+                  단, getQueryString() → raw (decode 안 됨, 직접 처리 필요)
+   - Filter: CharacterEncodingFilter(encoding=UTF-8, forceEncoding=true)
+             → body(POST)의 charset 결정, GET path/query는 영향 안 받음 (URIEncoding 영역)
+```
+
+### 서.6 www.google.com 같은 ASCII-only 케이스 — 두 가지 인코딩의 분리
+
+여기서 매우 중요한 구분 하나. URL의 **path/query**는 percent-encoding을 쓰고, **hostname**은 punycode를 쓴다. 같은 URL 안에서 두 인코딩이 동시에 적용된다.
+
+```
+입력:  https://한국.kr/users/김면수?role=관리자
+         ──┬─── ──┬───── ────┬───── ────┬─────
+         scheme  hostname   path        query
+                  │           │           │
+                  │           │           └─ percent-encoding (UTF-8 byte)
+                  │           │              role=%EA%B4%80%EB%A6%AC%EC%9E%90
+                  │           │
+                  │           └─ percent-encoding (UTF-8 byte)
+                  │              /users/%EA%B9%80%EB%A9%B4%EC%88%98
+                  │
+                  └─ punycode (Bootstring algorithm, RFC 3492)
+                     한국 → xn--3e0b707e
+
+최종 wire:
+   GET /users/%EA%B9%80%EB%A9%B4%EC%88%98?role=%EA%B4%80%EB%A6%AC%EC%9E%90 HTTP/1.1
+   Host: xn--3e0b707e.kr
+```
+
+**왜 hostname만 다른 인코딩인가** — DNS의 역사 때문.
+
+```
+DNS는 1983년 (RFC 1034/1035) 설계 — ASCII case-insensitive + 길이 제한 (label 63 byte, FQDN 255 byte).
+DNS query packet의 wire format은 raw byte (length-prefixed label).
+→ DNS는 임의 byte를 받을 수 있지만, ASCII case-insensitive 검색이 깨지면 안 됨.
+
+해결책: IDN (Internationalized Domain Name)을 ASCII-Compatible Encoding으로 변환.
+   - RFC 3490 (IDNA2003, 2003년) → RFC 5890~5894 (IDNA2008, 2010년)
+   - 변환 알고리즘: Punycode (RFC 3492)
+   - prefix "xn--" 가 "이건 punycode-encoded이다"의 신호
+
+vs
+
+URL의 path/query는 1994년 RFC 1738에서 percent-encoding 도입.
+   - DNS와 별개. URL 자체의 문자열 표현 규칙.
+   - 어떤 byte도 %HH로 표현 가능 → DNS와 달리 길이 한계 없음.
+```
+
+**중복 인코딩 안 함의 의미**:
+- hostname을 percent-encoding하면 안 됨 (`xn--3e0b707e.kr`은 그대로 DNS에 보냄)
+- path를 punycode로 인코딩하면 안 됨 (path는 percent-encoding만)
+- 같은 URL 안에 두 인코딩이 공존 — 컴포넌트마다 규칙이 다름
+
+운영 함정 예시:
+
+```
+잘못된 URL 빌더:
+   URL url = new URL("https://" + URLEncoder.encode("한국.kr", "UTF-8") + "/path");
+   → "https://%ED%95%9C%EA%B5%AD.kr/path"
+   → hostname이 percent-encoded됨 → DNS lookup 실패 (NXDOMAIN)
+
+올바른 빌더:
+   String puny = IDN.toASCII("한국.kr");
+   // → "xn--3e0b707e.kr"
+   URL url = new URL("https://" + puny + "/path");
+```
+
+### 서.7 "왜 처음부터 UTF-8 직접 전송 안 했나" — HTTP의 하위 호환성
+
+질문이 자연스럽다. "1990년대엔 그렇다 쳐도, 2010년대에 모두 UTF-8 호환됐는데 왜 percent-encoding을 계속 쓰나?"
+
+세 가지 이유가 맞물려서 못 바꾼다.
+
+```
+① old proxy / middlebox 호환성
+   - 기업 네트워크의 NAT, 방화벽, WAF, CDN edge가 "ASCII만 받음"으로 hard-code된 사례 많음
+   - 30년 묵은 임베디드 HTTP stack (HVAC 컨트롤러, ATM, POS, IoT) 가 8-bit byte를 거부
+   - HTTP/2가 binary framing으로 가도, hostname/path는 여전히 ASCII (HTTP/2 spec §8.1.2)
+   → "ASCII URL이면 어디서나 안전"이라는 invariant를 깨면 deployment 깨짐
+
+② URL은 HTTP 밖으로 새어 나간다
+   - HTML <a href="..."> 의 attribute value
+   - Email body, Slack message, Tweet, SMS
+   - 로그 파일, 모니터링 대시보드, alarm 메시지
+   - Shell command line (curl, wget 인자)
+   - URL이 ASCII-only이면 위 모든 환경에서 안전 (특수 escape 불필요)
+   - UTF-8 직접 전송이면 일부 환경 (구식 mail client, 7-bit transport) 에서 깨짐
+   → URL의 "ASCII-only 보증"은 wire 너머의 가치 (메타데이터 transport 안전)
+
+③ Percent-encoding은 transport-encoding의 표준 패턴
+   - Base64 (email binary attachment)
+   - Quoted-Printable (email text with 8-bit)
+   - URL Percent-encoding (URL with arbitrary byte)
+   - 모두 "ASCII-safe transport 위에 임의 byte를 얹는 기법"
+   - 30년의 운영 경험으로 검증된 패턴 — 굳이 새로 안 만듦
+```
+
+본질: percent-encoding은 **"HTTP의 ASCII invariant를 깨지 않으면서 임의 byte를 얹는" transport-encoding**이다. Base64가 SMTP에서 한 일과 같은 역할.
+
+### 서.8 운영 시나리오 — 위 본질이 어떻게 production을 지배하나
+
+```
+[시나리오 ALPHA] "Slack에 한글 URL 붙여넣으면 %EA%B9%80... 으로 변환되어 보임"
+  - Slack 메시지 입력 필드는 plain text (사용자 본 그대로)
+  - send 시 Slack 서버가 URL detection 모듈 실행
+    → URL pattern 인식 → 자동 IRI → URI 변환 (RFC 3987 §3.1)
+    → hostname punycode 변환, path percent-encoding 적용
+  - 받는 쪽 (다른 사용자) 에는 변환된 URL이 보임
+    (단, Slack desktop client는 hover 시 IRI로 다시 표시 가능)
+  → 이유: link unfurling, click 시 정확한 URL fetch 보장.
+    raw 한글 URL이면 일부 사용자의 OS/브라우저 조합에서 깨질 위험.
+
+[시나리오 BRAVO] "검색엔진 크롤러가 percent-encoded URL과 raw 한글 URL을 같은 페이지로 dedup"
+  - Googlebot, Bingbot이 URL normalization 수행 (RFC 3986 §6)
+  - canonicalization: scheme/host lowercase, default port 제거, dot-segment 정리,
+                      percent-encoded unreserved 복원 (예: %41 → A)
+  - IRI → URI 변환도 부분적으로 적용 (논리적 같은 URL을 같은 페이지로)
+  - 그래서 sitemap.xml에 raw 한글 또는 percent-encoded URL 어느 쪽 넣어도 같은 결과
+  → 운영 팁: <link rel="canonical">에는 일관성 유지 (대부분 percent-encoded form 사용)
+
+[시나리오 CHARLIE] "Cloudflare가 IDN homograph attack 방지로 punycode 표시"
+  - 등록된 도메인: paypal.com 의 가짜로 раураl.com (키릴 а, р, и, l)
+  - DNS 조회 시 punycode: xn--pypl-53dc.com (예시)
+  - Cloudflare WAF의 IDN protection 룰:
+    - 라틴+키릴 혼용 / 라틴+그리스 혼용 → suspicious
+    - 사용자에게 표시되는 URL을 punycode 형태로 강제 (브라우저 주소창에도 표시)
+    - 클릭 시 경고
+  - Chrome도 동일 — Chromium의 IDN spoofing detection은 OS의 locale과 무관하게 동작
+  → 운영 함정: 정상 IDN (한국.kr) 도 사용자 OS locale이 ko가 아니면 punycode로 표시될 수 있음
+```
+
+### 서.9 한 줄 요약
+
+> **HTTP는 30년간 ASCII protocol로 살아왔고 앞으로도 그렇다. 한글·이모지·라틴 확장은 percent-encoding (path/query) 또는 punycode (hostname) 으로 ASCII-safe하게 변환되어 wire에 실린다. 이 invariant가 깨지면 어딘가에서 모지바케 또는 400 Bad Request가 터진다.**
+
+이제 이 본질을 알았으니, 0장 마인드맵의 6단계가 자연스럽게 읽힌다.
+
+---
+
 ## 0. 마인드맵 — 백지에 그리는 그림
 
 ### 루트 한 문장 (anchor)
@@ -527,6 +909,132 @@ Application Layer
 
 **진단법**: "ê¹€" 같은 라틴 확장 + 액센트 조합이 보이면 → **UTF-8 데이터를 ISO-8859-1로 decode한 것**. 매우 흔한 패턴.
 
+### 5.4 Production 시나리오 — 모지바케가 등장하는 실제 지점들
+
+본질만 알면 진단이 빨라진다. 실제 production에서 등장하는 4가지 흔한 시나리오.
+
+#### 5.4.1 Nginx access_log에 한글이 `%XX` 형태 vs raw로 남는 차이
+
+```
+Nginx access_log_format 기본 ($request 변수):
+   GET /users/%EA%B9%80%EB%A9%B4%EC%88%98 HTTP/1.1
+   ─── ─────────────────────────────────── ────────
+   method  raw request-target (brower가 보낸 그대로)  version
+
+  → Nginx는 percent-decoding 안 함. 받은 그대로 log에 기록.
+  → 운영자가 한글로 보고 싶으면 사후 decode 필요:
+      awk '{print $7}' access.log | python3 -c "
+      import sys, urllib.parse
+      for l in sys.stdin: print(urllib.parse.unquote(l.strip()))
+      "
+
+만약 한글이 raw로 log에 보이면? — 2가지 경우:
+   1. 클라이언트(curl, 자체 HTTP 클라이언트)가 percent-encoding 안 하고 raw UTF-8 byte 전송
+      → Nginx가 그대로 받음 (8-bit clean) → log에 raw byte 기록
+      → cat access.log 시 터미널의 UTF-8 처리로 한글로 보임
+      → grep으로 한글 검색 가능 (raw byte 매칭)
+   2. log 분석 도구 (Logstash, Fluentd) 가 중간에 urldecode filter 적용
+      → 원본은 percent-encoded지만 가공 후 raw 한글
+
+⚠️ 운영 함정:
+   - 두 경우가 log 파일만 보고는 구별 안 됨
+   - tcpdump로 wire를 봐야 어느 쪽인지 확정
+   - 일부 봇/공격자가 raw 한글로 path traversal 시도 → percent-encoded 검사만 하면 우회
+```
+
+#### 5.4.2 Tomcat URIEncoding 기본값의 역사 — ISO-8859-1 시절의 잔재
+
+```
+Tomcat 8 미만 (2014 이전):
+   기본 URIEncoding = ISO-8859-1 (HTTP RFC 2616의 deprecated 조항 따름)
+   → 한글 URL이 와도 byte를 ISO-8859-1로 해석
+   → request.getParameter("name") = "ê¹€ë©´ìˆ˜" (모지바케)
+   해결: server.xml에 명시
+      <Connector port="8080" URIEncoding="UTF-8" useBodyEncodingForURI="false"/>
+
+Tomcat 8 (2014) 이후:
+   기본 URIEncoding = UTF-8 (변경됨)
+   → Spring Boot 1.x 부터는 server.tomcat.uri-encoding=UTF-8 자동 (8.x 의존성)
+   → 거의 대부분 환경에서 자동 동작
+   하지만:
+      - 일부 레거시 시스템이 Tomcat 7 (EOL 2021) 유지
+      - Container 이미지가 Tomcat 7 base로 빌드된 케이스
+      - WebSphere, WebLogic 같은 다른 컨테이너의 URI 처리는 기본 ISO-8859-1 흔함
+
+운영 진단:
+   - "POST는 한글 멀쩡한데 GET 쿼리만 ??? 로 나옴" → 100% URIEncoding 문제
+   - getCharacterEncoding() 으로 확인 가능 (request body charset)
+   - getQueryString() 으로 raw 확인 — percent-encoded여야 정상
+```
+
+#### 5.4.3 Spring `@RequestMapping("/users/{name}")` 의 자동 decode
+
+```
+요청: GET /users/%EA%B9%80%EB%A9%B4%EC%88%98 HTTP/1.1
+
+Tomcat 단계 (URIEncoding=UTF-8 기본):
+   1. request-target 파싱: "/users/%EA%B9%80%EB%A9%B4%EC%88%98"
+   2. path를 percent-decode (URI 변수 추출 위해):
+      - byte: [EA B9 80 EB A9 B4 EC 88 98]
+      - URIEncoding=UTF-8 → "김면수" (정상 decode)
+   3. URIPattern matcher가 {name} = "김면수" 매핑.
+
+Spring 단계:
+   @PathVariable String name → "김면수" 그대로 주입.
+
+함정 — RFC 3986의 path segment 분리 규칙:
+   GET /users/김%2F면%2F수 HTTP/1.1
+                ─── 김 ───
+   이 path는 "name = 김/면/수" 의 의도일 수 있고, "/users/김, /면, /수" 일 수도 있음.
+   - Tomcat 기본: %2F는 path separator로 취급 안 함 (RFC 3986 §3.3)
+     → {name} = "김/면/수" (raw / 아님, decoded /)
+   - 일부 reverse proxy (Nginx) 는 %2F를 / 와 동일 취급
+     → upstream에 다른 path가 도달
+   → CVE 사례 다수 (path traversal, URL routing bypass)
+   - Java 11+ application: spring.mvc.pathmatch.matching-strategy=PATH_PATTERN_PARSER
+     사용 시 %2F 명시적 disable 가능
+```
+
+#### 5.4.4 JDBC URL의 `characterEncoding` 누락 — DB까지 깨져서 들어가는 케이스
+
+```
+모지바케의 마지막 게이트 — DB connection 단계.
+
+MySQL JDBC URL의 정확한 형태:
+   jdbc:mysql://host:3306/db?useUnicode=true&characterEncoding=UTF-8&useServerPrepStmts=true
+                              ─────────────  ─────────────────────
+                              필수 (오래된 driver 호환)  필수
+
+  - useUnicode=true: connector가 Unicode 처리 활성화
+  - characterEncoding=UTF-8: client side에서 String ↔ byte 변환 charset
+  - 누락 시:
+    Connector/J 5.x 이전: 서버의 character_set_server 사용 (보통 latin1)
+                          → "김면수" → server에 보낼 때 ?? 로 변환
+    Connector/J 8.x: 기본 UTF-8 (변경됨, 그러나 명시 권장)
+
+서버 측 추가 체크:
+   SHOW VARIABLES LIKE 'character_set%';
+   +--------------------------+--------+
+   | Variable_name            | Value  |
+   +--------------------------+--------+
+   | character_set_client     | utf8mb4|  ← JDBC가 SET NAMES utf8mb4로 설정
+   | character_set_connection | utf8mb4|
+   | character_set_database   | utf8mb4|
+   | character_set_results    | utf8mb4|
+   | character_set_server     | utf8mb4|
+   +--------------------------+--------+
+
+만약 하나라도 latin1이면 그 단계가 lossy:
+   - client (Java) → server (utf8mb4 client) OK
+   - server connection (latin1) → database (latin1) loss
+   → "김면수" → "???" 또는 "ê¹€ë©´ìˆ˜"
+
+Tomcat (UTF-8) → Spring (UTF-8) → JDBC (charset 누락) → MySQL server (latin1)
+   = "정상→정상→정상→손실"
+   결과: DB에 깨진 채 저장 → 그 후 모든 SELECT 결과가 깨짐
+   복구: 어렵다. byte 단위로 다시 변환 추정해야 함 (CONVERT 함수 + 추측).
+```
+
 ---
 
 ## 6. POST body의 직렬화 — 3가지 Content-Type
@@ -621,6 +1129,127 @@ Content-Length: 33
 | 중첩 | 불가 (key=value flat) | flat | 자연스러움 |
 | Charset | 페이지 charset (모호) ★ | 각 part에 명시 가능 | UTF-8 표준 |
 | 크기 | 작음 | 큼 (boundary 오버헤드) | 중간 |
+
+### 6.5 POST body의 charset 협상 — Content-Type 파라미터의 미묘함
+
+위 3가지 Content-Type 모두 body의 charset 결정 방식이 다르고, 각각 미묘한 함정이 있다.
+
+#### 6.5.1 `application/x-www-form-urlencoded; charset=UTF-8`
+
+```
+표준 상태:
+   - HTML5 spec: 페이지의 <meta charset> 으로 form 인코딩 결정
+   - URL Living Standard (WHATWG): UTF-8 강제 (2016년 이후)
+   - 단, Content-Type 헤더에 charset 파라미터를 붙이는 건 RFC 표준 아님
+     (RFC 1867 / RFC 7578 모두 charset 파라미터를 form-urlencoded에는 정의 안 함)
+   - 일부 클라이언트가 명시적으로 붙이지만 (Spring RestTemplate, Axios)
+     서버 측은 charset 파라미터를 신뢰하면 안 됨
+
+브라우저 동작:
+   - <meta charset="UTF-8"> + <form> → form 데이터를 UTF-8로 percent-encode
+   - Content-Type 헤더: application/x-www-form-urlencoded (charset 없음)
+   - 그래도 wire에는 UTF-8 byte의 percent-encoded form
+
+서버 측:
+   - Tomcat: useBodyEncodingForURI=true → body charset이 GET query에도 영향
+                                    false (기본) → 별개
+   - Spring CharacterEncodingFilter: body charset을 강제 UTF-8로 설정
+   - request.getParameter() 시 자동 decode
+
+운영 함정:
+   1. <meta charset="EUC-KR"> 페이지에서 submit
+      → form 데이터가 EUC-KR로 percent-encoded
+      → 서버 UTF-8 강제 decode → 깨짐
+   2. JavaScript의 fetch + URLSearchParams
+      → 자동 UTF-8 (WHATWG 기준)
+      → 페이지 charset 무관
+```
+
+#### 6.5.2 `application/json; charset=UTF-8` — deprecated 파라미터
+
+```
+JSON spec (RFC 8259, 2017):
+   §8.1: "JSON text exchanged between systems that are not part of a
+          closed ecosystem MUST be encoded using UTF-8."
+   → JSON wire format은 **UTF-8 의무**.
+   → Content-Type charset 파라미터는 정의됨이 없음 (이전 RFC 7159의 §11 obsolete).
+
+그래서 표준상으로는:
+   Content-Type: application/json              ← 충분 (UTF-8 가정)
+   Content-Type: application/json; charset=UTF-8  ← 무해하지만 redundant
+   Content-Type: application/json; charset=EUC-KR ← 스펙 위반
+
+실제 운영:
+   - 거의 모든 framework가 charset=UTF-8을 자동으로 붙임 (안전 위해)
+   - Spring `MediaType.APPLICATION_JSON_VALUE` = "application/json"
+   - Spring `MediaType.APPLICATION_JSON_UTF8` = "application/json;charset=UTF-8" (deprecated since 5.2)
+     → Spring 5.2 (2019)부터 deprecated, charset 파라미터 안 붙이는 게 권장
+
+JSON 안에서 비-ASCII 표현 옵션:
+   1. UTF-8 raw byte (권장):
+      {"name":"김면수"}
+      → wire 크기: ASCII 7바이트 + 한글 9바이트 (3×3) = 16 byte
+   2. \uXXXX escape (ASCII-only):
+      {"name":"김면수"}
+      → wire 크기: ASCII 7바이트 + 한글 18바이트 (\uXXXX × 3) = 25 byte
+      → 55% 더 큼. 단, ASCII-safe transport에서 안전 (구식 SMTP gateway 등)
+
+   Jackson 설정:
+     ObjectMapper m = new ObjectMapper();
+     m.configure(JsonGenerator.Feature.ESCAPE_NON_ASCII, true);
+     // → {"name":"김면수"}
+     // 기본은 false (UTF-8 raw)
+```
+
+#### 6.5.3 `multipart/form-data` — 각 part마다 charset 가능
+
+```
+multipart의 우월함: charset이 part 단위로 명시 가능
+
+POST /upload HTTP/1.1
+Content-Type: multipart/form-data; boundary=----xyz
+\r\n
+------xyz\r\n
+Content-Disposition: form-data; name="title"\r\n
+Content-Type: text/plain; charset=UTF-8\r\n
+\r\n
+김면수\r\n                            ← UTF-8 byte로 raw 전송
+------xyz\r\n
+Content-Disposition: form-data; name="legacy"\r\n
+Content-Type: text/plain; charset=EUC-KR\r\n
+\r\n
+[B1 E8 BC BC]\r\n                     ← EUC-KR byte로 raw 전송 (legacy field 호환)
+------xyz\r\n
+Content-Disposition: form-data; name="file"; filename="resume.pdf"\r\n
+Content-Type: application/pdf\r\n
+\r\n
+[binary PDF bytes...]\r\n
+------xyz--\r\n
+
+→ part마다 다른 charset 가능. binary part는 charset 무관.
+→ 그러나 실무에서 multipart는 보통 파일 업로드용. text part도 거의 항상 UTF-8.
+
+운영 팁:
+   - Spring의 MultipartFile.getBytes() → raw byte
+   - String 변환 시 명시적 charset:
+       new String(file.getBytes(), StandardCharsets.UTF_8)
+   - text part의 charset은 Content-Type 헤더에서 추출 가능
+       MultipartFile은 자체 charset getter 없음 — 직접 파싱 필요
+```
+
+#### 6.5.4 charset 협상 요약표
+
+```
+            | path/query (URL) | form-urlencoded body | JSON body         | multipart text part
+────────────┼──────────────────┼───────────────────────┼───────────────────┼─────────────────────
+표준         | UTF-8 강제       | 페이지 charset (모호) | UTF-8 강제 (RFC 8259) | part Content-Type
+실제 동작     | 모든 브라우저 UTF-8| WHATWG UTF-8 (구현)  | 모든 라이브러리 UTF-8 | 거의 항상 UTF-8
+Content-Type | (n/a)            | (charset 안 붙임 권장)| (charset 안 붙임 권장)| 각 part에 명시
+서버 결정     | URIEncoding 설정 | CharacterEncodingFilter| UTF-8 (자동)      | part 헤더 파싱
+함정          | Tomcat 8 이전 ISO-8859-1| 페이지 charset 차이| Spring 5.2 deprecated| 거의 없음
+```
+
+핵심: **byte stream protocol (multipart, JSON UTF-8) 이 모호한 charset 협상 (form-urlencoded) 보다 항상 안전하다.** API 설계 시 JSON 우선, 파일 업로드는 multipart, 레거시 form만 form-urlencoded로 한정.
 
 ---
 
@@ -1200,6 +1829,109 @@ App 서버가 2차 decode:
      /search?ids=1-100,200-300   (50% 감소)
 ```
 
+### 시나리오 I: "Slack에 한글 URL 붙여넣으면 %EA%B9%80... 으로 변환되어 보임"
+
+```
+관찰:
+  사용자가 채팅창에 입력: https://example.com/users/김면수
+  메시지 전송 후 보이는 URL: https://example.com/users/%EA%B9%80%EB%A9%B4%EC%88%98
+
+내부 동작:
+  1. Slack 클라이언트가 텍스트 전송 시 URL detection 모듈 실행.
+  2. URL detected → RFC 3987 (IRI) → RFC 3986 (URI) 변환 적용:
+     - hostname 부분: IDN punycode 변환 (라틴이면 그대로)
+     - path/query 부분: UTF-8 byte → percent-encoding
+  3. 변환된 ASCII-safe URL을 message 본문에 저장.
+  4. 받는 사용자에게는 percent-encoded form이 보임.
+     (단, hover 또는 link unfurl 시 IRI form으로 다시 표시 가능)
+
+왜 그렇게 하는가:
+  - 메시지가 fan-out되며 다양한 OS/locale/client (web, iOS, Android, desktop) 거침.
+  - raw 한글 URL은 일부 환경 (Android 구버전 WebView, 윈도우 IE/Edge 레거시) 에서 깨질 위험.
+  - ASCII-safe URL은 어디서나 클릭 가능 보장.
+  - 또 link preview, archive, search index에 일관된 form으로 저장.
+
+같은 패턴:
+  - GitHub README의 markdown link: [텍스트](URL) 의 URL이 자동 percent-encoding됨
+  - Notion, Confluence, 모든 messaging app: 동일
+  - 이메일 클라이언트 (Gmail, Outlook): URL detect 후 percent-encoding
+```
+
+### 시나리오 J: "검색엔진 크롤러가 percent-encoded URL과 raw 한글 URL을 같은 페이지로 dedup"
+
+```
+관찰:
+  같은 페이지를 두 가지 URL로 publish:
+    - https://example.com/users/김면수             (raw, sitemap에 적힌 IRI form)
+    - https://example.com/users/%EA%B9%80%EB%A9%B4%EC%88%98  (link에서 percent-encoded form)
+  Google Search Console에 "duplicate content" 경고 안 뜸.
+  실제로는 두 URL이 같은 페이지로 indexed.
+
+내부 동작 (Googlebot URL normalization, RFC 3986 §6 기반):
+  1. scheme/host lowercase.
+  2. default port 제거 (https:443, http:80).
+  3. dot-segment 정리 (/./, /../).
+  4. percent-encoded unreserved 복원:
+     - %41 → 'A' (unreserved → escape 제거)
+     - %EA → 그대로 (unreserved 아님 → 유지)
+  5. IRI → URI 변환:
+     - raw 한글 byte를 UTF-8로 가정 → percent-encoding 적용
+     - 결과: 두 URL이 모두 같은 canonical form으로 수렴
+  6. canonical URL을 hash key로 사용 → 같은 페이지로 dedup.
+
+운영 함정:
+  - 일관되지 않은 URL form은 SEO score를 분산시킴 (canonical 안 되는 코너 케이스)
+  - <link rel="canonical" href="..."> 에는 항상 일관된 form 사용 (보통 percent-encoded).
+  - sitemap.xml은 UTF-8 XML이라 raw 한글 가능 — Googlebot이 변환.
+  - Open Graph (og:url) 도 마찬가지.
+
+비교 — 영문 URL:
+  영문 path는 변환할 게 없으므로 normalization이 단순.
+  한글 URL을 사용하는 운영자는 normalize-then-compare의 복잡도를 의식해야 함.
+```
+
+### 시나리오 K: "Cloudflare가 IDN homograph attack 방지로 punycode 표시"
+
+```
+관찰:
+  사용자가 Cloudflare로 protect되는 사이트 접속 시,
+  주소창에 한국.kr 가 아닌 xn--3e0b707e.kr 로 표시되는 경우.
+  또는 Chrome 자체가 의심 도메인을 punycode로 강제 표시.
+
+배경 — homograph attack:
+  apple.com  (라틴 a, U+0061)
+  аpple.com  (키릴 а, U+0430)
+  → 시각적 거의 동일.
+  → 라틴 a를 키릴 а로 치환한 가짜 도메인 등록.
+  → 피싱 사이트로 redirect.
+
+  punycode 형태:
+    apple.com           (ASCII 그대로)
+    xn--pple-43d.com    (punycode encoded)
+  → 이제 명백히 다른 도메인.
+
+방어 메커니즘 — 다층 방어:
+  1. DNS 등록 기관 (NIC.kr 등):
+     - 같은 script (라틴, 한글, 한자) 안의 글자만 허용
+     - 라틴+키릴 혼용 도메인 등록 거부
+     - IDN Variant Table 관리
+  2. 브라우저 (Chrome, Firefox):
+     - IDN spoofing detection
+     - 의심 패턴 감지 시 punycode 강제 표시
+     - 예: 사용자 OS locale이 ko가 아닌데 한글 도메인 → punycode 표시
+  3. WAF (Cloudflare, Akamai):
+     - IDN protection 룰
+     - 의심 도메인 차단 또는 경고
+     - 보호 사이트에서 incoming link의 referrer가 의심 IDN이면 차단
+
+운영 영향:
+  - 정상 IDN (한국.kr) 도 일부 환경에서 punycode로 표시될 수 있음 (false positive).
+  - 영문 alias 도메인을 함께 등록 권장 (korea.kr 같은).
+  - HTTPS 인증서는 SAN에 두 form 모두 포함:
+    DNS:한국.kr, DNS:xn--3e0b707e.kr
+  - 사용자에게 URL을 공유할 때 두 form 모두 작동해야 함.
+```
+
 ---
 
 ## 12. 꼬리질문 — 면접 시뮬레이션
@@ -1299,6 +2031,9 @@ App 서버가 2차 decode:
 
 면접 전 백지에서 다음을 다 해낼 수 있어야 마스터:
 
+- [ ] **서장**: "왜 한글을 URL에 그대로 못 넣는가" 를 5가지 문제 + 3가지 호환성 이유로 설명할 수 있다.
+- [ ] **서장**: percent-encoding이 transport-encoding (Base64와 같은 발상) 임을 안다.
+- [ ] **서장**: hostname (punycode) 과 path/query (percent-encoding) 가 다른 인코딩임을 안다.
 - [ ] 0장 마인드맵: 6단계 변환을 종이에 1분 안에 그릴 수 있다.
 - [ ] URL 의 5+1 컴포넌트 (scheme/authority/path/query/fragment + userinfo) 와 fragment 가 서버에 안 가는 이유.
 - [ ] reserved / unreserved / sub-delims / 그 외 의 4분류와 컴포넌트별 인코딩 규칙.
@@ -1314,7 +2049,7 @@ App 서버가 2차 decode:
 - [ ] 모지바케 7대 패턴과 각각의 진단/해결.
 - [ ] double-encoding bypass 와 path normalization 의 보안 차이.
 - [ ] URL 길이 제한이 컴포넌트마다 다른 이유 (RFC 무제한 + 구현체 buffer).
-- [ ] 시나리오 A~H 각각의 추적 절차.
+- [ ] 시나리오 A~K 각각의 추적 절차 (특히 I/J/K — Slack URL 변환, 검색엔진 dedup, IDN homograph).
 - [ ] 꼬리질문 Q1~Q8 에 막힘없이 답한다.
 
 ---
