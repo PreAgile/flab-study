@@ -23,11 +23,13 @@
 
 | # | 파일 | 핵심 질문 | 상태 |
 |---|---|---|---|
-| 01 | [01-generics.md](./01-generics.md) | "제네릭의 type erasure가 ClassFile/JIT/런타임 각 계층에서 어떻게 다루어지나" | ✅ (1147 lines) |
-| 02 | [02-reflection.md](./02-reflection.md) | "Reflection은 왜 느린가, MethodHandle/Dynamic Proxy/CGLIB는 어떻게 다른가" | ✅ (1171 lines) |
-| 03 | [03-threads.md](./03-threads.md) | "Thread 객체부터 ExecutorService, ForkJoinPool, ThreadLocal, race condition 패턴, Virtual Thread까지" | ✅ (1775 lines) |
-| 04 | [04-timeouts-connection-vs-read.md](./04-timeouts-connection-vs-read.md) | "connection / read / socket / write timeout — 각각 OS의 어느 단계에서 발생하나" | ✅ (1336 lines) |
-| 05 | [05-hashing-and-hash-collections.md](./05-hashing-and-hash-collections.md) | "Object.hashCode/equals 5계약, HashMap JDK 8 treeify, ConcurrentHashMap per-bucket CAS, hash flooding, consistent hashing — Java 생태계 전체가 hash 위에 서 있다" | ✅ (2269 lines) |
+| 01 | [01-generics.md](./01-generics.md) | "Type erasure + PECS + Bridge method + Java vs C# 비교" | ✅ (406 lines) |
+| 02 | [02-reflection.md](./02-reflection.md) | "Method.invoke inflation + MethodHandle/Proxy/CGLIB 비교" | ✅ (409 lines) |
+| 03 | [03-threads.md](./03-threads.md) | "ExecutorService + ForkJoinPool work-stealing + ThreadLocal 누수 + Virtual Thread" | ✅ (511 lines) |
+| 04 | [04-timeouts-connection-vs-read.md](./04-timeouts-connection-vs-read.md) | "connect/read/write/total timeout 4종 + HTTP client별 옵션 + JDBC 4계층" | ✅ (401 lines) |
+| 05 | [05-hashing-and-hash-collections.md](./05-hashing-and-hash-collections.md) | "hashCode/equals 5계약 + HashMap JDK 8 treeify + CHM + Hash Flooding" | ✅ (499 lines) |
+
+> **간략 버전입니다.** 각 챕터는 400~500 라인 내외로 핵심·다이어그램·운영 시나리오·꼬리질문만 유지합니다. ClassFile Signature byte layout, JDK 7 segment lock 풀버전, ConcurrentHashMap counterCells 디테일, JDK 7 cycle 사고 풀 추적 같은 **deep-dive 버전은 git `7e4a6c8` commit에 보존**되어 있습니다.
 
 ---
 
@@ -96,6 +98,8 @@
 - [x] 04-timeouts-connection-vs-read (1336 lines)
 - [x] 05-hashing-and-hash-collections (2269 lines)
 
-**총 7,698 라인** — 5개 챕터 모두 7단 레이어 + 시니어 운영 관점 + ASCII 다이어그램 + 꼬리질문 완성.
+**총 2,226 라인** (본문) + README. 5개 챕터 모두 핵심 + 다이어그램 1~2 + 운영 시나리오 2~3 + 꼬리질문 형식으로 간략화.
+
+**Deep-dive 풀버전은 git `7e4a6c8` commit에 보존** (총 7,698 라인). 궁금한 토픽이 생기면 그때 함께 깊이 파고듭니다.
 
 > 이 파일은 학습 진행에 따라 계속 업데이트된다.
