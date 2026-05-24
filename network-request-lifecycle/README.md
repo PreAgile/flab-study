@@ -11,7 +11,7 @@
 이 챕터를 마치면 다음을 막힘없이 답할 수 있다.
 
 1. **(일반 케이스, ASCII-only)** 사용자가 `https://www.google.com/` 같이 ASCII만 포함한 URL을 입력했을 때, **hostname → DNS(stub/recursive/authoritative) → 호스트 라우팅 테이블 → 게이트웨이/ISP/라우터 hop → 서버 → 응답** 까지의 평범한 흐름을 백지에 그릴 수 있다. 각 단계가 OSI 어느 계층에서 동작하는지(L7 ↔ L2)도 같이.
-2. **(한글 포함 케이스)** 주소창에 `https://example.com/users/김면수` 같이 한글이 들어간 URL을 입력했을 때, **왜 한글을 그대로 네트워크에 흘리면 안 되는지**(HTTP/1.1은 RFC 9110 기준 ASCII 7-bit 메시지 프로토콜) + percent-encoding이 **어떤 계층의 책임**(브라우저 = encode, 서버 = decode)인지 + 인코딩이 깨지면 모지바케가 어디서 발생하는지를 단계별로 설명할 수 있다.
+2. **(한글 포함 케이스)** 주소창에 `https://example.com/users/김면수` 같이 한글이 들어간 URL을 입력했을 때, **왜 한글을 그대로 네트워크에 흘리면 안 되는지**(HTTP/1.1은 RFC 9110 기준 ASCII 7-bit 메시지 프로토콜) + percent-encoding이 **어떤 계층의 책임**(브라우저 = encode, 서버 = decode)인지 + 인코딩이 깨지면 글자가 어디서 깨지는지를 단계별로 설명할 수 있다.
 3. "김면수" 같은 한글이 UTF-8 바이트 → percent-encoding → HTTP 메시지 → 네트워크 → 서버 디코딩 → 비즈니스 객체까지 어떻게 직렬화·복원되는지 단계별로 설명할 수 있다.
 4. 데이터가 통과하는 **OSI 7계층 각각**에서 어떤 헤더가 붙고 떨어지는지(encapsulation/decapsulation), TCP/IP 5계층 모델과의 매핑까지.
 5. **로드밸런서**가 단순 트래픽 분산이 아니라 SSL termination, health check, rate limit, sticky session, WAF, A/B test, observability, DDoS 방어까지 담당함을 안다. L4와 L7의 차이, DSR/SNAT/NAT 모드 차이.
@@ -151,7 +151,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-→ **인코딩 책임 계층**: 브라우저(=클라이언트)가 **encode**, 서버(Tomcat/Spring/JDBC)가 **decode**. 양쪽 charset이 불일치하면 모지바케.
+→ **인코딩 책임 계층**: 브라우저(=클라이언트)가 **encode**, 서버(Tomcat/Spring/JDBC)가 **decode**. 양쪽 charset이 불일치하면 글자 깨짐.
 
 각 단계마다 **OSI 7계층** (03번 챕터)이 동시에 동작하면서 헤더를 붙이고 뗀다.
 
@@ -210,7 +210,7 @@
                                               @PathVariable String name = "김면수"
 ```
 
-→ 양쪽 **charset 합의가 불일치하면 모지바케**. 대표 패턴:
+→ 양쪽 **charset 합의가 불일치하면 글자 깨짐**. 대표 패턴:
 - 클라가 UTF-8로 encode했는데 서버가 ISO-8859-1로 decode → `ê¹€ë©´ìˆ˜` 같은 깨진 라틴 시퀀스
 - 클라가 EUC-KR로 encode했는데 서버가 UTF-8로 decode → `???` 또는 replacement char (U+FFFD) 폭주
 - DB 컬럼 charset이 latin1인데 UTF-8 byte를 그대로 저장 → 저장은 되지만 SELECT 시 깨짐
@@ -348,7 +348,7 @@
 
 | # | 파일 | 핵심 질문 | 상태 |
 |---|---|---|---|
-| 01 | [01-url-input-and-serialization.md](./01-url-input-and-serialization.md) | "한글이 URL에 그대로 못 들어가는 이유 + percent-encoding 5단 변환 + 모지바케 운영" | ✅ (500 lines) |
+| 01 | [01-url-input-and-serialization.md](./01-url-input-and-serialization.md) | "한글이 URL에 그대로 못 들어가는 이유 + percent-encoding 5단 변환 + 글자 깨짐 운영" | ✅ (500 lines) |
 | 02 | [02-dns-and-routing.md](./02-dns-and-routing.md) | "`www.google.com` 평범한 케이스 + DNS 4단계 + ARP/MAC + 라우터 hop" | ✅ (503 lines) |
 | 03 | [03-osi-7-layers-and-tcp-tls.md](./03-osi-7-layers-and-tcp-tls.md) | "L7→L1 캡슐화 + TCP/TLS handshake + IP는 end-to-end / MAC은 hop-to-hop" | ✅ (503 lines) |
 | 04 | [04-load-balancer-deep-dive.md](./04-load-balancer-deep-dive.md) | "L4/L7 LB의 모든 역할 — SSL term / health / rate limit / sticky / WAF / DDoS" | ✅ (508 lines) |
@@ -416,7 +416,7 @@
 5. "Load balancer 뒤의 서버가 health check는 통과하는데 실제 요청은 5xx"
    → L7 path-based health vs L4 TCP health, deep health endpoint 부재
 
-6. "한글이 깨져서 들어옴 (모지바케)"
+6. "한글이 깨져서 들어옴 (글자 깨짐)"
    → percent-encoding charset 불일치, HTTP Content-Type charset, JDBC URL의 useUnicode/characterEncoding
 ```
 
