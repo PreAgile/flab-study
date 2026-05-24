@@ -348,7 +348,7 @@
 
 | # | 파일 | 핵심 질문 | 상태 |
 |---|---|---|---|
-| 01 | [01-url-input-and-serialization.md](./01-url-input-and-serialization.md) | "한글이 URL에 그대로 못 들어가는 이유(ASCII protocol) + percent-encoding 5단 변환 + 모지바케 운영 시나리오" | ✅ (2079 lines) |
+| 01 | [01-url-input-and-serialization.md](./01-url-input-and-serialization.md) | "한글이 URL에 그대로 못 들어가는 이유(ASCII protocol) + percent-encoding 5단 변환 + 모지바케 운영 시나리오 + ASCII/Unicode/UTF-8 비트 레벨 풀버전 부록" | ✅ (3026 lines) |
 | 02 | [02-dns-and-routing.md](./02-dns-and-routing.md) | "`www.google.com` 평범한 케이스 풀버전 10단계 + DNS resolver/A·AAAA/CNAME + ARP/MAC + 라우터 hop TTL decrement" | ✅ (2391 lines) |
 | 03 | [03-osi-7-layers-and-tcp-tls.md](./03-osi-7-layers-and-tcp-tls.md) | "URL 정보가 L7→L1 어떻게 캡슐화되고 각 계층이 무엇을 검증하나(FCS/checksum/TTL/AEAD) + IP는 end-to-end MAC은 hop-to-hop" | ✅ (2289 lines) |
 | 04 | [04-load-balancer-deep-dive.md](./04-load-balancer-deep-dive.md) | "L4/L7 LB의 모든 역할 — 트래픽 분산 + SSL term + health + rate limit + sticky + WAF + DDoS + observability" | ✅ (1206 lines) |
@@ -423,7 +423,7 @@
 ## 진행 현황
 
 - [x] README + 전체 흐름 그림 + 챕터 목록
-- [x] 01-url-input-and-serialization (2079 lines) — 한글 encoding 이유 보강 +735
+- [x] 01-url-input-and-serialization (3026 lines) — 한글 encoding 이유 +735 → ASCII/Unicode/UTF-8 비트 레벨 풀버전 부록 +947
 - [x] 02-dns-and-routing (2391 lines) — `www.google.com` 풀버전 + ARP/MAC + 라우터 hop 보강 +1102
 - [x] 03-osi-7-layers-and-tcp-tls (2289 lines) — OSI 캡슐화 풀 + 검증 메커니즘 + MAC hop-to-hop 보강 +873
 - [x] 04-load-balancer-deep-dive (1206 lines)
@@ -432,7 +432,8 @@
 - [x] 07-connection-pools-master (1867 lines)
 - [x] 08-db-connection-and-jdbc (2161 lines)
 
-**총 15,336 라인** — 8개 챕터 모두 시니어 운영 마스터 관점 + 7단 레이어 + ASCII 다이어그램 + 꼬리질문 3단까지 완성.
+**총 16,283 라인** — 8개 챕터 모두 시니어 운영 마스터 관점 + 7단 레이어 + ASCII 다이어그램 + 꼬리질문 3단까지 완성.
 **보강 라운드 1** (한글 URL encoding 이유 + `www.google.com` 일반 케이스 + OSI 캡슐화 풀): 01/02/03 본문 총 +2,710 라인, README +278 라인.
+**보강 라운드 2** (01 부록 — ASCII / Unicode / UTF-8 비트 레벨 풀버전): 01 본문 +947 라인 (3026 lines 도달). byte 단위 인코딩/디코딩을 백지에서 손으로 풀 수 있는 수준까지 분해, overlong 보안 + 물리 layer 흐름 + 한 장 시각화 포함.
 
 > 이 파일은 학습 진행에 따라 계속 업데이트된다.
