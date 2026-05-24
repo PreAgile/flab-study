@@ -129,8 +129,11 @@ def set_default_style(doc):
     rFonts.set(qn('w:eastAsia'), FONT_BODY)
 
 
+_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+
 def parse_inline(text):
-    """Inline 마크다운 파싱 — bold(**), italic(*), code(`), 결과는 (text, attrs) 리스트"""
+    """Inline 마크다운 파싱 — bold(**), code(`), link [text](url), 결과는 (text, attrs) 리스트"""
     tokens = []
     i = 0
     while i < len(text):
@@ -148,9 +151,21 @@ def parse_inline(text):
                 tokens.append((text[i+1:end], {"mono": True}))
                 i = end + 1
                 continue
+        # [text](url) — markdown link
+        if text[i] == "[":
+            m = _LINK_RE.match(text, i)
+            if m:
+                link_text, link_url = m.group(1), m.group(2)
+                tokens.append((link_text, {"link": link_url}))
+                i = m.end()
+                continue
         # plain — accumulate until next marker
         j = i
-        while j < len(text) and text[j] != "`" and text[j:j+2] != "**":
+        while j < len(text):
+            if text[j] == "`" or text[j:j+2] == "**":
+                break
+            if text[j] == "[" and _LINK_RE.match(text, j):
+                break
             j += 1
         if j > i:
             tokens.append((text[i:j], {}))
@@ -158,9 +173,48 @@ def parse_inline(text):
     return tokens
 
 
+def _add_hyperlink(paragraph, text, url, size=10.5):
+    """docx 에 hyperlink 추가 — URL 은 안 보이고 text 만 클릭 가능"""
+    part = paragraph.part
+    r_id = part.relate_to(
+        url,
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        is_external=True,
+    )
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+    new_run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+    # 폰트 설정
+    rFonts = OxmlElement("w:rFonts")
+    for k in ("w:ascii", "w:hAnsi", "w:eastAsia", "w:cs"):
+        rFonts.set(qn(k), FONT_BODY)
+    rPr.append(rFonts)
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(int(size * 2)))
+    rPr.append(sz)
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "1d4ed8")  # 파란색 (링크 표시)
+    rPr.append(color)
+    u = OxmlElement("w:u")
+    u.set(qn("w:val"), "single")
+    rPr.append(u)
+    new_run.append(rPr)
+    t = OxmlElement("w:t")
+    t.text = text
+    t.set(qn("xml:space"), "preserve")
+    new_run.append(t)
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
+
+
 def add_inline(p, text, base_size=10.5, base_color=None):
     for content, attrs in parse_inline(text):
         if not content:
+            continue
+        # link 토큰 → hyperlink
+        if "link" in attrs:
+            _add_hyperlink(p, content, attrs["link"], size=base_size)
             continue
         run = p.add_run(content)
         set_run_font(
@@ -172,24 +226,32 @@ def add_inline(p, text, base_size=10.5, base_color=None):
         )
 
 
+def _add_header_inline(p, text, size, bold=True, color=None):
+    """헤더 안에 inline 마크다운 (링크 포함) 파싱하여 박기"""
+    for content, attrs in parse_inline(text):
+        if not content:
+            continue
+        if "link" in attrs:
+            _add_hyperlink(p, content, attrs["link"], size=size)
+            continue
+        run = p.add_run(content)
+        set_run_font(run, size=size, bold=bold, color=color or COLOR_HEADER_PRIMARY,
+                     mono=attrs.get("mono", False))
+
+
 def add_header(doc, text, level):
     p = doc.add_paragraph()
     p.paragraph_format.keep_with_next = True
     if level == 1:
-        # 도메인 / 메이저 섹션
         set_paragraph_spacing(p, before=14, after=6, line=1.15)
-        run = p.add_run(text)
-        set_run_font(run, size=15, bold=True, color=COLOR_HEADER_PRIMARY)
+        _add_header_inline(p, text, size=15)
         add_horizontal_line(p)
     elif level == 2:
-        # 사례 헤딩
         set_paragraph_spacing(p, before=10, after=4, line=1.15)
-        run = p.add_run(text)
-        set_run_font(run, size=12.5, bold=True, color=COLOR_HEADER_PRIMARY)
+        _add_header_inline(p, text, size=12.5)
     else:
         set_paragraph_spacing(p, before=6, after=2, line=1.15)
-        run = p.add_run(text)
-        set_run_font(run, size=11.5, bold=True, color=COLOR_HEADER_PRIMARY)
+        _add_header_inline(p, text, size=11.5)
 
 
 def add_paragraph(doc, text, size=10.5):

@@ -1,6 +1,6 @@
 # 김면수 ｜ Backend Engineer
 
-010-9101-5429  ｜ digle117@gmail.com  ｜ github.com/PreAgile  ｜ astro-paper-23v.pages.dev
+**📞 연락처** 010-9101-5429  **｜ ✉ 이메일** [digle117@gmail.com](mailto:digle117@gmail.com)  **｜ 💻 GitHub** [github.com/PreAgile](https://github.com/PreAgile)  **｜ 📝 기술 블로그** [astro-paper-23v.pages.dev](https://astro-paper-23v.pages.dev)
 
 ---
 
