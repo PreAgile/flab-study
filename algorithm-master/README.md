@@ -73,5 +73,4 @@
 
 - **프로그래머스** (programmers.co.kr) — 한국 코딩 테스트 표준
 - **LeetCode** (leetcode.com) — 글로벌 표준, 패턴별 최고 학습 자료
-- **백준** (acmicpc.net) — 알고리즘 분류별 다양한 난이도
 - **hellointerview.com/learn/code** — 패턴 분류 기준
