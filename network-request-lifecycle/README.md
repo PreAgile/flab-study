@@ -348,6 +348,7 @@
 
 | # | 파일 | 핵심 질문 | 상태 |
 |---|---|---|---|
+| 🌟 **00** | **[00-main-flow.md](./00-main-flow.md)** | **메인 흐름 (면접 답변 줄기) — URL 입력부터 응답까지 12단계, 한 줄기로** | **✅ 1순위 추천 (1502 lines)** |
 | 01 | [01-url-input-and-serialization.md](./01-url-input-and-serialization.md) | "한글이 URL에 그대로 못 들어가는 이유 + percent-encoding 5단 변환 + 글자 깨짐 운영" | ✅ (500 lines) |
 | 02 | [02-dns-and-routing.md](./02-dns-and-routing.md) | "`www.google.com` 평범한 케이스 + DNS 4단계 + ARP/MAC + 라우터 hop" | ✅ (503 lines) |
 | 03 | [03-osi-7-layers-and-tcp-tls.md](./03-osi-7-layers-and-tcp-tls.md) | "L7→L1 캡슐화 + TCP/TLS handshake + IP는 end-to-end / MAC은 hop-to-hop" | ✅ (503 lines) |
@@ -356,6 +357,8 @@
 | 06 | [06-tomcat-internals.md](./06-tomcat-internals.md) | "byte stream → HttpServletRequest — Acceptor/Poller/Executor + 3한도" | ✅ (494 lines) |
 | 07 | [07-connection-pools-master.md](./07-connection-pools-master.md) | "13 pool 위치 + HikariCP + Tomcat 3한도 + Cascading failure" | ✅ (503 lines) |
 | 08 | [08-db-connection-and-jdbc.md](./08-db-connection-and-jdbc.md) | "JDBC 4계층 + Wire Protocol + PreparedStatement + fetchSize 함정" | ✅ (500 lines) |
+
+> **🌟 면접 준비라면 00번부터.** 12단계 메인 흐름을 한 줄기로 따라가는 마스터 트랙입니다. 사이드 토픽은 일부러 빼고, 각 단계의 풀버전이 필요할 때 01~08로 들어가는 구조.
 
 > **간략 버전입니다.** 각 챕터는 500 라인 내외로 핵심·다이어그램·운영 시나리오·꼬리질문만 유지합니다. 비트 단위 헤더 layout, byte-level 풀 시퀀스, 풀버전 운영 시나리오 매트릭스, byte map / handshake 풀버전 등 **deep-dive 버전은 git `7e4a6c8` commit에 보존**되어 있습니다. 궁금한 토픽이 생기면 그때 함께 깊이 파고듭니다.
 
@@ -425,6 +428,7 @@
 ## 진행 현황
 
 - [x] README + 전체 흐름 그림 + 챕터 목록
+- [x] **🌟 00-main-flow (1502 lines) — 면접 답변 줄기, 12단계 한 줄기**
 - [x] 01-url-input-and-serialization (500 lines)
 - [x] 02-dns-and-routing (503 lines)
 - [x] 03-osi-7-layers-and-tcp-tls (503 lines)
@@ -434,7 +438,7 @@
 - [x] 07-connection-pools-master (503 lines)
 - [x] 08-db-connection-and-jdbc (500 lines)
 
-**총 4,019 라인** (본문) + README. 8개 챕터 모두 핵심 개념 + 1~2 다이어그램 + 운영 시나리오 2~3개 + 꼬리질문 형식으로 간략화.
+**총 5,521 라인** (본문) + README. 00번이 메인 흐름 마스터 트랙, 01~08은 각 단계의 풀버전 deep-dive. 시니어 백엔드 면접에서 "URL 치면 뭐가 일어나나요?" 한 질문에 30분 답변이 가능하도록 설계.
 
 **Deep-dive 풀버전은 git `7e4a6c8` commit에 보존** (총 16,283 라인) — 비트 단위 헤더 layout, byte-level wire protocol, byte map, 풀 시퀀스, 운영 시나리오 매트릭스 등 마스터 학습 자료. 궁금한 토픽이 생기면 그때 함께 깊이 파고듭니다.
 
