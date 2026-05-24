@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="p-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="p-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <marker id="p-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+
+    <symbol id="p-cloud" viewBox="0 0 80 48">
+      <path d="M20 36 Q 4 36 4 24 Q 4 14 16 14 Q 18 4 30 4 Q 44 4 46 18 Q 60 16 64 28 Q 76 28 76 38 Q 76 44 68 44 L 22 44 Q 14 44 14 38 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+    <symbol id="p-db" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="9" rx="18" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 6 9 L 6 39 Q 6 44 24 44 Q 42 44 42 39 L 42 9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="20" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="p-shield" viewBox="0 0 48 56">
+      <path d="M 24 4 L 44 12 L 44 30 Q 44 46 24 52 Q 4 46 4 30 L 4 12 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">D1. 자동 답글 종단 파이프라인 — 수집 → AI → 4 단 TOCTOU 게이트 → 이중 인증 게시</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">트랜잭션 경계 분리 + API Key → JWT fallback + Layered Idempotency 의 3 중 안전망</text>
+
+  <!-- 1. 진입 -->
+  <rect x="50" y="120" width="220" height="80" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="160" y="148" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">어드민 트리거</text>
+  <text x="160" y="170" font-size="11" fill="#64748b" text-anchor="middle">execute_populate</text>
+  <text x="160" y="188" font-size="11" fill="#64748b" text-anchor="middle">auto_reply=true</text>
+
+  <line x1="270" y1="160" x2="328" y2="160" stroke="#0f172a" stroke-width="1.8" marker-end="url(#p-ar)"/>
+
+  <!-- 2. 수집 -->
+  <rect x="330" y="120" width="280" height="80" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="470" y="148" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">FETCHING_REVIEWS</text>
+  <text x="470" y="168" font-size="11" fill="#64748b" text-anchor="middle">30 건 배치 PROCESSING · SAVING</text>
+  <text x="470" y="186" font-size="11" fill="#64748b" text-anchor="middle">Review · AiReply · Reply commit</text>
+
+  <line x1="610" y1="160" x2="668" y2="160" stroke="#0f172a" stroke-width="1.8" marker-end="url(#p-ar)"/>
+
+  <!-- 3. AI -->
+  <rect x="670" y="120" width="280" height="80" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="810" y="148" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">AI 답글 생성</text>
+  <text x="810" y="168" font-size="11" fill="#64748b" text-anchor="middle">자체 MLOps Score API</text>
+  <text x="810" y="186" font-size="11" fill="#64748b" text-anchor="middle">→ reply2_id 박힘</text>
+
+  <line x1="950" y1="160" x2="1008" y2="160" stroke="#0f172a" stroke-width="1.8" marker-end="url(#p-ar)"/>
+
+  <!-- 4. 후처리 순서 -->
+  <rect x="1010" y="100" width="440" height="120" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="1230" y="128" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">POST_PROCESSING (실행 순서 고정)</text>
+  <text x="1030" y="152" font-size="11" fill="#0f172a">① 리뷰 스코어링 (AI Score API)</text>
+  <text x="1030" y="170" font-size="11" fill="#0f172a">② 알림톡 (메인 API 영역)</text>
+  <text x="1030" y="188" font-size="11" fill="#0f172a">③ 자동 답글 (가장 마지막)</text>
+  <text x="1030" y="208" font-size="10" font-style="italic" fill="#78350f">불만족 리뷰 → 사장님 먼저 인지 · 직접 대응 시간 확보</text>
+
+  <!-- TOCTOU 4 게이트 -->
+  <line x1="1230" y1="220" x2="1230" y2="246" stroke="#0f172a" stroke-width="1.8" marker-end="url(#p-ar)"/>
+
+  <text x="50" y="266" font-size="16" font-weight="700" fill="#0f172a">4 단 TOCTOU 게이트 — 게시 직전 (DB 세션 안)</text>
+
+  <g transform="translate(50, 290)">
+    <rect width="330" height="76" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="38" r="18" fill="#0f172a"/>
+    <text x="32" y="44" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+    <text x="60" y="32" font-size="13" font-weight="700" fill="#0f172a">is_replied 플래그</text>
+    <text x="60" y="54" font-size="10" fill="#64748b">이미 게시된 리뷰는 skip</text>
+    <text x="60" y="70" font-size="10" font-weight="700" fill="#15803d">→ 중복 게시 1차 차단</text>
+  </g>
+
+  <g transform="translate(400, 290)">
+    <rect width="330" height="76" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="38" r="18" fill="#0f172a"/>
+    <text x="32" y="44" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+    <text x="60" y="32" font-size="13" font-weight="700" fill="#0f172a">기존 replies 카운트</text>
+    <text x="60" y="54" font-size="10" fill="#64748b">Reply.count(review_id) &gt; 0 → skip</text>
+    <text x="60" y="70" font-size="10" font-weight="700" fill="#15803d">→ 사장님 수동 게시도 차단</text>
+  </g>
+
+  <g transform="translate(750, 290)">
+    <rect width="330" height="76" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="38" r="18" fill="#0f172a"/>
+    <text x="32" y="44" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+    <text x="60" y="32" font-size="13" font-weight="700" fill="#0f172a">AI 답글 기간 컷오프</text>
+    <text x="60" y="54" font-size="10" fill="#64748b">플랫폼별 14일 / 30일</text>
+    <text x="60" y="70" font-size="10" font-weight="700" fill="#15803d">→ 외부 플랫폼 정책 준수</text>
+  </g>
+
+  <g transform="translate(1100, 290)">
+    <rect width="350" height="76" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="38" r="18" fill="#0f172a"/>
+    <text x="32" y="44" font-size="13" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+    <text x="60" y="32" font-size="13" font-weight="700" fill="#0f172a">AI 답글 본문 존재</text>
+    <text x="60" y="54" font-size="10" fill="#64748b">AiReply.content NOT NULL</text>
+    <text x="60" y="70" font-size="10" font-weight="700" fill="#15803d">→ 비어있는 답글 차단</text>
+  </g>
+
+  <text x="750" y="396" font-size="11" font-style="italic" fill="#64748b" text-anchor="middle">하나라도 실패하면 조용히 skip (silent · no exception)</text>
+
+  <!-- 합성 staticmethod -->
+  <rect x="50" y="420" width="680" height="160" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="70" y="448" font-size="15" font-weight="700" fill="#0f172a">합성 — staticmethod 분리 (6 케이스 단위 테스트로 잠금)</text>
+
+  <text x="70" y="476" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">_assemble_reply_comment(payload) -&gt; str:</text>
+  <text x="70" y="494" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">  comment = payload.ai_reply_content</text>
+  <text x="70" y="512" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">  + 매장별 홍보문구 (top / bottom 위치)</text>
+  <text x="70" y="530" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">  + (매장명) / (닉네임) 치환</text>
+
+  <text x="70" y="558" font-size="11" font-weight="700" fill="#15803d">▸ pure function — DB 세션 / 외부 IO 와 분리</text>
+  <text x="70" y="574" font-size="11" fill="#64748b">▸ 6 케이스 단위 테스트 (위치 · 치환 · null · 빈 문자열 등)</text>
+
+  <!-- 이중 인증 -->
+  <rect x="750" y="420" width="700" height="160" rx="12" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="770" y="448" font-size="15" font-weight="700" fill="#0f172a">메인 API 호출 — API Key → JWT 이중 인증</text>
+
+  <g transform="translate(770, 460)">
+    <rect width="200" height="50" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="100" y="22" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">① API Key 시도</text>
+    <text x="100" y="40" font-size="10" fill="#64748b" text-anchor="middle">기본 경로</text>
+  </g>
+
+  <line x1="970" y1="485" x2="1018" y2="485" stroke="#b91c1c" stroke-width="1.6" marker-end="url(#p-ar-r)"/>
+  <text x="994" y="478" font-size="9" fill="#b91c1c" text-anchor="middle">401/403</text>
+
+  <g transform="translate(1020, 460)">
+    <rect width="200" height="50" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="100" y="22" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">② JWT 로그인 fallback</text>
+    <text x="100" y="40" font-size="10" fill="#64748b" text-anchor="middle">be_auth_email + password</text>
+  </g>
+
+  <line x1="1220" y1="485" x2="1260" y2="485" stroke="#15803d" stroke-width="1.6" marker-end="url(#p-ar-g)"/>
+
+  <g transform="translate(1260, 460)">
+    <rect width="180" height="50" rx="6" fill="#dcfce7" stroke="#15803d" stroke-width="1.4"/>
+    <text x="90" y="22" font-size="12" font-weight="700" fill="#14532d" text-anchor="middle">메인 API 호출</text>
+    <text x="90" y="40" font-size="10" fill="#64748b" text-anchor="middle">→ 외부 플랫폼 게시</text>
+  </g>
+
+  <text x="770" y="540" font-size="11" font-weight="700" fill="#15803d">→ 키 회전 · 만료 시에도 작업이 죽지 않음</text>
+  <text x="770" y="560" font-size="11" fill="#64748b">→ 운영 부담 절감 + SPOF 제거</text>
+
+  <!-- Layered Idempotency 책임 분담 -->
+  <rect x="50" y="600" width="1400" height="180" rx="12" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+  <text x="70" y="628" font-size="16" font-weight="700" fill="#1e3a8a">Layered Idempotency — 어디서 책임이 깨지면 어디서 알 수 있는가</text>
+
+  <g transform="translate(70, 644)">
+    <rect width="660" height="120" rx="10" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#1e3a8a">운영 콘솔 측 (작업 자체 결함 방어)</text>
+    <text x="20" y="50" font-size="11" fill="#0f172a">▸ 게시 전 4 단 TOCTOU 게이트로 같은 작업 안에서 두 번 호출 차단</text>
+    <text x="20" y="68" font-size="11" fill="#0f172a">▸ 후처리 순서 고정 (스코어링 → 알림톡 → 자동 답글)</text>
+    <text x="20" y="86" font-size="11" fill="#0f172a">▸ DB 세션은 짧게 · 외부 IO 는 트랜잭션 밖</text>
+    <text x="20" y="106" font-size="10" font-weight="700" fill="#15803d">→ 운영 콘솔은 메인 API 를 신뢰 · 자기 작업 안전성만 보장</text>
+  </g>
+
+  <g transform="translate(750, 644)">
+    <rect width="700" height="120" rx="10" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.5"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#1e3a8a">메인 API 측 (외부 플랫폼 게시 멱등성)</text>
+    <text x="20" y="50" font-size="11" fill="#0f172a">▸ is_auto_reply 플래그 받아 외부 플랫폼 게시 단계 멱등성 보장</text>
+    <text x="20" y="68" font-size="11" fill="#0f172a">▸ 같은 review_id 두 번 reply 안 됨 (플랫폼 응답 기반 자기 멱등)</text>
+    <text x="20" y="86" font-size="11" fill="#0f172a">▸ AI 생성 실패 vs 게시 실패 metrics 분리 (운영 가시성)</text>
+    <text x="20" y="106" font-size="10" font-weight="700" fill="#15803d">→ 메인 API 는 플랫폼 응답으로 자기 멱등 책임</text>
+  </g>
+
+  <!-- 위험 4가지 → 해결 -->
+  <rect x="50" y="800" width="1400" height="120" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="70" y="828" font-size="15" font-weight="700" fill="#14532d">자동 답글 위험 4 가지 → 해결</text>
+
+  <text x="70" y="854" font-size="11" fill="#0f172a">① 매장 평판 직격 (별점 1점에 「감사」 답글) → AI 답글 분류 + 부정 리뷰 알림 (사례 13 결합)</text>
+  <text x="70" y="872" font-size="11" fill="#0f172a">② 같은 리뷰 두 번 게시 → 4 단 TOCTOU 게이트 (이중·삼중 차단)</text>
+  <text x="70" y="890" font-size="11" fill="#0f172a">③ 홍보문구 합성 (top/bottom) → staticmethod 6 케이스 단위 테스트로 잠금</text>
+  <text x="70" y="908" font-size="11" fill="#0f172a">④ 별점 컷오프 (매장마다 정책 다름) → 외부 플랫폼별 답글 가능 기간 (14일 / 30일) 컷오프 정책</text>
+</svg>

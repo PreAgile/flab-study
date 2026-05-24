@@ -27,6 +27,7 @@
 | 02 | [02-reflection.md](./02-reflection.md) | "Reflection은 왜 느린가, MethodHandle/Dynamic Proxy/CGLIB는 어떻게 다른가" | ✅ (1171 lines) |
 | 03 | [03-threads.md](./03-threads.md) | "Thread 객체부터 ExecutorService, ForkJoinPool, ThreadLocal, race condition 패턴, Virtual Thread까지" | ✅ (1775 lines) |
 | 04 | [04-timeouts-connection-vs-read.md](./04-timeouts-connection-vs-read.md) | "connection / read / socket / write timeout — 각각 OS의 어느 단계에서 발생하나" | ✅ (1336 lines) |
+| 05 | [05-hashing-and-hash-collections.md](./05-hashing-and-hash-collections.md) | "Object.hashCode/equals 5계약, HashMap JDK 8 treeify, ConcurrentHashMap per-bucket CAS, hash flooding, consistent hashing — Java 생태계 전체가 hash 위에 서 있다" | ✅ (2269 lines) |
 
 ---
 
@@ -93,7 +94,8 @@
 - [x] 02-reflection (1171 lines)
 - [x] 03-threads (1775 lines)
 - [x] 04-timeouts-connection-vs-read (1336 lines)
+- [x] 05-hashing-and-hash-collections (2269 lines)
 
-**총 5,429 라인** — 4개 챕터 모두 7단 레이어 + 시니어 운영 관점 + ASCII 다이어그램 + 꼬리질문 완성.
+**총 7,698 라인** — 5개 챕터 모두 7단 레이어 + 시니어 운영 관점 + ASCII 다이어그램 + 꼬리질문 완성.
 
 > 이 파일은 학습 진행에 따라 계속 업데이트된다.

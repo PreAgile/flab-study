@@ -1,0 +1,218 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="bl-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="bl-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <marker id="bl-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <symbol id="bl-user" viewBox="0 0 48 48">
+      <circle cx="24" cy="16" r="9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M6 44 C 6 30, 42 30, 42 44" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+    <symbol id="bl-shop" viewBox="0 0 48 48">
+      <rect x="6" y="14" width="36" height="28" rx="2" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 4 16 L 24 4 L 44 16" fill="none" stroke="#0f172a" stroke-width="2"/>
+      <rect x="20" y="26" width="8" height="16" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="bl-db" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="9" rx="18" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 6 9 L 6 39 Q 6 44 24 44 Q 42 44 42 39 L 42 9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="20" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="bl-lock" viewBox="0 0 48 48">
+      <rect x="10" y="22" width="28" height="22" rx="3" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+      <path d="M 16 22 L 16 16 Q 16 6 24 6 Q 32 6 32 16 L 32 22" fill="none" stroke="#b45309" stroke-width="2"/>
+      <circle cx="24" cy="32" r="2.5" fill="#b45309"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">B4. 매장 일괄 등록 — SELECT FOR UPDATE 비관락 + 그룹 단위 트랜잭션 경계</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">본사 1,000+ 매장 엑셀 등록 · 그룹 = 트랜잭션 경계 · race window 닫힘 + 명확한 사용자 메시지</text>
+
+  <!-- 입력 -->
+  <use href="#bl-user" x="60" y="120" width="60" height="60"/>
+  <text x="90" y="200" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">본사 운영자</text>
+  <text x="90" y="218" font-size="11" fill="#64748b" text-anchor="middle">엑셀 1,000+ 행</text>
+
+  <line x1="124" y1="150" x2="178" y2="150" stroke="#0f172a" stroke-width="1.8" marker-end="url(#bl-ar)"/>
+
+  <!-- 엑셀 validation -->
+  <rect x="180" y="120" width="200" height="60" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="280" y="146" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">validate</text>
+  <text x="280" y="166" font-size="11" fill="#64748b" text-anchor="middle">PENDING → VALIDATED</text>
+
+  <line x1="380" y1="150" x2="438" y2="150" stroke="#0f172a" stroke-width="1.8" marker-end="url(#bl-ar)"/>
+
+  <!-- 그룹화 -->
+  <rect x="440" y="100" width="320" height="100" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="600" y="126" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">그룹화 — registerBulk</text>
+  <text x="600" y="148" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#475569" text-anchor="middle">groupKey = email + business_number</text>
+  <text x="600" y="166" font-size="11" fill="#64748b" text-anchor="middle">한 그룹 = 한 사장님 · 1~6 플랫폼 계정</text>
+  <text x="600" y="186" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle">→ 그룹 단위 트랜잭션 경계</text>
+
+  <line x1="760" y1="150" x2="818" y2="150" stroke="#0f172a" stroke-width="1.8" marker-end="url(#bl-ar)"/>
+
+  <!-- 트랜잭션 그룹들 -->
+  <text x="820" y="124" font-size="13" font-weight="700" fill="#0f172a">@Transactional() 그룹 단위</text>
+
+  <g transform="translate(820, 140)">
+    <rect width="160" height="60" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="80" y="22" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Group A</text>
+    <text x="80" y="42" font-size="10" fill="#64748b" text-anchor="middle">사장님 1 · 3 플랫폼</text>
+  </g>
+
+  <g transform="translate(990, 140)">
+    <rect width="160" height="60" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="80" y="22" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Group B</text>
+    <text x="80" y="42" font-size="10" fill="#64748b" text-anchor="middle">사장님 2 · 6 플랫폼</text>
+  </g>
+
+  <g transform="translate(1160, 140)">
+    <rect width="170" height="60" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="85" y="22" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Group N</text>
+    <text x="85" y="42" font-size="10" fill="#64748b" text-anchor="middle">사장님 N · k 플랫폼</text>
+  </g>
+
+  <text x="1345" y="180" font-size="20" fill="#94a3b8">⋯</text>
+
+  <!-- 한 그룹 안의 처리 흐름 -->
+  <text x="50" y="270" font-size="16" font-weight="700" fill="#0f172a">한 그룹 안 — SELECT FOR UPDATE 비관락으로 race 차단</text>
+
+  <g transform="translate(50, 290)">
+    <rect width="1400" height="240" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#78350f">processRegisterGroup(brandId, rows)</text>
+
+    <!-- Step 1: lock -->
+    <g transform="translate(20, 50)">
+      <rect width="320" height="166" rx="10" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+      <use href="#bl-lock" x="20" y="14" width="36" height="36"/>
+      <text x="68" y="36" font-size="13" font-weight="700" fill="#78350f">① 비관락 SELECT FOR UPDATE</text>
+
+      <text x="20" y="68" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">WHERE platform = ? AND</text>
+      <text x="20" y="84" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">      platform_id = ?</text>
+      <text x="20" y="102" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">setLock('pessimistic_write')</text>
+
+      <text x="20" y="130" font-size="11" fill="#475569">행 단위 X-lock 획득</text>
+      <text x="20" y="148" font-size="11" font-weight="700" fill="#15803d">→ 동시 INSERT race window 닫힘</text>
+    </g>
+
+    <line x1="346" y1="132" x2="378" y2="132" stroke="#0f172a" stroke-width="1.8" marker-end="url(#bl-ar)"/>
+
+    <!-- Step 2 -->
+    <g transform="translate(380, 50)">
+      <rect width="280" height="166" rx="10" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+      <text x="20" y="26" font-size="13" font-weight="700" fill="#78350f">② 존재 여부 분기</text>
+
+      <line x1="0" y1="40" x2="280" y2="40" stroke="#fde68a" stroke-width="1"/>
+
+      <text x="20" y="68" font-size="12" font-weight="700" fill="#b91c1c">기존 row 존재</text>
+      <text x="20" y="88" font-size="11" fill="#0f172a">markGroupFailed(rows)</text>
+      <text x="20" y="106" font-size="10" fill="#64748b">"${platform} 계정 중복: 이미 등록됨"</text>
+
+      <text x="20" y="134" font-size="12" font-weight="700" fill="#15803d">새 row</text>
+      <text x="20" y="152" font-size="11" fill="#0f172a">→ 다음 단계로 진행</text>
+    </g>
+
+    <line x1="666" y1="132" x2="698" y2="132" stroke="#0f172a" stroke-width="1.8" marker-end="url(#bl-ar)"/>
+
+    <!-- Step 3-5: 단계 처리 -->
+    <g transform="translate(700, 50)">
+      <rect width="280" height="166" rx="10" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+      <text x="20" y="26" font-size="13" font-weight="700" fill="#78350f">③④⑤ 멱등 단계 처리</text>
+
+      <line x1="0" y1="40" x2="280" y2="40" stroke="#fde68a" stroke-width="1"/>
+
+      <text x="20" y="64" font-size="11" fill="#0f172a">③ user 조회 / 생성</text>
+      <text x="20" y="84" font-size="11" fill="#0f172a">④ brand_user 조회 / 생성</text>
+      <text x="20" y="104" font-size="11" fill="#0f172a">⑤ platform_account INSERT</text>
+
+      <text x="20" y="134" font-size="10" fill="#475569">각 단계 findOne 우선 후 없으면 생성</text>
+      <text x="20" y="152" font-size="10" font-weight="700" fill="#15803d">→ 재시도 멱등성 (idempotent retry)</text>
+    </g>
+
+    <line x1="986" y1="132" x2="1018" y2="132" stroke="#0f172a" stroke-width="1.8" marker-end="url(#bl-ar)"/>
+
+    <!-- Step 6: 상태 갱신 -->
+    <g transform="translate(1020, 50)">
+      <rect width="360" height="166" rx="10" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+      <text x="20" y="26" font-size="13" font-weight="700" fill="#78350f">⑥ 상태 갱신 (함수형 update · race-free 카운터)</text>
+
+      <line x1="0" y1="40" x2="360" y2="40" stroke="#fde68a" stroke-width="1"/>
+
+      <text x="20" y="64" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">attempt_count: () =&gt; 'attempt_count + 1'</text>
+      <text x="20" y="84" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">last_attempted_at: new Date()</text>
+      <text x="20" y="104" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">last_error: error?.message</text>
+
+      <text x="20" y="134" font-size="11" fill="#475569">실패 시 last_error 박아서 운영자 가시화</text>
+      <text x="20" y="152" font-size="10" font-weight="700" fill="#15803d">→ 재업로드 없이 실패만 재시도 가능</text>
+    </g>
+  </g>
+
+  <!-- 상태머신 -->
+  <text x="50" y="570" font-size="16" font-weight="700" fill="#0f172a">상태머신 — 운영 가시성</text>
+
+  <g transform="translate(50, 590)">
+    <rect width="140" height="50" rx="6" fill="#f1f5f9" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="70" y="32" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">PENDING</text>
+  </g>
+  <line x1="190" y1="615" x2="218" y2="615" stroke="#0f172a" stroke-width="1.6" marker-end="url(#bl-ar)"/>
+
+  <g transform="translate(220, 590)">
+    <rect width="140" height="50" rx="6" fill="#f1f5f9" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="70" y="32" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">VALIDATED</text>
+  </g>
+  <line x1="360" y1="615" x2="388" y2="615" stroke="#0f172a" stroke-width="1.6" marker-end="url(#bl-ar)"/>
+
+  <g transform="translate(390, 590)">
+    <rect width="150" height="50" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <text x="75" y="32" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">REGISTERING</text>
+  </g>
+
+  <line x1="540" y1="615" x2="568" y2="600" stroke="#15803d" stroke-width="1.6" marker-end="url(#bl-ar-g)"/>
+  <line x1="540" y1="615" x2="568" y2="630" stroke="#b91c1c" stroke-width="1.6" marker-end="url(#bl-ar-r)"/>
+
+  <g transform="translate(570, 580)">
+    <rect width="160" height="40" rx="6" fill="#dcfce7" stroke="#15803d" stroke-width="1.5"/>
+    <text x="80" y="26" font-size="13" font-weight="700" fill="#14532d" text-anchor="middle">REGISTERED</text>
+  </g>
+
+  <g transform="translate(570, 626)">
+    <rect width="160" height="40" rx="6" fill="#fee2e2" stroke="#b91c1c" stroke-width="1.5"/>
+    <text x="80" y="26" font-size="13" font-weight="700" fill="#7f1d1d" text-anchor="middle">REGISTER_FAILED</text>
+  </g>
+
+  <text x="740" y="660" font-size="11" fill="#64748b">↑ 재시도 가능 (last_error 박힘)</text>
+
+  <!-- 핵심 결정 + 성과 -->
+  <rect x="50" y="720" width="1400" height="200" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="70" y="750" font-size="16" font-weight="700" fill="#14532d">핵심 설계 결정 + 운영 검증 결과</text>
+  <line x1="70" y1="762" x2="1430" y2="762" stroke="#a7f3d0" stroke-width="1"/>
+
+  <g transform="translate(70, 778)">
+    <text font-size="12" font-weight="700" fill="#0f172a">왜 비관락인가</text>
+    <text y="22" font-size="11" fill="#475569">@Transactional + UNIQUE 만으로도 race window 는 닫히나, 충돌 시</text>
+    <text y="40" font-size="11" fill="#475569">ER_DUP_ENTRY 에러 메시지가 본사 운영자에게 명확하지 않음.</text>
+    <text y="62" font-size="11" font-weight="700" fill="#15803d">→ 비관락 + markGroupFailed("${platform} 계정 중복") 로 메시지 명확화</text>
+  </g>
+
+  <g transform="translate(540, 778)">
+    <text font-size="12" font-weight="700" fill="#0f172a">왜 그룹 단위 트랜잭션인가</text>
+    <text y="22" font-size="11" fill="#475569">1,000 행 한 트랜잭션 → 한 사장님 에러로 전체 롤백 비합리적</text>
+    <text y="40" font-size="11" fill="#475569">한 그룹 = 한 사장님 = 트랜잭션 경계</text>
+    <text y="62" font-size="11" font-weight="700" fill="#15803d">→ 950 성공 · 50 실패 row 단위 정확 표시</text>
+  </g>
+
+  <g transform="translate(1010, 778)">
+    <text font-size="12" font-weight="700" fill="#0f172a">운영 검증 결과</text>
+    <text y="22" font-size="11" fill="#0f172a">▸ 1,000+ 매장 일괄 등록 운영 중</text>
+    <text y="40" font-size="11" fill="#0f172a">▸ 같은 platform_id 중복 row 0 건</text>
+    <text y="58" font-size="11" fill="#0f172a">▸ 본사 재업로드 없이 실패만 재시도</text>
+    <text y="78" font-size="11" font-weight="700" fill="#15803d">▸ JVM: JPA PESSIMISTIC_WRITE · REQUIRES_NEW</text>
+  </g>
+</svg>

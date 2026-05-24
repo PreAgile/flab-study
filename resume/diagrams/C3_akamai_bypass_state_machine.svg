@@ -1,0 +1,207 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="g-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="g-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <marker id="g-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+
+    <symbol id="g-browser" viewBox="0 0 48 48">
+      <rect x="4" y="8" width="40" height="32" rx="2" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <line x1="4" y1="18" x2="44" y2="18" stroke="#0f172a" stroke-width="1.5"/>
+      <circle cx="10" cy="13" r="1.6" fill="#0f172a"/>
+      <circle cx="15" cy="13" r="1.6" fill="#0f172a"/>
+      <circle cx="20" cy="13" r="1.6" fill="#0f172a"/>
+    </symbol>
+    <symbol id="g-shield" viewBox="0 0 48 56">
+      <path d="M 24 4 L 44 12 L 44 30 Q 44 46 24 52 Q 4 46 4 30 L 4 12 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">C3. Akamai Bot Manager 우회 — 인증 쿠키 4-state · Referrer Warming · Click Loop</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">단일 트릭이 아닌 4 기술 합성  ·  로그인 성공률 77.8% → 100% (18/18 iter 측정 입증)</text>
+
+  <!-- ===== Left: Bypass Sequence ===== -->
+  <rect x="50" y="110" width="740" height="700" rx="14" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <use href="#g-browser" x="70" y="128" width="36" height="36"/>
+  <text x="120" y="154" font-size="17" font-weight="700" fill="#0f172a">우회 시퀀스 (한 로그인 트랜잭션)</text>
+
+  <!-- Step 1 -->
+  <g transform="translate(70, 192)">
+    <rect width="700" height="70" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <circle cx="32" cy="35" r="20" fill="#0f172a"/>
+    <text x="32" y="42" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+    <text x="74" y="32" font-size="14" font-weight="700" fill="#0f172a">메인 페이지 진입 (mainUrl)</text>
+    <text x="74" y="54" font-size="11" fill="#64748b">referrer chain 형성 — 직접 로그인 페이지로 진입하면 sensor 차단</text>
+  </g>
+
+  <line x1="420" y1="262" x2="420" y2="278" stroke="#0f172a" stroke-width="2" marker-end="url(#g-ar)"/>
+
+  <!-- Step 2 — Referrer Warming -->
+  <g transform="translate(70, 280)">
+    <rect width="700" height="100" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="50" r="20" fill="#0f172a"/>
+    <text x="32" y="57" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+    <text x="74" y="32" font-size="14" font-weight="700" fill="#0f172a">Referrer Warming — 15s human-like telemetry 누적</text>
+    <text x="74" y="54" font-size="11" fill="#475569">mouse jitter 200~600px × 100~400px · steps 3~5 · 800~1,200ms 대기</text>
+    <text x="74" y="70" font-size="11" fill="#475569">추적 쿠키 발급 polling — 발급 즉시 break</text>
+    <text x="74" y="90" font-size="11" font-weight="700" fill="#15803d">→ Akamai sensor 가 human telemetry 누적 → 인증 쿠키 검증 진입</text>
+  </g>
+
+  <line x1="420" y1="380" x2="420" y2="396" stroke="#0f172a" stroke-width="2" marker-end="url(#g-ar)"/>
+
+  <!-- Step 3 -->
+  <g transform="translate(70, 398)">
+    <rect width="700" height="60" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <circle cx="32" cy="30" r="20" fill="#0f172a"/>
+    <text x="32" y="37" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+    <text x="74" y="26" font-size="14" font-weight="700" fill="#0f172a">로그인 제출 + 인증 쿠키 변화 추적</text>
+    <text x="74" y="48" font-size="11" fill="#64748b">쿠키 상태 분류기 — 우선순위 차단 &gt; challenge &gt; 검증 &gt; 초기</text>
+  </g>
+
+  <line x1="420" y1="458" x2="420" y2="474" stroke="#0f172a" stroke-width="2" marker-end="url(#g-ar)"/>
+
+  <!-- Step 4 -->
+  <g transform="translate(70, 476)">
+    <rect width="700" height="80" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="40" r="20" fill="#0f172a"/>
+    <text x="32" y="47" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+    <text x="74" y="28" font-size="14" font-weight="700" fill="#0f172a">정책 분기 — service / spec SSOT 순수 함수</text>
+    <text x="74" y="48" font-size="11" fill="#475569">polling 정책 결정 함수 — discriminated union 반환</text>
+    <text x="74" y="68" font-size="10" fill="#475569">break · observe-challenge · observe-block · enter-race-window · continue</text>
+  </g>
+
+  <line x1="420" y1="556" x2="420" y2="572" stroke="#0f172a" stroke-width="2" marker-end="url(#g-ar)"/>
+
+  <!-- Step 5 -->
+  <g transform="translate(70, 574)">
+    <rect width="700" height="76" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <circle cx="32" cy="38" r="20" fill="#0f172a"/>
+    <text x="32" y="45" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+    <text x="74" y="28" font-size="14" font-weight="700" fill="#0f172a">Click Loop — Enter 1회 + click 25회 (1~2s jitter)</text>
+    <text x="74" y="48" font-size="11" fill="#64748b">사람 행동 (제출 안 됐다 다시 누름) 시뮬레이션</text>
+    <text x="74" y="66" font-size="11" font-weight="700" fill="#15803d">→ Akamai 가 정확한 제출 timing 으로 차단하던 패턴 회피</text>
+  </g>
+
+  <!-- Step 6 — branch -->
+  <line x1="240" y1="650" x2="240" y2="676" stroke="#15803d" stroke-width="2.5" marker-end="url(#g-ar-g)"/>
+  <line x1="600" y1="650" x2="600" y2="676" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#g-ar-r)"/>
+
+  <g transform="translate(70, 678)">
+    <rect width="340" height="100" rx="10" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+    <text x="20" y="30" font-size="14" font-weight="700" fill="#14532d">로그인 성공</text>
+    <text x="20" y="54" font-size="11" fill="#0f172a">▸ session 확보 → release</text>
+    <text x="20" y="72" font-size="11" fill="#0f172a">▸ 세션 락 레지스트리 handoff 시작</text>
+    <text x="20" y="92" font-size="11" font-weight="700" fill="#15803d">→ 다음 worker 가 같은 세션 재사용</text>
+  </g>
+
+  <g transform="translate(430, 678)">
+    <rect width="340" height="100" rx="10" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+    <use href="#g-shield" x="14" y="22" width="40" height="46"/>
+    <text x="70" y="40" font-size="14" font-weight="700" fill="#7f1d1d">AkamaiBlockDetector</text>
+    <text x="70" y="62" font-size="11" fill="#0f172a">isAkamaiBlockDetected() 3 경로 호출</text>
+    <text x="70" y="80" font-size="11" fill="#0f172a">main / quick retry / prewarm swap</text>
+    <text x="70" y="98" font-size="10" font-weight="700" fill="#b91c1c">silent 회귀 차단 명문화</text>
+  </g>
+
+  <!-- ===== Right: Auth Cookie State Machine ===== -->
+  <rect x="810" y="110" width="640" height="380" rx="14" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="830" y="148" font-size="17" font-weight="700" fill="#0f172a">인증 쿠키 — 4-state 머신</text>
+  <text x="830" y="170" font-size="12" fill="#64748b">우선순위가 옛 구현의 4 silent 결함을 모두 차단</text>
+
+  <!-- States — modern boxes -->
+  <g transform="translate(840, 200)">
+    <rect width="180" height="80" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <text x="90" y="28" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">초기</text>
+    <text x="90" y="50" font-size="11" fill="#64748b" text-anchor="middle">cookie 없음</text>
+    <text x="90" y="66" font-size="10" fill="#94a3b8" text-anchor="middle">아직 sensor 미실행</text>
+  </g>
+
+  <g transform="translate(1240, 200)">
+    <rect width="180" height="80" rx="10" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+    <text x="90" y="28" font-size="14" font-weight="700" fill="#14532d" text-anchor="middle">검증</text>
+    <text x="90" y="50" font-size="11" fill="#15803d" text-anchor="middle">검증 토큰만</text>
+    <text x="90" y="66" font-size="10" fill="#15803d" text-anchor="middle">검증 성공</text>
+  </g>
+
+  <g transform="translate(840, 320)">
+    <rect width="180" height="80" rx="10" fill="#fef9c3" stroke="#b45309" stroke-width="2"/>
+    <text x="90" y="28" font-size="14" font-weight="700" fill="#78350f" text-anchor="middle">challenge</text>
+    <text x="90" y="50" font-size="11" fill="#b45309" text-anchor="middle">challenge 토큰 포함</text>
+    <text x="90" y="66" font-size="10" fill="#78350f" text-anchor="middle">sensor 추가 검증 대기</text>
+  </g>
+
+  <g transform="translate(1240, 320)">
+    <rect width="180" height="80" rx="10" fill="#fee2e2" stroke="#b91c1c" stroke-width="2"/>
+    <text x="90" y="28" font-size="14" font-weight="700" fill="#7f1d1d" text-anchor="middle">차단</text>
+    <text x="90" y="50" font-size="11" fill="#b91c1c" text-anchor="middle">차단 토큰 포함</text>
+    <text x="90" y="66" font-size="10" fill="#7f1d1d" text-anchor="middle">강한 차단 시그널</text>
+  </g>
+
+  <!-- Arrows between states -->
+  <line x1="1020" y1="240" x2="1238" y2="240" stroke="#15803d" stroke-width="2" marker-end="url(#g-ar-g)"/>
+  <text x="1129" y="232" font-size="10" fill="#15803d" text-anchor="middle">verified</text>
+
+  <line x1="930" y1="280" x2="930" y2="318" stroke="#b45309" stroke-width="2" marker-end="url(#g-ar)"/>
+  <text x="942" y="304" font-size="10" fill="#b45309">challenge</text>
+
+  <line x1="1330" y1="280" x2="1330" y2="318" stroke="#b91c1c" stroke-width="2" marker-end="url(#g-ar-r)"/>
+  <text x="1342" y="304" font-size="10" fill="#b91c1c">blocked</text>
+
+  <line x1="1020" y1="360" x2="1238" y2="360" stroke="#b91c1c" stroke-width="2" marker-end="url(#g-ar-r)"/>
+  <text x="1129" y="352" font-size="10" fill="#b91c1c" text-anchor="middle">차단 토큰 추가</text>
+
+  <!-- Priority -->
+  <rect x="830" y="420" width="600" height="50" rx="8" fill="#f8fafc" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="850" y="450" font-size="13" font-weight="700" fill="#0f172a">우선순위:</text>
+  <text x="940" y="450" font-size="13" font-weight="700" fill="#b91c1c">차단</text>
+  <text x="1030" y="450" font-size="13" fill="#0f172a">&gt;</text>
+  <text x="1050" y="450" font-size="13" font-weight="700" fill="#b45309">challenge</text>
+  <text x="1170" y="450" font-size="13" fill="#0f172a">&gt;</text>
+  <text x="1190" y="450" font-size="13" font-weight="700" fill="#15803d">검증</text>
+  <text x="1330" y="450" font-size="13" fill="#0f172a">&gt; 초기</text>
+
+  <!-- ===== Right bottom: Result + 측정 ===== -->
+  <rect x="810" y="510" width="640" height="300" rx="14" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="830" y="540" font-size="16" font-weight="700" fill="#0f172a">측정 결과 — PR 본문에 박은 정량</text>
+  <line x1="830" y1="552" x2="1430" y2="552" stroke="#e2e8f0" stroke-width="1"/>
+
+  <!-- baseline vs patch -->
+  <g>
+    <text x="830" y="588" font-size="13" fill="#64748b">baseline (옛 구현)</text>
+    <rect x="1050" y="572" width="300" height="22" rx="3" fill="#fef2f2" stroke="#b91c1c" stroke-width="1"/>
+    <rect x="1050" y="572" width="233" height="22" rx="3" fill="#b91c1c"/>
+    <text x="1360" y="588" font-size="13" font-weight="700" fill="#b91c1c">7 / 9</text>
+    <text x="1360" y="604" font-size="11" font-weight="700" fill="#b91c1c">77.8%</text>
+  </g>
+
+  <g>
+    <text x="830" y="638" font-size="13" fill="#64748b">patch (Warming + Click Loop)</text>
+    <rect x="1050" y="622" width="300" height="22" rx="3" fill="#dcfce7" stroke="#15803d" stroke-width="1"/>
+    <rect x="1050" y="622" width="300" height="22" rx="3" fill="#15803d"/>
+    <text x="1360" y="638" font-size="13" font-weight="700" fill="#15803d">18 / 18</text>
+    <text x="1360" y="654" font-size="11" font-weight="700" fill="#15803d">100%</text>
+  </g>
+
+  <text x="830" y="690" font-size="12" fill="#64748b">6 iter × 3 worker = 18 — 모두 성공.</text>
+  <text x="830" y="708" font-size="12" font-weight="700" fill="#15803d">measurement 효과 입증 → default ON 채택</text>
+
+  <line x1="830" y1="730" x2="1430" y2="730" stroke="#e2e8f0" stroke-width="1"/>
+
+  <text x="830" y="754" font-size="11" fill="#0f172a">▸ Akamai → PASSWORD_ERROR 오분류 사고 0건</text>
+  <text x="830" y="772" font-size="11" fill="#0f172a">▸ 검증·차단 토큰 혼재 silent 「검증 성공」 오분류 사고 0건</text>
+  <text x="830" y="790" font-size="11" font-style="italic" fill="#64748b">「PR 본문에 iter × worker 측정 박는」 운영 문화 정착</text>
+
+  <!-- ===== Bottom strip ===== -->
+  <rect x="50" y="830" width="1400" height="90" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="70" y="858" font-size="14" font-weight="700" fill="#0f172a">옛 구현 4 silent 결함 → 모두 차단</text>
+  <text x="70" y="882" font-size="11" fill="#0f172a">① 검증 토큰 첫 등장 즉시 break (race window 안 뒤늦은 challenge 토큰 놓침) → enter-race-window 후 안정 확인</text>
+  <text x="70" y="900" font-size="11" fill="#0f172a">② 검증·차단 토큰 혼재 시 검증 성공으로 오분류 → 차단 토큰 우선  ③ Akamai → PASSWORD_ERROR 오분류 → 3 경로 일관 호출  ④ sensor 준비 전 제출 → Referrer Warming + Click Loop</text>
+</svg>

@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="s-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="s-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">C4. Single-Flight Coordinator — Hexagonal Architecture + Decorator 5 종 합성</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">행동 계약 7 가지 spec 헤더 명문화 — service 인라인 80+ 줄 → thin call 한 줄</text>
+
+  <!-- Port (중앙 헥사곤 느낌) -->
+  <rect x="540" y="280" width="420" height="160" rx="14" fill="#ffffff" stroke="#0f172a" stroke-width="3"/>
+  <text x="750" y="312" font-size="16" font-weight="700" fill="#0f172a" text-anchor="middle">SingleFlightCoordinator (Port)</text>
+  <text x="750" y="332" font-size="11" fill="#64748b" text-anchor="middle">interface — 외부에 노출되는 행동 계약</text>
+  <line x1="560" y1="346" x2="940" y2="346" stroke="#e2e8f0" stroke-width="1"/>
+
+  <text x="560" y="368" font-size="12" font-family="D2Coding, Consolas, monospace" fill="#0f172a">execute(key, op, options): Promise&lt;T&gt;</text>
+  <text x="560" y="388" font-size="12" font-family="D2Coding, Consolas, monospace" fill="#0f172a">getInflightState(): InflightEntry[]</text>
+  <text x="560" y="408" font-size="12" font-family="D2Coding, Consolas, monospace" fill="#0f172a">forceRelease(key, reason): Promise&lt;void&gt;</text>
+  <text x="560" y="428" font-size="10" font-style="italic" fill="#15803d">▸ 사용 코드는 이 Port 만 의존</text>
+
+  <!-- Caller services (left) — Port 호출 -->
+  <rect x="60" y="180" width="380" height="380" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="1.8"/>
+  <text x="80" y="208" font-size="15" font-weight="700" fill="#0f172a">호출 서비스 (Port 만 의존)</text>
+
+  <rect x="80" y="226" width="340" height="62" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="100" y="248" font-size="12" font-weight="700" fill="#0f172a">검색 포털 인증 서비스</text>
+  <text x="100" y="266" font-size="10" fill="#64748b">ensureSession(platformId) — 한 사용자 동시 N 요청</text>
+  <text x="100" y="282" font-size="10" font-weight="700" fill="#15803d">→ 80+ 줄 인라인 코드 제거</text>
+
+  <rect x="80" y="296" width="340" height="58" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="100" y="318" font-size="12" font-weight="700" fill="#0f172a">배달앱 A 인증 서비스</text>
+  <text x="100" y="336" font-size="10" fill="#64748b">같은 패턴 — 같은 Port · 같은 thin call</text>
+
+  <rect x="80" y="362" width="340" height="58" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="100" y="384" font-size="12" font-weight="700" fill="#0f172a">배달앱 B 인증 서비스</text>
+  <text x="100" y="402" font-size="10" fill="#64748b">같은 패턴 — 코드 재사용</text>
+
+  <rect x="80" y="428" width="340" height="58" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="100" y="450" font-size="12" font-weight="700" fill="#0f172a">배달앱 C 인증 서비스</text>
+  <text x="100" y="468" font-size="10" fill="#64748b">같은 패턴 — 코드 재사용</text>
+
+  <text x="250" y="514" font-size="11" fill="#64748b" text-anchor="middle">↓ coordinator.execute(id, op, { telemetryTag })</text>
+  <text x="250" y="540" font-size="11" font-weight="700" fill="#15803d" text-anchor="middle">thin call 한 줄 — OCP 보존</text>
+
+  <line x1="440" y1="360" x2="538" y2="360" stroke="#0f172a" stroke-width="1.8" marker-end="url(#s-ar)"/>
+
+  <!-- Decorators stack (right) -->
+  <rect x="1060" y="120" width="400" height="640" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="1.8"/>
+  <text x="1080" y="148" font-size="15" font-weight="700" fill="#0f172a">Decorator 합성 (안에서 밖으로)</text>
+  <text x="1080" y="168" font-size="11" fill="#64748b">횡단 관심사를 OCP 안전하게 합성</text>
+
+  <!-- Decorator 5 stacked boxes -->
+  <g transform="translate(1080, 188)">
+    <rect width="360" height="80" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="20" y="24" font-size="12" font-weight="700" fill="#0f172a">① InProcess Coordinator (코어)</text>
+    <text x="20" y="44" font-size="10" fill="#64748b">Map + forceRelease gate + 세대 가드</text>
+    <text x="20" y="62" font-size="10" fill="#64748b">sync throw 정규화 (microtask deferral)</text>
+  </g>
+
+  <g transform="translate(1080, 278)">
+    <rect width="360" height="76" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="20" y="24" font-size="12" font-weight="700" fill="#0f172a">② Deadline Decorator</text>
+    <text x="20" y="44" font-size="10" fill="#64748b">Promise.race wall-clock timeout</text>
+    <text x="20" y="62" font-size="10" font-weight="700" fill="#15803d">default 180,000ms (2FA + waitForReplacement)</text>
+  </g>
+
+  <g transform="translate(1080, 364)">
+    <rect width="360" height="76" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="20" y="24" font-size="12" font-weight="700" fill="#0f172a">③ Capacity Decorator</text>
+    <text x="20" y="44" font-size="10" fill="#64748b">waiter cap load-shedding</text>
+    <text x="20" y="62" font-size="10" font-weight="700" fill="#15803d">default maxWaiters 30 (UI-spam)</text>
+  </g>
+
+  <g transform="translate(1080, 450)">
+    <rect width="360" height="76" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="20" y="24" font-size="12" font-weight="700" fill="#0f172a">④ Heartbeat Decorator</text>
+    <text x="20" y="44" font-size="10" fill="#64748b">15s scan — long_running warn + gauge</text>
+    <text x="20" y="62" font-size="10" font-weight="700" fill="#15803d">stuck-owner 60s 시점 조기 경보</text>
+  </g>
+
+  <g transform="translate(1080, 536)">
+    <rect width="360" height="76" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="20" y="24" font-size="12" font-weight="700" fill="#0f172a">⑤ Telemetry Decorator</text>
+    <text x="20" y="44" font-size="10" fill="#64748b">owner_started / finished / failed / coalesced</text>
+    <text x="20" y="62" font-size="10" font-weight="700" fill="#15803d">MeterRegistry counter / gauge</text>
+  </g>
+
+  <text x="1260" y="640" font-size="12" font-style="italic" fill="#64748b" text-anchor="middle">⇣</text>
+  <rect x="1080" y="650" width="360" height="80" rx="8" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="1260" y="676" font-size="13" font-weight="700" fill="#14532d" text-anchor="middle">Backend Adapter (교체 가능)</text>
+  <text x="1260" y="696" font-size="11" fill="#0f172a" text-anchor="middle">in-process Map · 분산 캐시 · MQ routing</text>
+  <text x="1260" y="716" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle">DI factory swap — 호출 서비스 안 건드림</text>
+
+  <line x1="960" y1="360" x2="1058" y2="360" stroke="#0f172a" stroke-width="1.8" marker-end="url(#s-ar)"/>
+
+  <!-- Behavioral contract 7 (bottom left) -->
+  <rect x="60" y="600" width="980" height="320" rx="12" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="80" y="628" font-size="16" font-weight="700" fill="#0f172a">행동 계약 7 가지 — spec 헤더 명문화 (계약 문서로서의 spec)</text>
+  <text x="80" y="648" font-size="11" fill="#64748b">빨간색 떴을 때 어느 계약이 깨졌는지 그룹명에 즉시 보이도록 설계</text>
+
+  <g transform="translate(80, 670)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[1] 코알레싱</text>
+    <text x="100" y="22" fill="#64748b">같은 키 동시 호출 → 작업 1 번만 실행</text>
+  </g>
+  <g transform="translate(80, 712)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[2] 결과 일관성</text>
+    <text x="120" y="22" fill="#64748b">같은 cause 공유 · 스택트레이스</text>
+  </g>
+  <g transform="translate(80, 754)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[3] 자원 정리</text>
+    <text x="110" y="22" fill="#64748b">모든 settle 경로에서 record 제거</text>
+  </g>
+  <g transform="translate(80, 796)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[4] kill switch</text>
+    <text x="110" y="22" fill="#64748b">forceRelease 후 새 owner · 세대 가드</text>
+  </g>
+
+  <g transform="translate(390, 670)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[5] 호출자 격리</text>
+    <text x="120" y="22" fill="#64748b">서로 다른 키는 영향 없음</text>
+  </g>
+  <g transform="translate(390, 712)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[6] 입력 계약</text>
+    <text x="110" y="22" fill="#64748b">동기 throw 도 rejection 정규화</text>
+  </g>
+  <g transform="translate(390, 754)" font-size="11">
+    <rect width="290" height="36" rx="6" fill="#f8fafc" stroke="#0f172a" stroke-width="1"/>
+    <text x="14" y="22" font-weight="700" fill="#0f172a">[7] 관측성</text>
+    <text x="100" y="22" fill="#64748b">getInflightState 계약 노출</text>
+  </g>
+
+  <!-- 운영 검증 -->
+  <rect x="700" y="670" width="320" height="220" rx="10" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="860" y="696" font-size="14" font-weight="700" fill="#14532d" text-anchor="middle">운영 검증 결과</text>
+  <text x="720" y="724" font-size="11" fill="#0f172a">▸ <tspan font-weight="700" fill="#15803d">인라인 80+ 줄 제거</tspan></text>
+  <text x="720" y="744" font-size="11" fill="#0f172a">▸ <tspan font-weight="700" fill="#15803d">22 new unit spec</tspan> — adapter / decorator 별 격리 검증</text>
+  <text x="720" y="764" font-size="11" fill="#0f172a">▸ 기존 575 도메인 테스트 전수 통과</text>
+  <text x="720" y="784" font-size="11" fill="#0f172a">▸ 분산 캐시 backend 추가 시</text>
+  <text x="730" y="800" font-size="11" fill="#0f172a">호출 서비스 안 건드림 (DI swap)</text>
+  <text x="720" y="828" font-size="10" font-style="italic" fill="#15803d">spec 헤더 스타일이 다른 모듈에서</text>
+  <text x="720" y="844" font-size="10" font-style="italic" fill="#15803d">spec 작성 시 참조 사례로 사용</text>
+
+  <text x="720" y="876" font-size="11" fill="#0f172a">▸ JVM 매핑 — Kotlin `sealed interface` 어댑터</text>
+</svg>

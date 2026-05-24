@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="a2-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="a2-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <marker id="a2-arr-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="40" y="46" font-size="24" font-weight="700" fill="#0f172a">A2. 결제 webhook 4중 멱등성 — 분산 락 · DB 정합성 · 상태머신 · 원자 해제</text>
+  <text x="40" y="74" font-size="14" fill="#64748b">멀티 인스턴스 환경에서 race / ABA / 상태 역전 / out-of-order 의 4 hazard 를 의도적으로 곱셈 결합한 방어선</text>
+
+  <!-- ====== Caller ====== -->
+  <rect x="60" y="120" width="220" height="60" rx="8" fill="#fff7ed" stroke="#9a3412" stroke-width="2"/>
+  <text x="170" y="148" font-size="14" font-weight="700" fill="#7c2d12" text-anchor="middle">결제 PG (외부)</text>
+  <text x="170" y="166" font-size="11" fill="#475569" text-anchor="middle">retry · 정기결제 fallback · keep-alive</text>
+
+  <!-- ====== Edge ====== -->
+  <rect x="350" y="120" width="180" height="60" rx="8" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+  <text x="440" y="148" font-size="13" font-weight="600" fill="#0f172a" text-anchor="middle">L7 Load Balancer</text>
+  <text x="440" y="166" font-size="11" fill="#475569" text-anchor="middle">멀티 인스턴스 분배</text>
+
+  <line x1="280" y1="150" x2="348" y2="150" stroke="#0f172a" stroke-width="1.5" marker-end="url(#a2-arr)"/>
+
+  <!-- ====== Multi-instance ====== -->
+  <rect x="600" y="100" width="280" height="100" rx="8" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="740" y="124" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">결제 도메인 API (N 인스턴스)</text>
+  <text x="740" y="142" font-size="11" fill="#475569" text-anchor="middle">동일 webhook 동시 도달 가능</text>
+
+  <g transform="translate(620, 154)">
+    <rect width="50" height="30" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="25" y="20" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">Task 1</text>
+  </g>
+  <g transform="translate(700, 154)">
+    <rect width="50" height="30" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="25" y="20" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">Task 2</text>
+  </g>
+  <g transform="translate(780, 154)">
+    <rect width="50" height="30" rx="4" fill="#ffffff" stroke="#b45309" stroke-width="1"/>
+    <text x="25" y="20" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">Task N</text>
+  </g>
+  <text x="855" y="174" font-size="14" fill="#475569">…</text>
+
+  <line x1="530" y1="150" x2="598" y2="150" stroke="#0f172a" stroke-width="1.5" marker-end="url(#a2-arr)"/>
+
+  <!-- ====== Defense lane title ====== -->
+  <text x="60" y="246" font-size="15" font-weight="700" fill="#0f172a">4중 방어선 — 한 단계 약점을 다음 단계가 보완하도록 곱셈 결합</text>
+
+  <!-- ====== Layer 1: Redis SET NX ====== -->
+  <rect x="60" y="270" width="350" height="180" rx="10" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+  <circle cx="92" cy="298" r="18" fill="#1d4ed8"/>
+  <text x="92" y="304" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="120" y="304" font-size="15" font-weight="700" fill="#1e3a8a">분산 락 (ABA-safe)</text>
+  <line x1="80" y1="318" x2="390" y2="318" stroke="#bfdbfe" stroke-width="1"/>
+
+  <text x="80" y="344" font-size="12" fill="#0f172a">SET NX EX 30s</text>
+  <text x="80" y="364" font-size="12" fill="#0f172a">lock value = 요청 토큰</text>
+  <text x="80" y="384" font-size="12" fill="#0f172a">(잡은 워커만 자기 락 해제)</text>
+
+  <rect x="80" y="400" width="310" height="38" rx="6" fill="#ffffff" stroke="#1d4ed8" stroke-width="1"/>
+  <text x="235" y="423" font-size="11" fill="#1e3a8a" text-anchor="middle">실패 시 즉시 200 OK 반환 → PG retry 폭주 차단</text>
+
+  <!-- ====== Layer 2: DB UNIQUE ====== -->
+  <rect x="430" y="270" width="350" height="180" rx="10" fill="#ecfdf5" stroke="#047857" stroke-width="2"/>
+  <circle cx="462" cy="298" r="18" fill="#047857"/>
+  <text x="462" y="304" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="490" y="304" font-size="15" font-weight="700" fill="#064e3b">DB UNIQUE — 정합성 최종 보루</text>
+  <line x1="450" y1="318" x2="760" y2="318" stroke="#a7f3d0" stroke-width="1"/>
+
+  <text x="450" y="344" font-size="12" fill="#0f172a">복합 키 UNIQUE 제약</text>
+  <text x="450" y="364" font-size="12" fill="#0f172a">imp_uid + merchant_uid + status</text>
+  <text x="450" y="384" font-size="12" fill="#0f172a">1시간 dedupe 윈도우</text>
+
+  <rect x="450" y="400" width="310" height="38" rx="6" fill="#ffffff" stroke="#047857" stroke-width="1"/>
+  <text x="605" y="423" font-size="11" fill="#064e3b" text-anchor="middle">Redis 일시 장애로 fail-open 되어도 DB가 최종 차단</text>
+
+  <!-- ====== Layer 3: State Machine ====== -->
+  <rect x="800" y="270" width="350" height="180" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="2"/>
+  <circle cx="832" cy="298" r="18" fill="#4338ca"/>
+  <text x="832" y="304" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+  <text x="860" y="304" font-size="15" font-weight="700" fill="#312e81">상태머신 — 의미 충돌 분기</text>
+  <line x1="820" y1="318" x2="1130" y2="318" stroke="#c7d2fe" stroke-width="1"/>
+
+  <text x="820" y="344" font-size="12" fill="#0f172a">READY → PAID / FAILED / CANCELLED</text>
+  <text x="820" y="364" font-size="12" fill="#0f172a">× action_type 분기</text>
+  <text x="820" y="384" font-size="12" fill="#0f172a">(RESERVE / CHANGE_PLAN / 결제수단 변경)</text>
+
+  <rect x="820" y="400" width="310" height="38" rx="6" fill="#ffffff" stroke="#4338ca" stroke-width="1"/>
+  <text x="975" y="423" font-size="11" fill="#312e81" text-anchor="middle">상태 역전 (PAID 뒤 FAILED 도착) 시 다른 row로 격리</text>
+
+  <!-- ====== Layer 4: Lua atomic DEL ====== -->
+  <rect x="1170" y="270" width="350" height="180" rx="10" fill="#fdf4ff" stroke="#a21caf" stroke-width="2"/>
+  <circle cx="1202" cy="298" r="18" fill="#a21caf"/>
+  <text x="1202" y="304" font-size="15" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+  <text x="1230" y="304" font-size="15" font-weight="700" fill="#701a75">Lua 원자 해제</text>
+  <line x1="1190" y1="318" x2="1500" y2="318" stroke="#f5d0fe" stroke-width="1"/>
+
+  <text x="1190" y="344" font-size="12" fill="#0f172a">GET → 비교 → DEL (한 트랜잭션)</text>
+  <text x="1190" y="364" font-size="12" fill="#0f172a">자기 토큰일 때만 해제</text>
+  <text x="1190" y="384" font-size="12" fill="#0f172a">TTL 만료 후 남의 락 보호</text>
+
+  <rect x="1190" y="400" width="310" height="38" rx="6" fill="#ffffff" stroke="#a21caf" stroke-width="1"/>
+  <text x="1345" y="423" font-size="11" fill="#701a75" text-anchor="middle">사내 8 곳 이상 재사용 → 분산 락 표준 라이브러리</text>
+
+  <!-- ====== Arrows between layers ====== -->
+  <line x1="410" y1="360" x2="428" y2="360" stroke="#0f172a" stroke-width="1.5" marker-end="url(#a2-arr)"/>
+  <line x1="780" y1="360" x2="798" y2="360" stroke="#0f172a" stroke-width="1.5" marker-end="url(#a2-arr)"/>
+  <line x1="1150" y1="360" x2="1168" y2="360" stroke="#0f172a" stroke-width="1.5" marker-end="url(#a2-arr)"/>
+
+  <!-- Multi-instance → layer 1 -->
+  <line x1="740" y1="200" x2="240" y2="268" stroke="#0f172a" stroke-width="1.2" marker-end="url(#a2-arr)"/>
+
+  <!-- Layer 4 → 200 OK -->
+  <line x1="1345" y1="450" x2="1345" y2="498" stroke="#15803d" stroke-width="2" marker-end="url(#a2-arr-g)"/>
+  <rect x="1235" y="500" width="220" height="48" rx="8" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+  <text x="1345" y="524" font-size="13" font-weight="700" fill="#14532d" text-anchor="middle">200 OK (멱등 응답)</text>
+  <text x="1345" y="540" font-size="10" fill="#15803d" text-anchor="middle">PG 자동 retry 폭주 차단</text>
+
+  <!-- ====== Hazard Box ====== -->
+  <rect x="60" y="500" width="1130" height="100" rx="10" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="80" y="528" font-size="14" font-weight="700" fill="#7f1d1d">4 가지 hazard — 어떤 단계가 어떤 위험을 차단하는가</text>
+
+  <g font-size="11" fill="#0f172a">
+    <text x="80" y="550">▸ PG 자동 retry 폭주 →</text>
+    <text x="220" y="550" fill="#1d4ed8" font-weight="600">① 분산 락이 즉시 200 OK 반환</text>
+
+    <text x="500" y="550">▸ Redis TTL 만료 후 ABA →</text>
+    <text x="680" y="550" fill="#a21caf" font-weight="600">④ Lua 원자 해제로 자기 락만 삭제</text>
+
+    <text x="80" y="572">▸ in-memory dedupe 불가 →</text>
+    <text x="252" y="572" fill="#047857" font-weight="600">② DB UNIQUE 가 멀티 인스턴스 race 최종 차단</text>
+
+    <text x="600" y="572">▸ 상태 역전 (PAID→FAILED 늦게 도착) →</text>
+    <text x="880" y="572" fill="#312e81" font-weight="600">③ 복합 키에 status 포함, 다른 row로 격리</text>
+  </g>
+
+  <!-- ====== Sidecar: Reconciliation cron ====== -->
+  <rect x="60" y="640" width="1460" height="180" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="80" y="670" font-size="15" font-weight="700" fill="#78350f">보완 라인 — 일일 정합성 reconciliation cron (사례 2)</text>
+  <text x="80" y="690" font-size="12" fill="#475569">4중 멱등성으로도 못 막는 eventual inconsistency 를 사후 자동 탐지 · 정정</text>
+
+  <rect x="80" y="710" width="340" height="90" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+  <text x="250" y="734" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">issue 1 — 좀비 schedule</text>
+  <text x="250" y="754" font-size="11" fill="#475569" text-anchor="middle">DB cancel · PG 에는 살아있음</text>
+  <text x="250" y="772" font-size="11" fill="#475569" text-anchor="middle">차집합으로 의심 K &lt;&lt; N 압축</text>
+  <text x="250" y="790" font-size="10" font-weight="600" fill="#047857" text-anchor="middle">→ 자동 SCHEDULED_CANCELLED 정정</text>
+
+  <rect x="440" y="710" width="340" height="90" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+  <text x="610" y="734" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">issue 2 — 중복 빌링키</text>
+  <text x="610" y="754" font-size="11" fill="#475569" text-anchor="middle">SCHEDULED 2개 이상 잡힘</text>
+  <text x="610" y="772" font-size="11" fill="#475569" text-anchor="middle">GROUP BY HAVING COUNT &gt; 1</text>
+  <text x="610" y="790" font-size="10" font-weight="600" fill="#047857" text-anchor="middle">→ PG scheduleCancel 호출</text>
+
+  <rect x="800" y="710" width="340" height="90" rx="8" fill="#ffffff" stroke="#b45309" stroke-width="1.5"/>
+  <text x="970" y="734" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">issue 3 — admin override orphan</text>
+  <text x="970" y="754" font-size="11" fill="#475569" text-anchor="middle">활성 종료일 &gt; 다음 결제 + 1개월</text>
+  <text x="970" y="772" font-size="11" fill="#475569" text-anchor="middle">4단 JOIN 단일 SQL 탐지</text>
+  <text x="970" y="790" font-size="10" font-weight="600" fill="#047857" text-anchor="middle">→ 사후 환불·CS 사전 차단</text>
+
+  <rect x="1160" y="710" width="340" height="90" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5"/>
+  <text x="1330" y="734" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">SafeCron 데코레이터</text>
+  <text x="1330" y="754" font-size="11" fill="#475569" text-anchor="middle">멀티 인스턴스 한 번만 실행</text>
+  <text x="1330" y="772" font-size="11" fill="#475569" text-anchor="middle">start / complete / error Slack</text>
+  <text x="1330" y="790" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">매일 운영자 1메시지 수신</text>
+
+  <!-- ====== Outcome box ====== -->
+  <rect x="60" y="850" width="1460" height="100" rx="10" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="80" y="880" font-size="15" font-weight="700" fill="#14532d">운영 검증 결과</text>
+
+  <g font-size="12" fill="#0f172a">
+    <text x="80" y="906">▸ 운영 로그에 「중복 웹훅 락 차단」 메시지가 정기 검출 — race 가 실제로 발생하고 코드 레벨에서 차단됨이 데이터로 입증</text>
+    <text x="80" y="928">▸ 분산 락 표준 helper 사내 8 곳 이상 재사용 ｜ APM span tagging 으로 결제 정합성 메트릭 자동 집계 ｜ 예약 결제 금액 불일치 Slack 자동 경고</text>
+  </g>
+</svg>

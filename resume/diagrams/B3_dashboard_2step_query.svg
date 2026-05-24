@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="d-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="d-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <marker id="d-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+
+    <symbol id="d-user" viewBox="0 0 48 48">
+      <circle cx="24" cy="16" r="9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M6 44 C 6 30, 42 30, 42 44" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+    <symbol id="d-db" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="9" rx="18" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 6 9 L 6 39 Q 6 44 24 44 Q 42 44 42 39 L 42 9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="20" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+      <ellipse cx="24" cy="31" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">B3. BIZ 대시보드 — 2 단계 쿼리 + SQL VIEW SSOT + 외부 IO 응답 경로 제외</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">본사 1명 → 산하 매장 1,000 × 7일 한 화면 — N+1 회피 + 단일 거대 JOIN 회피의 sweet spot</text>
+
+  <!-- ====== Anti-pattern (Before) ====== -->
+  <rect x="50" y="110" width="690" height="180" rx="12" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="70" y="138" font-size="15" font-weight="700" fill="#b91c1c">❌ 단순 단일 거대 JOIN — 카디널리티 폭발</text>
+
+  <text x="70" y="166" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">SELECT ...</text>
+  <text x="70" y="184" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">FROM brands b JOIN brand_users bu ... JOIN shops s ... JOIN orders o ...</text>
+  <text x="70" y="202" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">WHERE b.brand_id = ? AND sales_date BETWEEN ?</text>
+
+  <line x1="70" y1="222" x2="710" y2="222" stroke="#fecaca" stroke-width="1"/>
+  <text x="70" y="244" font-size="12" font-weight="700" fill="#b91c1c">결과:</text>
+  <text x="120" y="244" font-size="12" fill="#0f172a">1,000 매장 × 7일 × 매장당 N 주문</text>
+  <text x="70" y="264" font-size="12" font-weight="700" fill="#b91c1c">→ 7,000+ 행 × N 폭발 · 응답 지연 누적</text>
+
+  <!-- Arrow → Sweet spot -->
+  <g transform="translate(770, 180)">
+    <rect width="40" height="50" fill="#15803d"/>
+    <polygon points="0,50 40,50 20,80" fill="#15803d"/>
+    <text x="20" y="32" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">2-step</text>
+    <text x="20" y="50" font-size="10" fill="#ffffff" text-anchor="middle">batch</text>
+  </g>
+
+  <!-- ====== Sweet spot ====== -->
+  <rect x="830" y="110" width="620" height="180" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="850" y="138" font-size="15" font-weight="700" fill="#15803d">✓ Sweet spot — 2 단계 batch select</text>
+
+  <text x="850" y="166" font-size="12" fill="#0f172a">① Shop 목록만 추리기 (LIMIT/OFFSET DB-level)</text>
+  <text x="870" y="184" font-size="11" fill="#64748b">→ 4단 JOIN (brand × brand_user × shop × brand_shop)</text>
+  <text x="870" y="200" font-size="11" fill="#64748b">→ ORDER BY · LIMIT %s+1 OFFSET %s (has_more 트릭)</text>
+
+  <text x="850" y="224" font-size="12" fill="#0f172a">② 추린 shop_ids 에 대해서만 orders GROUP BY</text>
+  <text x="870" y="242" font-size="11" fill="#64748b">→ WHERE shop_id IN (...20 ids)</text>
+  <text x="870" y="258" font-size="11" font-weight="700" fill="#15803d">→ 140 행 (20 × 7) — 카디널리티 통제</text>
+
+  <text x="850" y="278" font-size="10" font-style="italic" fill="#15803d">▸ N+1 회피 + 단일 거대 JOIN 회피의 사이</text>
+
+  <!-- ====== Sequence ====== -->
+  <text x="50" y="338" font-size="16" font-weight="700" fill="#0f172a">실행 시퀀스</text>
+
+  <use href="#d-user" x="60" y="370" width="60" height="60"/>
+  <text x="90" y="446" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">본사 운영자</text>
+  <text x="90" y="464" font-size="11" fill="#64748b" text-anchor="middle">매장 1,000 한 화면</text>
+
+  <line x1="124" y1="400" x2="178" y2="400" stroke="#0f172a" stroke-width="1.8" marker-end="url(#d-ar)"/>
+
+  <rect x="180" y="370" width="200" height="80" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="280" y="395" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">대시보드 API</text>
+  <text x="280" y="415" font-size="10" fill="#64748b" text-anchor="middle">GET /dashboard/orders</text>
+  <text x="280" y="431" font-size="10" fill="#64748b" text-anchor="middle">?days=7&amp;limit=20&amp;offset=0</text>
+
+  <line x1="384" y1="400" x2="438" y2="400" stroke="#0f172a" stroke-width="1.8" marker-end="url(#d-ar)"/>
+
+  <!-- Step 1 -->
+  <rect x="440" y="350" width="450" height="120" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="468" cy="378" r="18" fill="#0f172a"/>
+  <text x="468" y="384" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="498" y="384" font-size="14" font-weight="700" fill="#0f172a">Shop 목록 추출 (4단 JOIN)</text>
+
+  <text x="460" y="408" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">brands ⋈ brand_users ⋈ shops ⋈ brand_shops</text>
+  <text x="460" y="426" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">WHERE b.is_active=1 ... ORDER BY ... LIMIT 21</text>
+
+  <text x="460" y="450" font-size="11" font-weight="700" fill="#15803d">→ shop_ids = [id1, id2, ..., id20]  (+1 = has_more 트릭)</text>
+
+  <line x1="894" y1="400" x2="948" y2="400" stroke="#0f172a" stroke-width="1.8" marker-end="url(#d-ar)"/>
+
+  <use href="#d-db" x="950" y="370" width="80" height="80"/>
+  <text x="990" y="466" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">관계형 DB</text>
+
+  <!-- Step 2 -->
+  <line x1="990" y1="450" x2="990" y2="500" stroke="#0f172a" stroke-width="1.8" marker-end="url(#d-ar)"/>
+
+  <rect x="440" y="490" width="450" height="120" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="468" cy="518" r="18" fill="#0f172a"/>
+  <text x="468" y="524" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="498" y="524" font-size="14" font-weight="700" fill="#0f172a">Orders GROUP BY (추린 ids 만)</text>
+
+  <text x="460" y="548" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">SELECT shop_id, sales_date, COUNT(order_id)</text>
+  <text x="460" y="566" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">FROM orders WHERE shop_id IN (...20 ids)</text>
+  <text x="460" y="584" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">GROUP BY shop_id, sales_date</text>
+
+  <text x="460" y="604" font-size="11" font-weight="700" fill="#15803d">→ 140 행 (20 × 7일) · IN 인덱스 lookup</text>
+
+  <line x1="894" y1="540" x2="948" y2="540" stroke="#0f172a" stroke-width="1.8" marker-end="url(#d-ar)"/>
+
+  <use href="#d-db" x="950" y="510" width="80" height="80"/>
+
+  <!-- response -->
+  <line x1="950" y1="540" x2="900" y2="540" stroke="#15803d" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#d-ar-g)"/>
+
+  <rect x="1080" y="430" width="370" height="170" rx="10" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="1100" y="458" font-size="14" font-weight="700" fill="#14532d">응답 — 매장 4상태 분류</text>
+
+  <text x="1100" y="484" font-size="11" fill="#0f172a">▸ <tspan font-weight="700">active</tspan> · 정상 운영 매장</text>
+  <text x="1100" y="502" font-size="11" fill="#0f172a">▸ <tspan font-weight="700">inactive</tspan> · 본사가 brand_shop 일시 비활성</text>
+  <text x="1100" y="520" font-size="11" fill="#0f172a">▸ <tspan font-weight="700">shop_deleted</tspan> · 매장 삭제</text>
+  <text x="1100" y="538" font-size="11" fill="#0f172a">▸ <tspan font-weight="700">brand_removed</tspan> · 본사가 매장 제외</text>
+
+  <text x="1100" y="566" font-size="10" font-weight="700" fill="#15803d">→ 「주문 0 인 이유」 운영자가 즉시 식별</text>
+  <text x="1100" y="586" font-size="10" font-style="italic" fill="#64748b">소프트 삭제 시점 · 비활성화 사유 · 본사 매핑 추적</text>
+
+  <!-- VIEW SSOT -->
+  <rect x="50" y="640" width="690" height="160" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="70" y="668" font-size="15" font-weight="700" fill="#0f172a">SQL VIEW SSOT — stale 매장 판정 정의 공유</text>
+
+  <text x="70" y="694" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">CREATE VIEW v_shop_crawling_status AS</text>
+  <text x="70" y="712" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">  SELECT shop_id, last_crawled_at,</text>
+  <text x="70" y="730" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">         CASE WHEN ... THEN 'stale' ELSE 'fresh' END AS status</text>
+  <text x="70" y="748" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">  FROM shops ...</text>
+
+  <text x="70" y="774" font-size="11" font-weight="700" fill="#15803d">▸ 메인 API · 어드민 ad-hoc · BI 도구가 모두 같은 정의 공유</text>
+  <text x="70" y="790" font-size="11" fill="#64748b">▸ 정책 변경 시 SQL VIEW 만 수정 · 다중 시스템 동기화 부담 0</text>
+
+  <!-- 외부 IO 분리 -->
+  <rect x="770" y="640" width="680" height="160" rx="12" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="790" y="668" font-size="15" font-weight="700" fill="#78350f">외부 IO 는 응답 경로 밖으로</text>
+
+  <text x="790" y="694" font-size="11" fill="#0f172a">▸ 광고 ROAS · 매출 · 크롤링 상태 → 별도 daily upsert</text>
+  <text x="790" y="712" font-size="11" fill="#0f172a">▸ 매출 4상태 머신 (SUCCESS / PLATFORM_FAILED / SCRAPER_FAILED / FAILED)</text>
+  <text x="790" y="730" font-size="11" fill="#0f172a">▸ 광고 15시간 컷 + idempotent re-fetch</text>
+
+  <text x="790" y="758" font-size="11" font-weight="700" fill="#15803d">→ 본사 화면은 적재된 테이블만 read</text>
+  <text x="790" y="776" font-size="11" font-weight="700" fill="#15803d">→ 응답 경로 외부 IO 0건 · p99 latency 안정</text>
+
+  <!-- 운영 검증 -->
+  <rect x="50" y="820" width="1400" height="100" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="70" y="848" font-size="15" font-weight="700" fill="#14532d">운영 검증 결과</text>
+
+  <text x="70" y="876" font-size="12" fill="#0f172a">▸ 1,000 매장 × 7일 = 7,000 행 폭발 → <tspan font-weight="700" fill="#15803d">140 행 (98% 감소)</tspan> 으로 카디널리티 통제</text>
+  <text x="70" y="898" font-size="12" fill="#0f172a">▸ 응답 경로 외부 IO <tspan font-weight="700" fill="#15803d">0건</tspan> · VIEW 기반 stale 정책 변경 시 SQL 한 곳만 수정 · 4상태 분류로 본사 운영 가시성</text>
+</svg>

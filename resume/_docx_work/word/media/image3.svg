@@ -1,0 +1,195 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="b1-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="b1-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <marker id="b1-arr-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="40" y="46" font-size="24" font-weight="700" fill="#0f172a">B1. RDS 기반 분산 잡 큐 — 관계형 DB 를 큐로 쓰는 CAS 패턴 + 진행률 캐시</text>
+  <text x="40" y="74" font-size="14" fill="#64748b">멀티 인스턴스 안전 픽업 · 같은 플랫폼 계정 직렬화 · 좀비 잡 자동 복구 · 사용자 폴링 부하 분산</text>
+
+  <!-- ====== User ====== -->
+  <rect x="40" y="120" width="200" height="70" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+  <text x="140" y="148" font-size="14" font-weight="700" fill="#1e3a8a" text-anchor="middle">사용자</text>
+  <text x="140" y="168" font-size="11" fill="#475569" text-anchor="middle">일괄 댓글 100~1,000건</text>
+  <text x="140" y="184" font-size="11" fill="#475569" text-anchor="middle">+ 진행률 실시간 폴링</text>
+
+  <!-- ====== API ====== -->
+  <rect x="290" y="120" width="220" height="70" rx="8" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="400" y="148" font-size="14" font-weight="700" fill="#78350f" text-anchor="middle">일괄 댓글 API</text>
+  <text x="400" y="168" font-size="11" fill="#475569" text-anchor="middle">중복 트리거 차단 가드</text>
+  <text x="400" y="184" font-size="11" fill="#475569" text-anchor="middle">N 잡 INSERT (트랜잭션)</text>
+  <line x1="240" y1="155" x2="288" y2="155" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b1-arr)"/>
+
+  <!-- ====== Block: 중복 트리거 차단 ====== -->
+  <rect x="540" y="100" width="380" height="110" rx="10" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="560" y="124" font-size="13" font-weight="700" fill="#7f1d1d">중복 트리거 차단 가드</text>
+  <text x="560" y="144" font-size="11" fill="#475569">활성 잡 그룹 존재 시 409 Conflict</text>
+  <text x="560" y="162" font-size="11" fill="#475569">잡 그룹 상태: ACTIVE / IN_PROGRESS / PAUSED</text>
+  <text x="560" y="180" font-size="11" fill="#475569">                COMPLETED / CONFIRMED</text>
+  <text x="560" y="200" font-size="10" font-weight="600" fill="#15803d">→ 같은 사용자 동시 활성 작업 1개 보장</text>
+  <line x1="510" y1="155" x2="538" y2="155" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b1-arr)"/>
+
+  <!-- ====== Queue Table (RDB) ====== -->
+  <rect x="40" y="260" width="640" height="220" rx="10" fill="#ecfeff" stroke="#0e7490" stroke-width="2"/>
+  <text x="60" y="288" font-size="15" font-weight="700" fill="#155e75">관계형 DB — 큐 테이블 (queue_jobs)</text>
+  <text x="60" y="308" font-size="11" fill="#475569">트랜잭션과 큐 책임을 한 곳에 묶음 · 외부 큐 시스템 없이 운영</text>
+
+  <line x1="60" y1="316" x2="660" y2="316" stroke="#a5f3fc" stroke-width="1"/>
+
+  <!-- Row header -->
+  <g font-size="11" font-weight="700" fill="#155e75">
+    <text x="70" y="338">id</text>
+    <text x="120" y="338">status</text>
+    <text x="220" y="338">platform_id</text>
+    <text x="320" y="338">group_id</text>
+    <text x="420" y="338">updated_at (version)</text>
+    <text x="580" y="338">instance</text>
+  </g>
+  <line x1="60" y1="346" x2="660" y2="346" stroke="#67e8f9" stroke-width="1"/>
+
+  <g font-size="11" fill="#0f172a">
+    <text x="70" y="368">101</text>
+    <text x="120" y="368" font-weight="700" fill="#15803d">IN_PROGRESS</text>
+    <text x="220" y="368">PA-A</text>
+    <text x="320" y="368">G-1</text>
+    <text x="420" y="368">2026-05-23 10:02:31</text>
+    <text x="580" y="368">[[Task-3]]</text>
+
+    <text x="70" y="390">102</text>
+    <text x="120" y="390" font-weight="700" fill="#475569">WAITING</text>
+    <text x="220" y="390">PA-A</text>
+    <text x="320" y="390">G-1</text>
+    <text x="420" y="390">2026-05-23 10:01:55</text>
+    <text x="580" y="390">—</text>
+
+    <text x="70" y="412">103</text>
+    <text x="120" y="412" font-weight="700" fill="#15803d">IN_PROGRESS</text>
+    <text x="220" y="412">PA-B</text>
+    <text x="320" y="412">G-1</text>
+    <text x="420" y="412">2026-05-23 10:02:33</text>
+    <text x="580" y="412">[[Task-1]]</text>
+
+    <text x="70" y="434">104</text>
+    <text x="120" y="434" font-weight="700" fill="#475569">WAITING</text>
+    <text x="220" y="434">PA-A</text>
+    <text x="320" y="434">G-2</text>
+    <text x="420" y="434">2026-05-23 10:02:01</text>
+    <text x="580" y="434">—</text>
+
+    <text x="70" y="456">105</text>
+    <text x="120" y="456" font-weight="700" fill="#b91c1c">DONE</text>
+    <text x="220" y="456">PA-C</text>
+    <text x="320" y="456">G-2</text>
+    <text x="420" y="456">2026-05-23 10:02:20</text>
+    <text x="580" y="456">[[Task-2]]</text>
+  </g>
+
+  <line x1="400" y1="192" x2="400" y2="258" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b1-arr)"/>
+
+  <!-- ====== Worker Pool ====== -->
+  <rect x="730" y="260" width="500" height="220" rx="10" fill="#fdf2f8" stroke="#9d174d" stroke-width="2"/>
+  <text x="750" y="288" font-size="15" font-weight="700" fill="#831843">분산 워커 풀 (N 인스턴스)</text>
+  <text x="750" y="308" font-size="11" fill="#475569">최대 동시 처리 30 · 인스턴스 ID 를 statusMessage 에 박음</text>
+
+  <g>
+    <rect x="750" y="324" width="140" height="60" rx="6" fill="#ffffff" stroke="#9d174d" stroke-width="1.2"/>
+    <text x="820" y="344" font-size="12" font-weight="700" fill="#831843" text-anchor="middle">Task 1</text>
+    <text x="820" y="362" font-size="10" fill="#475569" text-anchor="middle">findNextAvailableJob</text>
+    <text x="820" y="376" font-size="10" fill="#475569" text-anchor="middle">→ id=103 picked</text>
+
+    <rect x="910" y="324" width="140" height="60" rx="6" fill="#ffffff" stroke="#9d174d" stroke-width="1.2"/>
+    <text x="980" y="344" font-size="12" font-weight="700" fill="#831843" text-anchor="middle">Task 2</text>
+    <text x="980" y="362" font-size="10" fill="#475569" text-anchor="middle">findNextAvailableJob</text>
+    <text x="980" y="376" font-size="10" fill="#475569" text-anchor="middle">→ CAS 실패 (race)</text>
+
+    <rect x="1070" y="324" width="140" height="60" rx="6" fill="#ffffff" stroke="#9d174d" stroke-width="1.2"/>
+    <text x="1140" y="344" font-size="12" font-weight="700" fill="#831843" text-anchor="middle">Task N</text>
+    <text x="1140" y="362" font-size="10" fill="#475569" text-anchor="middle">findNextAvailableJob</text>
+    <text x="1140" y="376" font-size="10" fill="#475569" text-anchor="middle">→ id=102 picked</text>
+  </g>
+
+  <!-- CAS box -->
+  <rect x="750" y="400" width="460" height="64" rx="6" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+  <text x="980" y="424" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">낙관락 CAS — UPDATE WHERE status=WAITING AND updated_at=원본</text>
+  <text x="980" y="444" font-size="11" fill="#0f172a" text-anchor="middle">affected = 0 → 다른 인스턴스가 먼저 가져감 (Optimistic lock failed 로그)</text>
+  <text x="980" y="458" font-size="11" fill="#0f172a" text-anchor="middle">affected = 1 → 픽업 성공, status=IN_PROGRESS 로 전환</text>
+
+  <!-- Filter rules -->
+  <rect x="40" y="510" width="640" height="120" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="60" y="538" font-size="14" font-weight="700" fill="#78350f">픽업 SQL — 같은 플랫폼 계정 직렬화 조건</text>
+  <text x="60" y="560" font-size="11" fill="#0f172a">▸ WHERE status = WAITING</text>
+  <text x="60" y="578" font-size="11" fill="#0f172a">▸ AND group_id NOT IN (실행 중 그룹 집합)</text>
+  <text x="60" y="596" font-size="11" fill="#0f172a">▸ AND platform_id NOT IN (실행 중 플랫폼 계정 집합)</text>
+  <text x="60" y="616" font-size="10" font-weight="600" fill="#15803d">→ 같은 사용자·같은 플랫폼 계정으로 동시 외부 로그인 = 0 (봇 탐지 회피)</text>
+
+  <!-- ====== External Platform ====== -->
+  <rect x="1290" y="260" width="270" height="100" rx="10" fill="#fff7ed" stroke="#9a3412" stroke-width="2"/>
+  <text x="1425" y="288" font-size="13" font-weight="700" fill="#7c2d12" text-anchor="middle">외부 플랫폼</text>
+  <text x="1425" y="310" font-size="11" fill="#475569" text-anchor="middle">댓글 등록 1건 ≈ 3~5분 IO</text>
+  <text x="1425" y="328" font-size="11" fill="#475569" text-anchor="middle">중복 댓글 = 신뢰도 하락</text>
+  <text x="1425" y="350" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">중복 댓글 0건 (운영 입증)</text>
+
+  <line x1="1230" y1="354" x2="1288" y2="310" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b1-arr)"/>
+
+  <!-- ====== Distributed Cache ====== -->
+  <rect x="1290" y="400" width="270" height="180" rx="10" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="1425" y="428" font-size="13" font-weight="700" fill="#7f1d1d" text-anchor="middle">분산 캐시</text>
+  <text x="1425" y="448" font-size="11" fill="#475569" text-anchor="middle">진행률 폴링 부하 분산</text>
+
+  <line x1="1310" y1="458" x2="1540" y2="458" stroke="#fecaca" stroke-width="1"/>
+  <text x="1310" y="478" font-size="11" fill="#0f172a">▸ acquireProcessingLock</text>
+  <text x="1310" y="496" font-size="11" fill="#475569">  (락 누수 차단)</text>
+  <text x="1310" y="516" font-size="11" fill="#0f172a">▸ completed / failed</text>
+  <text x="1310" y="534" font-size="11" fill="#475569">  count cache</text>
+  <text x="1310" y="554" font-size="11" fill="#0f172a">▸ DLQ pointer cache</text>
+  <text x="1310" y="572" font-size="10" font-weight="600" fill="#15803d">전체 진행률 read-through</text>
+
+  <!-- ====== Recovery box ====== -->
+  <rect x="730" y="510" width="540" height="120" rx="10" fill="#f1f5f9" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="750" y="538" font-size="14" font-weight="700" fill="#0f172a">좀비 잡 자동 복구 — 인스턴스 재배포 무중단</text>
+  <text x="750" y="560" font-size="11" fill="#0f172a">▸ 부팅 시 WAITING / IN_PROGRESS 잡 재스케줄</text>
+  <text x="750" y="578" font-size="11" fill="#0f172a">▸ 인스턴스 ID 를 statusMessage 에 박아 누가 잡았는지 추적</text>
+  <text x="750" y="596" font-size="11" fill="#0f172a">▸ 1분 health check + 30초 consumer check</text>
+  <text x="750" y="616" font-size="10" font-weight="600" fill="#15803d">→ OOM / SIGKILL 발생해도 다음 cron 정상 동작</text>
+
+  <!-- Worker → External -->
+  <line x1="1210" y1="354" x2="1288" y2="310" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b1-arr)"/>
+
+  <!-- Worker → Cache -->
+  <line x1="1210" y1="404" x2="1288" y2="455" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b1-arr)"/>
+
+  <!-- User polling cache -->
+  <path d="M 140 190 Q 140 800 1425 800 L 1425 580" fill="none" stroke="#0f172a" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#b1-arr)"/>
+  <text x="600" y="794" font-size="11" fill="#475569" text-anchor="middle">사용자 폴링 — 캐시 read-through (RDB hit 최소화)</text>
+
+  <!-- ====== Outcome ====== -->
+  <rect x="40" y="660" width="1520" height="120" rx="10" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="60" y="690" font-size="15" font-weight="700" fill="#14532d">운영 검증 결과</text>
+
+  <g font-size="12" fill="#0f172a">
+    <text x="60" y="714">▸ 멀티 인스턴스 race 검출 — &quot;Job N modified by another instance (optimistic lock failed)&quot; 로그가 정기 검출, race 발생 + 차단됨이 데이터로 입증</text>
+    <text x="60" y="736">▸ 외부 플랫폼 중복 댓글 0건 — 같은 platform_account = 시점에 한 잡 직렬화</text>
+    <text x="60" y="758">▸ 동시 처리 워커 최대 30 — 같은 그룹 내 순차 + 다른 그룹 병렬로 처리량 극대화 ｜ 인스턴스 재배포 무중단</text>
+  </g>
+
+  <!-- ====== Design rationale ====== -->
+  <rect x="40" y="800" width="1520" height="160" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="1.5"/>
+  <text x="60" y="830" font-size="15" font-weight="700" fill="#78350f">설계 결정 — 왜 외부 큐 솔루션이 아닌 RDB 인가</text>
+
+  <g font-size="12" fill="#0f172a">
+    <text x="60" y="858">▸ 외부 메시지 큐 — fire-and-forget 에 최적, stateful 관리 / 취소 / 예약 / 진행률 폴링 안 맞음 (별도 메타 저장소 필요)</text>
+    <text x="60" y="880">▸ 외부 큐 미들웨어 — 별도 인프라 비용 + 트랜잭션과 큐를 묶기 어려움 + 사용자 확인 / cancel 처리에 부적합</text>
+    <text x="60" y="902">▸ 관계형 DB 큐 — 트랜잭션과 큐 책임을 한 곳에 묶음 + 낙관락 CAS 가 분산 픽업의 안전성 보장 + 운영 가시성(SQL 로 직접 확인)</text>
+    <text x="60" y="932" font-weight="700" fill="#15803d">⇒ &quot;MySQL is the queue&quot; — 분산 시스템 시니어 패턴의 CAS(Compare-And-Set) SQL 버전 (updated_at as version)</text>
+  </g>
+</svg>

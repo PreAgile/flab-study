@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="b-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="b-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+
+    <symbol id="b-ic-cloud" viewBox="0 0 80 48">
+      <path d="M20 36 Q 4 36 4 24 Q 4 14 16 14 Q 18 4 30 4 Q 44 4 46 18 Q 60 16 64 28 Q 76 28 76 38 Q 76 44 68 44 L 22 44 Q 14 44 14 38 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+    <symbol id="b-ic-server" viewBox="0 0 48 48">
+      <rect x="4" y="6" width="40" height="36" rx="3" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <line x1="4" y1="18" x2="44" y2="18" stroke="#0f172a" stroke-width="1.5"/>
+      <line x1="4" y1="30" x2="44" y2="30" stroke="#0f172a" stroke-width="1.5"/>
+      <circle cx="10" cy="12" r="1.6" fill="#0f172a"/>
+      <circle cx="10" cy="24" r="1.6" fill="#0f172a"/>
+      <circle cx="10" cy="36" r="1.6" fill="#0f172a"/>
+    </symbol>
+    <symbol id="b-ic-cache" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="10" rx="16" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 8 10 L 8 38 Q 8 43 24 43 Q 40 43 40 38 L 40 10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="22" rx="16" ry="5" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3 2"/>
+      <text x="24" y="34" font-size="9" font-weight="700" font-family="sans-serif" fill="#0f172a" text-anchor="middle">CACHE</text>
+    </symbol>
+    <symbol id="b-ic-db" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="9" rx="18" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 6 9 L 6 39 Q 6 44 24 44 Q 42 44 42 39 L 42 9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="20" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+      <ellipse cx="24" cy="31" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="b-ic-shield" viewBox="0 0 48 56">
+      <path d="M 24 4 L 44 12 L 44 30 Q 44 46 24 52 Q 4 46 4 30 L 4 12 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">A2. 결제 webhook 4중 멱등성 — 분산 락 · DB 정합성 · 상태머신 · 원자 해제</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">race · ABA · 상태 역전 · out-of-order 의 4 hazard 를 단계별로 곱셈 결합</text>
+
+  <!-- ===== Caller / Edge / API ===== -->
+  <use href="#b-ic-cloud" x="60" y="130" width="120" height="80"/>
+  <text x="120" y="230" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">결제 PG (외부)</text>
+  <text x="120" y="248" font-size="11" fill="#64748b" text-anchor="middle">retry · keep-alive</text>
+
+  <line x1="190" y1="170" x2="248" y2="170" stroke="#0f172a" stroke-width="1.8" marker-end="url(#b-ar)"/>
+
+  <rect x="250" y="130" width="160" height="80" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="330" y="158" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">L7 Load Balancer</text>
+  <text x="330" y="180" font-size="11" fill="#475569" text-anchor="middle">멀티 인스턴스 분배</text>
+
+  <line x1="410" y1="170" x2="468" y2="170" stroke="#0f172a" stroke-width="1.8" marker-end="url(#b-ar)"/>
+
+  <rect x="470" y="120" width="220" height="100" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="580" y="146" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">결제 API (N 인스턴스)</text>
+  <text x="580" y="164" font-size="11" fill="#475569" text-anchor="middle">동일 webhook 동시 도달 가능</text>
+  <use href="#b-ic-server" x="500" y="170" width="36" height="36"/>
+  <use href="#b-ic-server" x="554" y="170" width="36" height="36"/>
+  <use href="#b-ic-server" x="608" y="170" width="36" height="36"/>
+
+  <line x1="690" y1="170" x2="748" y2="170" stroke="#0f172a" stroke-width="1.8" marker-end="url(#b-ar)"/>
+
+  <!-- 200 OK response -->
+  <rect x="750" y="130" width="180" height="80" rx="10" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+  <text x="840" y="158" font-size="14" font-weight="700" fill="#14532d" text-anchor="middle">200 OK (멱등 응답)</text>
+  <text x="840" y="180" font-size="11" fill="#15803d" text-anchor="middle">retry 폭주 즉시 차단</text>
+
+  <!-- ===== 4-layer Defense ===== -->
+  <text x="50" y="300" font-size="16" font-weight="700" fill="#0f172a">4중 방어선 — 한 단계 약점을 다음 단계가 보완</text>
+
+  <!-- Layer 1: 분산 락 -->
+  <rect x="50" y="320" width="340" height="240" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="80" cy="350" r="18" fill="#0f172a"/>
+  <text x="80" y="356" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="108" y="356" font-size="15" font-weight="700" fill="#0f172a">분산 락 (ABA-safe)</text>
+
+  <use href="#b-ic-cache" x="150" y="378" width="80" height="80"/>
+
+  <text x="70" y="490" font-size="12" fill="#0f172a">▸ SETNX EX 30s + 토큰 lock value</text>
+  <text x="70" y="510" font-size="12" fill="#0f172a">▸ 잡은 워커만 자기 락 해제</text>
+  <text x="70" y="535" font-size="11" font-weight="700" fill="#0f172a">★ 차단: PG retry 폭주</text>
+
+  <!-- Layer 2: DB UNIQUE -->
+  <rect x="410" y="320" width="340" height="240" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="440" cy="350" r="18" fill="#0f172a"/>
+  <text x="440" y="356" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="468" y="356" font-size="15" font-weight="700" fill="#0f172a">DB UNIQUE</text>
+
+  <use href="#b-ic-db" x="515" y="378" width="80" height="80"/>
+
+  <text x="430" y="490" font-size="12" fill="#0f172a">▸ 복합 키 (imp_uid + uid + status)</text>
+  <text x="430" y="510" font-size="12" fill="#0f172a">▸ 1시간 dedupe 윈도우</text>
+  <text x="430" y="535" font-size="11" font-weight="700" fill="#0f172a">★ 차단: in-memory dedupe 한계</text>
+
+  <!-- Layer 3: 상태머신 -->
+  <rect x="770" y="320" width="340" height="240" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="800" cy="350" r="18" fill="#0f172a"/>
+  <text x="800" y="356" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+  <text x="828" y="356" font-size="15" font-weight="700" fill="#0f172a">상태머신</text>
+
+  <g transform="translate(810, 388)">
+    <rect width="80" height="32" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="40" y="22" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">READY</text>
+  </g>
+  <g transform="translate(910, 388)">
+    <rect width="80" height="32" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="40" y="22" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">PAID</text>
+  </g>
+  <line x1="890" y1="404" x2="908" y2="404" stroke="#0f172a" stroke-width="1.5" marker-end="url(#b-ar)"/>
+
+  <g transform="translate(810, 430)">
+    <rect width="80" height="28" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="40" y="20" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">FAILED</text>
+  </g>
+  <g transform="translate(910, 430)">
+    <rect width="80" height="28" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="40" y="20" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">CANCELLED</text>
+  </g>
+
+  <text x="790" y="490" font-size="12" fill="#0f172a">▸ status × action_type 분기</text>
+  <text x="790" y="510" font-size="12" fill="#0f172a">▸ 상태 역전 시 별 row 격리</text>
+  <text x="790" y="535" font-size="11" font-weight="700" fill="#0f172a">★ 차단: PAID→FAILED 역전</text>
+
+  <!-- Layer 4: Lua atomic -->
+  <rect x="1130" y="320" width="340" height="240" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <circle cx="1160" cy="350" r="18" fill="#0f172a"/>
+  <text x="1160" y="356" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+  <text x="1188" y="356" font-size="15" font-weight="700" fill="#0f172a">Lua 원자 해제</text>
+
+  <use href="#b-ic-shield" x="1240" y="376" width="80" height="92"/>
+
+  <text x="1150" y="490" font-size="12" fill="#0f172a">▸ GET → 비교 → DEL 한 트랜잭션</text>
+  <text x="1150" y="510" font-size="12" fill="#0f172a">▸ 자기 토큰일 때만 해제</text>
+  <text x="1150" y="535" font-size="11" font-weight="700" fill="#0f172a">★ 차단: TTL 만료 후 ABA</text>
+
+  <!-- Arrows between layers -->
+  <line x1="390" y1="440" x2="408" y2="440" stroke="#0f172a" stroke-width="2" marker-end="url(#b-ar)"/>
+  <line x1="750" y1="440" x2="768" y2="440" stroke="#0f172a" stroke-width="2" marker-end="url(#b-ar)"/>
+  <line x1="1110" y1="440" x2="1128" y2="440" stroke="#0f172a" stroke-width="2" marker-end="url(#b-ar)"/>
+
+  <!-- API → Layer 1 -->
+  <line x1="580" y1="220" x2="220" y2="316" stroke="#0f172a" stroke-width="1.4" marker-end="url(#b-ar)"/>
+
+  <!-- Layer 4 → 200 OK -->
+  <line x1="1300" y1="320" x2="900" y2="216" stroke="#15803d" stroke-width="2" marker-end="url(#b-ar-g)"/>
+
+  <!-- ===== Sidecar: reconciliation cron ===== -->
+  <rect x="50" y="590" width="1420" height="160" rx="10" fill="#ffffff" stroke="#64748b" stroke-width="1.8" stroke-dasharray="6 4"/>
+  <text x="70" y="618" font-size="15" font-weight="700" fill="#0f172a">보완 라인 — 일일 정합성 reconciliation cron (사례 2)</text>
+  <text x="70" y="638" font-size="12" fill="#475569">4중 멱등성으로도 못 막는 eventual inconsistency 3종을 사후 자동 탐지 · 정정</text>
+
+  <g transform="translate(70, 654)">
+    <rect width="440" height="80" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="20" y="24" font-size="13" font-weight="700" fill="#0f172a">issue 1 — 좀비 schedule</text>
+    <text x="20" y="44" font-size="11" fill="#475569">DB 차집합으로 의심 K &lt;&lt; N 압축 → 외부 호출 최소화</text>
+    <text x="20" y="66" font-size="11" font-weight="600" fill="#15803d">→ SCHEDULED_CANCELLED 자동 정정</text>
+  </g>
+
+  <g transform="translate(530, 654)">
+    <rect width="440" height="80" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="20" y="24" font-size="13" font-weight="700" fill="#0f172a">issue 2 — 중복 빌링키</text>
+    <text x="20" y="44" font-size="11" fill="#475569">SCHEDULED 2+ 잡힘  ·  GROUP BY HAVING COUNT &gt; 1</text>
+    <text x="20" y="66" font-size="11" font-weight="600" fill="#15803d">→ PG scheduleCancel 자동 호출</text>
+  </g>
+
+  <g transform="translate(990, 654)">
+    <rect width="480" height="80" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="20" y="24" font-size="13" font-weight="700" fill="#0f172a">issue 3 — admin override orphan</text>
+    <text x="20" y="44" font-size="11" fill="#475569">활성 종료일 &gt; 다음 결제 + 1개월  ·  4단 JOIN 단일 SQL</text>
+    <text x="20" y="66" font-size="11" font-weight="600" fill="#15803d">→ 사후 환불 · CS 사전 차단</text>
+  </g>
+
+  <!-- ===== Result strip ===== -->
+  <rect x="50" y="780" width="1420" height="120" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="1.8"/>
+  <text x="70" y="810" font-size="15" font-weight="700" fill="#0f172a">운영 검증 결과</text>
+
+  <g transform="translate(70, 826)">
+    <text font-size="12" fill="#0f172a">▸ 운영 로그에 「중복 웹훅 락 차단」 메시지 정기 검출 — race 가 실제로 발생하고 코드 레벨에서 차단됨이 데이터로 입증</text>
+    <text y="22" font-size="12" fill="#0f172a">▸ 사내 분산 락 helper 8 곳 이상 재사용으로 표준 라이브러리화  ·  APM span tagging 으로 결제 정합성 메트릭 자동 집계</text>
+    <text y="44" font-size="12" fill="#0f172a">▸ 예약 결제 금액 불일치 자동 Slack 경고  ·  매일 정합성 점검 한 메시지로 운영자 수신</text>
+  </g>
+</svg>

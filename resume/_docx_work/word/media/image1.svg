@@ -1,0 +1,225 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="a1-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1a1a1a"/>
+    </marker>
+    <marker id="a1-arrow-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#94a3b8"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1040" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="40" y="46" font-size="24" font-weight="700" fill="#0f172a">A1. 리뷰 통합 관리 SaaS — 전체 시스템 아키텍처</text>
+  <text x="40" y="74" font-size="14" fill="#64748b">멀티 인스턴스 · 멀티 워커 풀 · 6개 외부 플랫폼 통합 · 4 서비스 책임 분리</text>
+
+  <!-- ====== Client Layer ====== -->
+  <text x="60" y="118" font-size="13" font-weight="600" fill="#475569">CLIENT LAYER</text>
+  <rect x="180" y="100" width="220" height="56" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <text x="290" y="125" font-size="14" font-weight="600" fill="#1e3a8a" text-anchor="middle">사용자 웹 앱</text>
+  <text x="290" y="144" font-size="12" fill="#475569" text-anchor="middle">사장님 / 자영업자</text>
+
+  <rect x="450" y="100" width="240" height="56" rx="8" fill="#eff6ff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <text x="570" y="125" font-size="14" font-weight="600" fill="#1e3a8a" text-anchor="middle">프랜차이즈 본사 대시보드</text>
+  <text x="570" y="144" font-size="12" fill="#475569" text-anchor="middle">멀티테넌트 · 본사 1명 → N매장</text>
+
+  <rect x="740" y="100" width="220" height="56" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+  <text x="850" y="125" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">운영 어드민 콘솔</text>
+  <text x="850" y="144" font-size="12" fill="#475569" text-anchor="middle">잡 트리거 · 정합성 점검</text>
+
+  <!-- ====== Edge Layer ====== -->
+  <text x="60" y="208" font-size="13" font-weight="600" fill="#475569">EDGE</text>
+  <rect x="180" y="190" width="780" height="50" rx="8" fill="#f8fafc" stroke="#334155" stroke-width="1.5"/>
+  <text x="570" y="220" font-size="14" font-weight="600" fill="#0f172a" text-anchor="middle">L7 Load Balancer  ｜  JWT(RS256) + OAuth  ｜  Rate Limit / WAF</text>
+
+  <line x1="290" y1="156" x2="290" y2="188" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#a1-arrow)"/>
+  <line x1="570" y1="156" x2="570" y2="188" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#a1-arrow)"/>
+  <line x1="850" y1="156" x2="850" y2="188" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#a1-arrow)"/>
+
+  <!-- ====== Service Layer ====== -->
+  <text x="60" y="290" font-size="13" font-weight="600" fill="#475569">SERVICE LAYER</text>
+
+  <!-- Main API -->
+  <rect x="180" y="280" width="370" height="180" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <text x="200" y="306" font-size="15" font-weight="700" fill="#7c2d12">메인 API 서비스</text>
+  <text x="200" y="326" font-size="12" fill="#475569">결제 · 쿠폰 · 알림톡 · 멀티테넌트</text>
+  <line x1="200" y1="338" x2="530" y2="338" stroke="#fcd34d" stroke-width="1"/>
+
+  <rect x="200" y="350" width="155" height="34" rx="5" fill="#ffffff" stroke="#a16207" stroke-width="1"/>
+  <text x="277" y="372" font-size="12" fill="#1c1917" text-anchor="middle">결제 webhook 4중 멱등성</text>
+  <rect x="365" y="350" width="165" height="34" rx="5" fill="#ffffff" stroke="#a16207" stroke-width="1"/>
+  <text x="447" y="372" font-size="12" fill="#1c1917" text-anchor="middle">분산 락 · 트랜잭션 경계</text>
+
+  <rect x="200" y="394" width="155" height="34" rx="5" fill="#ffffff" stroke="#a16207" stroke-width="1"/>
+  <text x="277" y="416" font-size="12" fill="#1c1917" text-anchor="middle">SafeCron 데코레이터</text>
+  <rect x="365" y="394" width="165" height="34" rx="5" fill="#ffffff" stroke="#a16207" stroke-width="1"/>
+  <text x="447" y="416" font-size="12" fill="#1c1917" text-anchor="middle">RDS Queue (큐 as 테이블)</text>
+
+  <text x="200" y="450" font-size="11" fill="#7c2d12">REST API · 도메인 서비스 · 정기결제 / 결제 정합성 / 알림 오케스트레이터</text>
+
+  <!-- Batch Worker -->
+  <rect x="580" y="280" width="380" height="180" rx="10" fill="#ecfdf5" stroke="#047857" stroke-width="2"/>
+  <text x="600" y="306" font-size="15" font-weight="700" fill="#064e3b">배치 워커 클러스터</text>
+  <text x="600" y="326" font-size="12" fill="#475569">2시간 cron · AI 스코어링 · Active-Active 8색 배포</text>
+  <line x1="600" y1="338" x2="940" y2="338" stroke="#a7f3d0" stroke-width="1"/>
+
+  <rect x="600" y="350" width="165" height="34" rx="5" fill="#ffffff" stroke="#047857" stroke-width="1"/>
+  <text x="682" y="372" font-size="12" fill="#0f172a" text-anchor="middle">hierarchical 동시성</text>
+  <rect x="775" y="350" width="165" height="34" rx="5" fill="#ffffff" stroke="#047857" stroke-width="1"/>
+  <text x="857" y="372" font-size="12" fill="#0f172a" text-anchor="middle">그룹 격리 ThreadPool</text>
+
+  <rect x="600" y="394" width="165" height="34" rx="5" fill="#ffffff" stroke="#047857" stroke-width="1"/>
+  <text x="682" y="416" font-size="12" fill="#0f172a" text-anchor="middle">인증 에러 도미노 차단</text>
+  <rect x="775" y="394" width="165" height="34" rx="5" fill="#ffffff" stroke="#047857" stroke-width="1"/>
+  <text x="857" y="416" font-size="12" fill="#0f172a" text-anchor="middle">Idempotent upsert</text>
+
+  <text x="600" y="450" font-size="11" fill="#064e3b">계정 단위 순차 · 계정 사이 병렬 · 무중단 배포 파이프라인</text>
+
+  <!-- 운영 콘솔 API -->
+  <rect x="990" y="280" width="380" height="180" rx="10" fill="#eef2ff" stroke="#4338ca" stroke-width="2"/>
+  <text x="1010" y="306" font-size="15" font-weight="700" fill="#312e81">운영 콘솔 API</text>
+  <text x="1010" y="326" font-size="12" fill="#475569">잡 오케스트레이션 · AI 파이프라인 · BIZ 대시보드</text>
+  <line x1="1010" y1="338" x2="1350" y2="338" stroke="#c7d2fe" stroke-width="1"/>
+
+  <rect x="1010" y="350" width="160" height="34" rx="5" fill="#ffffff" stroke="#4338ca" stroke-width="1"/>
+  <text x="1090" y="372" font-size="12" fill="#0f172a" text-anchor="middle">2단계 쿼리 + VIEW SSOT</text>
+  <rect x="1180" y="350" width="170" height="34" rx="5" fill="#ffffff" stroke="#4338ca" stroke-width="1"/>
+  <text x="1265" y="372" font-size="12" fill="#0f172a" text-anchor="middle">잡 라이프사이클 (Hash+ZSet)</text>
+
+  <rect x="1010" y="394" width="160" height="34" rx="5" fill="#ffffff" stroke="#4338ca" stroke-width="1"/>
+  <text x="1090" y="416" font-size="12" fill="#0f172a" text-anchor="middle">자동 답글 종단 파이프</text>
+  <rect x="1180" y="394" width="170" height="34" rx="5" fill="#ffffff" stroke="#4338ca" stroke-width="1"/>
+  <text x="1265" y="416" font-size="12" fill="#0f172a" text-anchor="middle">메모리 평탄화 (gc 명시)</text>
+
+  <text x="1010" y="450" font-size="11" fill="#312e81">트랜잭션 경계 분리 · 외부 IO 응답 경로 제외 · 24h 잡 선생성</text>
+
+  <!-- ====== Scraper Worker Pool ====== -->
+  <text x="60" y="510" font-size="13" font-weight="600" fill="#475569">DOMAIN-SPECIFIC</text>
+  <text x="60" y="528" font-size="13" font-weight="600" fill="#475569">PATTERNS</text>
+
+  <rect x="180" y="490" width="1190" height="180" rx="10" fill="#fdf2f8" stroke="#9d174d" stroke-width="2"/>
+  <text x="200" y="516" font-size="15" font-weight="700" fill="#831843">스크래퍼 워커 클러스터  ·  6 외부 플랫폼 통합</text>
+  <text x="200" y="535" font-size="12" fill="#475569">플랫폼당 워커 30+ · 헤드리스 브라우저 풀(stealth fork) · 메모리 격리</text>
+
+  <rect x="200" y="554" width="270" height="100" rx="8" fill="#ffffff" stroke="#9d174d" stroke-width="1.5"/>
+  <text x="335" y="578" font-size="13" font-weight="700" fill="#831843" text-anchor="middle">세션 락 레지스트리</text>
+  <text x="335" y="600" font-size="11" fill="#475569" text-anchor="middle">FIFO 큐 + Lease TTL</text>
+  <text x="335" y="618" font-size="11" fill="#475569" text-anchor="middle">Instance-aware lease (fencing)</text>
+  <text x="335" y="636" font-size="11" fill="#475569" text-anchor="middle">Cold-start Guard · Handoff</text>
+  <text x="335" y="648" font-size="10" font-weight="600" fill="#16a34a" text-anchor="middle">세션 유지율 99.2% · 중복 0건</text>
+
+  <rect x="490" y="554" width="270" height="100" rx="8" fill="#ffffff" stroke="#9d174d" stroke-width="1.5"/>
+  <text x="625" y="578" font-size="13" font-weight="700" fill="#831843" text-anchor="middle">Single-Flight Coordinator</text>
+  <text x="625" y="600" font-size="11" fill="#475569" text-anchor="middle">Hexagonal + Decorator 5종</text>
+  <text x="625" y="618" font-size="11" fill="#475569" text-anchor="middle">Coalescing · Deadline · Capacity</text>
+  <text x="625" y="636" font-size="11" fill="#475569" text-anchor="middle">행동 계약 7가지 spec 명문화</text>
+  <text x="625" y="648" font-size="10" font-weight="600" fill="#16a34a" text-anchor="middle">코드 80+ 줄 제거 · 22 spec</text>
+
+  <rect x="780" y="554" width="270" height="100" rx="8" fill="#ffffff" stroke="#9d174d" stroke-width="1.5"/>
+  <text x="915" y="578" font-size="13" font-weight="700" fill="#831843" text-anchor="middle">Akamai 우회 엔진</text>
+  <text x="915" y="600" font-size="11" fill="#475569" text-anchor="middle">_abck 4-state 머신</text>
+  <text x="915" y="618" font-size="11" fill="#475569" text-anchor="middle">Referrer Warming · bm_sv polling</text>
+  <text x="915" y="636" font-size="11" fill="#475569" text-anchor="middle">Click Loop jitter</text>
+  <text x="915" y="648" font-size="10" font-weight="600" fill="#16a34a" text-anchor="middle">로그인 성공률 77.8% → 100%</text>
+
+  <rect x="1070" y="554" width="280" height="100" rx="8" fill="#ffffff" stroke="#9d174d" stroke-width="1.5"/>
+  <text x="1210" y="578" font-size="13" font-weight="700" fill="#831843" text-anchor="middle">자체 IP 평판 시스템 (PAMS)</text>
+  <text x="1210" y="600" font-size="11" fill="#475569" text-anchor="middle">port↔IP 매핑 3중 (메모리/캐시/DB)</text>
+  <text x="1210" y="618" font-size="11" fill="#475569" text-anchor="middle">Adaptive Cooldown · 5종 outcome</text>
+  <text x="1210" y="636" font-size="11" fill="#475569" text-anchor="middle">이중 blocklist (port/IP)</text>
+  <text x="1210" y="648" font-size="10" font-weight="600" fill="#16a34a" text-anchor="middle">월 비용 88.75% ↓ · 성공률 98%</text>
+
+  <!-- ====== Message Queue ====== -->
+  <rect x="180" y="694" width="780" height="60" rx="8" fill="#f1f5f9" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="570" y="720" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">메시지 큐 (Quorum Queue × 6 + DLQ)</text>
+  <text x="570" y="740" font-size="11" fill="#475569" text-anchor="middle">Idempotent Reply Pipeline · 4종 Error Classifier · ACK/NACK 매트릭스 · application-level retry backoff</text>
+
+  <!-- ====== Data Layer ====== -->
+  <text x="60" y="790" font-size="13" font-weight="600" fill="#475569">DATA</text>
+  <rect x="180" y="780" width="380" height="80" rx="8" fill="#ecfeff" stroke="#0e7490" stroke-width="1.5"/>
+  <text x="370" y="808" font-size="14" font-weight="700" fill="#155e75" text-anchor="middle">관계형 DB (Cluster, Replica)</text>
+  <text x="370" y="830" font-size="11" fill="#475569" text-anchor="middle">결제·구독·매장·리뷰 · 비관락 / 낙관락 / 함수형 update</text>
+  <text x="370" y="848" font-size="11" fill="#475569" text-anchor="middle">SQL VIEW (정의 SSOT) · 2단계 batch select</text>
+
+  <rect x="580" y="780" width="380" height="80" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="770" y="808" font-size="14" font-weight="700" fill="#7f1d1d" text-anchor="middle">분산 캐시 (Cluster 모드)</text>
+  <text x="770" y="830" font-size="11" fill="#475569" text-anchor="middle">분산 락 · 토큰 버킷 · 평판 카운터 · 진행률 캐시</text>
+  <text x="770" y="848" font-size="11" fill="#475569" text-anchor="middle">hash tag {pool} vs 단일 키 분리 — CROSSSLOT 정책 분기</text>
+
+  <!-- ====== Observability ====== -->
+  <rect x="990" y="694" width="380" height="166" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="1180" y="722" font-size="14" font-weight="700" fill="#334155" text-anchor="middle">관측성 / 알림</text>
+
+  <rect x="1010" y="740" width="160" height="44" rx="6" fill="#ffffff" stroke="#64748b" stroke-width="1"/>
+  <text x="1090" y="760" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">APM</text>
+  <text x="1090" y="776" font-size="10" fill="#475569" text-anchor="middle">span tagging · 정합성</text>
+
+  <rect x="1190" y="740" width="160" height="44" rx="6" fill="#ffffff" stroke="#64748b" stroke-width="1"/>
+  <text x="1270" y="760" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">메트릭 / 대시보드</text>
+  <text x="1270" y="776" font-size="10" fill="#475569" text-anchor="middle">프록시 풀 가용성</text>
+
+  <rect x="1010" y="794" width="160" height="44" rx="6" fill="#ffffff" stroke="#64748b" stroke-width="1"/>
+  <text x="1090" y="814" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">로그 / Trace</text>
+  <text x="1090" y="830" font-size="10" fill="#475569" text-anchor="middle">race 차단 검출</text>
+
+  <rect x="1190" y="794" width="160" height="44" rx="6" fill="#ffffff" stroke="#64748b" stroke-width="1"/>
+  <text x="1270" y="814" font-size="12" font-weight="600" fill="#0f172a" text-anchor="middle">Slack Webhook</text>
+  <text x="1270" y="830" font-size="10" fill="#475569" text-anchor="middle">cron / 정합성 / 알림</text>
+
+  <!-- ====== External Platforms ====== -->
+  <text x="60" y="912" font-size="13" font-weight="600" fill="#475569">EXTERNAL</text>
+  <text x="60" y="930" font-size="13" font-weight="600" fill="#475569">PLATFORMS</text>
+
+  <rect x="180" y="900" width="1190" height="100" rx="10" fill="#fff7ed" stroke="#9a3412" stroke-width="2"/>
+  <text x="200" y="924" font-size="13" font-weight="700" fill="#7c2d12">6 외부 배달 / 검색 플랫폼  +  PG · 알림톡 · 결제망</text>
+
+  <g font-size="12" fill="#0f172a" text-anchor="middle">
+    <rect x="220" y="940" width="160" height="44" rx="5" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="300" y="960">검색 포털</text>
+    <text x="300" y="976" font-size="10" fill="#475569">3-Layer 세션 · 2FA</text>
+
+    <rect x="400" y="940" width="160" height="44" rx="5" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="480" y="960">배달앱 A</text>
+    <text x="480" y="976" font-size="10" fill="#475569">HTTP + 자체 암호화</text>
+
+    <rect x="580" y="940" width="160" height="44" rx="5" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="660" y="960">배달앱 B</text>
+    <text x="660" y="976" font-size="10" fill="#475569">Akamai Bot Manager</text>
+
+    <rect x="760" y="940" width="160" height="44" rx="5" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="840" y="960">배달앱 C</text>
+    <text x="840" y="976" font-size="10" fill="#475569">경량 API</text>
+
+    <rect x="940" y="940" width="160" height="44" rx="5" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="1020" y="960">배달앱 D</text>
+    <text x="1020" y="976" font-size="10" fill="#475569">경량 API</text>
+
+    <rect x="1120" y="940" width="220" height="44" rx="5" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="1230" y="960">PG · 알림톡 · 외부 SaaS</text>
+    <text x="1230" y="976" font-size="10" fill="#475569">결제 / 카카오 비즈메시지</text>
+  </g>
+
+  <!-- ====== Arrows ====== -->
+  <line x1="365" y1="240" x2="365" y2="278" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#a1-arrow)"/>
+  <line x1="770" y1="240" x2="770" y2="278" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#a1-arrow)"/>
+  <line x1="1180" y1="240" x2="1180" y2="278" stroke="#1a1a1a" stroke-width="1.5" marker-end="url(#a1-arrow)"/>
+
+  <line x1="365" y1="460" x2="365" y2="692" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#a1-arrow)"/>
+  <line x1="770" y1="460" x2="770" y2="692" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#a1-arrow)"/>
+  <line x1="1180" y1="460" x2="1180" y2="488" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#a1-arrow)"/>
+
+  <line x1="570" y1="754" x2="570" y2="778" stroke="#1a1a1a" stroke-width="1.2" marker-end="url(#a1-arrow)"/>
+
+  <line x1="770" y1="670" x2="770" y2="898" stroke="#1a1a1a" stroke-width="1.4" marker-end="url(#a1-arrow)"/>
+
+  <!-- Observability dotted lines -->
+  <line x1="365" y1="460" x2="1010" y2="760" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#a1-arrow-dim)"/>
+  <line x1="770" y1="460" x2="1080" y2="760" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#a1-arrow-dim)"/>
+  <line x1="1180" y1="460" x2="1180" y2="694" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 4" marker-end="url(#a1-arrow-dim)"/>
+
+  <!-- Footer / Legend -->
+  <g font-size="11" fill="#64748b">
+    <text x="40" y="1024">실선 — 동기/비동기 호출 경로  ｜  점선 — 관측성(metric · log · trace) 송신  ｜  컬러 — 도메인 책임 분리</text>
+  </g>
+</svg>

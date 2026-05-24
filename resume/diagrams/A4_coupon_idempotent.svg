@@ -1,0 +1,171 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="cp-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="cp-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <marker id="cp-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <symbol id="cp-db" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="9" rx="18" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 6 9 L 6 39 Q 6 44 24 44 Q 42 44 42 39 L 42 9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="20" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="cp-coupon" viewBox="0 0 60 36">
+      <path d="M 4 4 L 56 4 L 56 12 Q 50 14 50 18 Q 50 22 56 24 L 56 32 L 4 32 L 4 24 Q 10 22 10 18 Q 10 14 4 12 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <line x1="20" y1="8" x2="20" y2="28" stroke="#0f172a" stroke-width="1" stroke-dasharray="2 2"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">A4. 쿠폰 멱등 적용 — 3중 idempotency 레이어</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">사전 검증 · 트랜잭션 · schedule fallback 보정 — 중복 발급 0건 · silent failure 차단</text>
+
+  <!-- 위험 시나리오 — 좌측 -->
+  <rect x="50" y="110" width="450" height="320" rx="12" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="70" y="138" font-size="15" font-weight="700" fill="#7f1d1d">위험 시나리오 (Without idempotency)</text>
+
+  <text x="70" y="170" font-size="13" font-weight="700" fill="#0f172a">① schedule fallback silent failure</text>
+  <text x="70" y="190" font-size="11" fill="#475569">schedule 등록: 쿠폰 A 50% 할인 amount 로 박음</text>
+  <text x="70" y="208" font-size="11" fill="#475569">다음 달: 쿠폰 A 만료 / 사용됨</text>
+  <text x="70" y="226" font-size="11" fill="#b91c1c">→ PG 가 등록 amount 그대로 결제 · 사용자 손해</text>
+
+  <text x="70" y="258" font-size="13" font-weight="700" fill="#0f172a">② 동일 쿠폰 중복 발급</text>
+  <text x="70" y="278" font-size="11" fill="#475569">마케팅 캠페인 발급 API 중복 호출</text>
+  <text x="70" y="296" font-size="11" fill="#b91c1c">→ 한 사용자 같은 쿠폰 2장 보유 · 다중 사용 버그</text>
+
+  <text x="70" y="326" font-size="13" font-weight="700" fill="#0f172a">③ 트랜잭션 부분 실패</text>
+  <text x="70" y="346" font-size="11" fill="#475569">메타데이터 + plan 매핑 + user 매핑 동시 수정</text>
+  <text x="70" y="364" font-size="11" fill="#b91c1c">→ 부분 update 후 실패 · 데이터 정합성 깨짐</text>
+
+  <text x="70" y="396" font-size="11" fill="#7f1d1d" font-style="italic">결제 흐름에 깊게 얽힌 도메인 — race window 가 도처에 존재</text>
+
+  <!-- 화살표 -->
+  <g transform="translate(530, 250)">
+    <rect x="0" y="0" width="20" height="50" fill="#15803d"/>
+    <polygon points="0,50 20,50 10,76" fill="#15803d"/>
+    <text x="-30" y="20" font-size="11" font-weight="700" fill="#15803d">3중</text>
+    <text x="-30" y="38" font-size="11" fill="#15803d">방어</text>
+  </g>
+
+  <!-- 3중 idempotency 레이어 -->
+  <text x="590" y="138" font-size="15" font-weight="700" fill="#0f172a">3중 idempotency 레이어</text>
+
+  <g transform="translate(580, 150)">
+    <rect width="870" height="90" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="36" cy="32" r="18" fill="#0f172a"/>
+    <text x="36" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+    <text x="68" y="36" font-size="14" font-weight="700" fill="#0f172a">사전 검증 (createUserCoupon 진입)</text>
+
+    <text x="68" y="58" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#475569">findOne((user, coupon)) → 있으면 기존 row 그대로 반환</text>
+    <text x="68" y="76" font-size="11" font-weight="700" fill="#15803d">→ idempotent return · UNIQUE(user_id, coupon_id) 와 곱셈 결합</text>
+  </g>
+
+  <g transform="translate(580, 252)">
+    <rect width="870" height="90" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="36" cy="32" r="18" fill="#0f172a"/>
+    <text x="36" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+    <text x="68" y="36" font-size="14" font-weight="700" fill="#0f172a">트랜잭션 (쿠폰 수정 한 단위)</text>
+
+    <text x="68" y="58" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#475569">QueryRunner.startTransaction / commit / rollback / release</text>
+    <text x="68" y="76" font-size="11" font-weight="700" fill="#15803d">→ delete + add + update 한 단위 · 부분 update 사고 차단</text>
+  </g>
+
+  <g transform="translate(580, 354)">
+    <rect width="870" height="90" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="36" cy="32" r="18" fill="#0f172a"/>
+    <text x="36" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+    <text x="68" y="36" font-size="14" font-weight="700" fill="#0f172a">schedule fallback 보정 (등록 직전 재계산)</text>
+
+    <text x="68" y="58" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#475569">amountWithUserCoupons(available, ...) → 불일치 시 amount + coupon_id 보정</text>
+    <text x="68" y="76" font-size="11" font-weight="700" fill="#15803d">→ 다음 결제 시점 쿠폰 상태 변화에도 자동 추적</text>
+  </g>
+
+  <!-- DB 시각화 + 트랜잭션 흐름 -->
+  <text x="50" y="490" font-size="16" font-weight="700" fill="#0f172a">schedule fallback 보정 흐름</text>
+
+  <g transform="translate(50, 510)">
+    <rect width="200" height="100" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+    <text x="100" y="30" font-size="13" font-weight="700" fill="#78350f" text-anchor="middle">예약 결제 등록 진입</text>
+    <text x="100" y="54" font-size="11" fill="#475569" text-anchor="middle">초기 amount =</text>
+    <text x="100" y="72" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#475569" text-anchor="middle">scheduleAnnotation.amount</text>
+    <text x="100" y="90" font-size="10" fill="#64748b" text-anchor="middle">(원 schedule 등록 amount)</text>
+  </g>
+
+  <line x1="250" y1="560" x2="308" y2="560" stroke="#0f172a" stroke-width="1.8" marker-end="url(#cp-ar)"/>
+
+  <g transform="translate(310, 510)">
+    <rect width="280" height="100" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <text x="140" y="30" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">available user-coupons 재조회</text>
+    <text x="140" y="54" font-size="11" fill="#475569" text-anchor="middle">is_exhausted = false</text>
+    <text x="140" y="72" font-size="11" fill="#475569" text-anchor="middle">plan_id 매칭 조건</text>
+    <text x="140" y="92" font-size="10" font-style="italic" fill="#64748b" text-anchor="middle">"다음 결제 시점에 실제 적용될"</text>
+  </g>
+
+  <line x1="590" y1="560" x2="648" y2="560" stroke="#0f172a" stroke-width="1.8" marker-end="url(#cp-ar)"/>
+
+  <g transform="translate(650, 510)">
+    <rect width="280" height="100" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <text x="140" y="30" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">amountWithUserCoupons()</text>
+    <text x="140" y="54" font-size="11" fill="#475569" text-anchor="middle">예측 amount + 예측 coupon_id</text>
+    <text x="140" y="78" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a" text-anchor="middle">predicted vs scheduled 비교</text>
+  </g>
+
+  <line x1="930" y1="560" x2="988" y2="560" stroke="#0f172a" stroke-width="1.8" marker-end="url(#cp-ar)"/>
+
+  <g transform="translate(990, 510)">
+    <rect width="200" height="100" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <text x="100" y="30" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">불일치 판정?</text>
+  </g>
+
+  <line x1="1090" y1="610" x2="1090" y2="638" stroke="#15803d" stroke-width="2" marker-end="url(#cp-ar-g)"/>
+  <text x="1100" y="630" font-size="10" fill="#15803d">YES</text>
+
+  <g transform="translate(990, 640)">
+    <rect width="200" height="64" rx="10" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+    <text x="100" y="24" font-size="12" font-weight="700" fill="#14532d" text-anchor="middle">amount + coupon_id 보정</text>
+    <text x="100" y="42" font-size="10" fill="#475569" text-anchor="middle">WARN 로그 + 정정 후 등록</text>
+    <text x="100" y="56" font-size="10" font-style="italic" fill="#15803d" text-anchor="middle">사용자 손해 없이 보정</text>
+  </g>
+
+  <line x1="1210" y1="560" x2="1268" y2="560" stroke="#0f172a" stroke-width="1.8" marker-end="url(#cp-ar)"/>
+
+  <g transform="translate(1270, 510)">
+    <rect width="180" height="100" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+    <use href="#cp-coupon" x="60" y="20" width="60" height="36"/>
+    <text x="90" y="78" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">외부 PG schedule</text>
+    <text x="90" y="92" font-size="10" fill="#64748b" text-anchor="middle">최종 등록</text>
+  </g>
+
+  <!-- 결과 -->
+  <rect x="50" y="730" width="1400" height="180" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="70" y="760" font-size="16" font-weight="700" fill="#14532d">운영 검증 결과</text>
+
+  <g transform="translate(70, 778)">
+    <rect width="430" height="116" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#0f172a">자동 보정 동작</text>
+    <text x="20" y="50" font-size="11" fill="#0f172a">▸ 운영 로그 「schedule fallback 금액 보정」 정기 검출</text>
+    <text x="20" y="68" font-size="11" fill="#0f172a">▸ 결제 정합성 차이 자동 보정 — 사용자 손해 0</text>
+    <text x="20" y="92" font-size="11" font-weight="700" fill="#15803d">→ silent failure 검출 + 보정이 데이터로 입증</text>
+  </g>
+
+  <g transform="translate(525, 778)">
+    <rect width="430" height="116" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#0f172a">중복 발급 0건</text>
+    <text x="20" y="50" font-size="11" fill="#0f172a">▸ UNIQUE(user_id, coupon_id)</text>
+    <text x="20" y="68" font-size="11" fill="#0f172a">▸ findOne 사전 검증</text>
+    <text x="20" y="92" font-size="11" font-weight="700" fill="#15803d">→ 두 방어선의 곱셈 결합</text>
+  </g>
+
+  <g transform="translate(980, 778)">
+    <rect width="470" height="116" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#0f172a">트랜잭션 정합성</text>
+    <text x="20" y="50" font-size="11" fill="#0f172a">▸ 쿠폰 수정 중 부분 update 사고 0건</text>
+    <text x="20" y="68" font-size="11" fill="#0f172a">▸ amountWithUserCoupons 단일 함수 = DRY</text>
+    <text x="20" y="92" font-size="11" font-weight="700" fill="#15803d">→ 결제·schedule·change_plan·upgrade 흐름 재사용</text>
+  </g>
+</svg>

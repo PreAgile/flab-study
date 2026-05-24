@@ -1,0 +1,201 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="h-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="h-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+
+    <symbol id="h-shop" viewBox="0 0 48 48">
+      <rect x="6" y="14" width="36" height="28" rx="2" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 4 16 L 24 4 L 44 16" fill="none" stroke="#0f172a" stroke-width="2"/>
+      <rect x="20" y="26" width="8" height="16" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="h-worker" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <circle cx="24" cy="24" r="3.5" fill="#0f172a"/>
+      <g stroke="#0f172a" stroke-width="2.5" stroke-linecap="round">
+        <line x1="24" y1="6" x2="24" y2="12"/><line x1="24" y1="36" x2="24" y2="42"/>
+        <line x1="6" y1="24" x2="12" y2="24"/><line x1="36" y1="24" x2="42" y2="24"/>
+        <line x1="11" y1="11" x2="15.5" y2="15.5"/><line x1="32.5" y1="32.5" x2="37" y2="37"/>
+        <line x1="11" y1="37" x2="15.5" y2="32.5"/><line x1="32.5" y1="15.5" x2="37" y2="11"/>
+      </g>
+    </symbol>
+    <symbol id="h-cloud" viewBox="0 0 80 48">
+      <path d="M20 36 Q 4 36 4 24 Q 4 14 16 14 Q 18 4 30 4 Q 44 4 46 18 Q 60 16 64 28 Q 76 28 76 38 Q 76 44 68 44 L 22 44 Q 14 44 14 38 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">B2. 2 시간 cron 리뷰 수집 — Hierarchical 동시성 (계정 단위 순차 · 계정 사이 병렬)</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">5,700+ 계정 · 13,000+ 매장 · 봇 탐지 회피 + 2 시간 cron 안에 처리 — 외부 락 서비스 없이 process-local 격리</text>
+
+  <!-- 좌측: 입력 -->
+  <rect x="50" y="110" width="320" height="190" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="70" y="138" font-size="15" font-weight="700" fill="#0f172a">입력 — 단일 플랫폼 1 회 실행</text>
+
+  <text x="70" y="170" font-size="12" fill="#475569">매장 수</text>
+  <text x="290" y="170" font-size="14" font-weight="700" fill="#0f172a" text-anchor="end">13,127</text>
+  <text x="70" y="194" font-size="12" fill="#475569">platform_id 그룹</text>
+  <text x="290" y="194" font-size="14" font-weight="700" fill="#0f172a" text-anchor="end">5,719</text>
+  <text x="70" y="218" font-size="12" fill="#475569">task</text>
+  <text x="290" y="218" font-size="14" font-weight="700" fill="#0f172a" text-anchor="end">13,699</text>
+  <line x1="70" y1="232" x2="350" y2="232" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="70" y="254" font-size="11" fill="#64748b">매장당 평균 ≈ 2.3 매장 · 한 계정</text>
+  <text x="70" y="272" font-size="11" fill="#64748b">제약: 동시 다중 매장 = 봇 탐지 가속</text>
+
+  <line x1="370" y1="208" x2="428" y2="208" stroke="#0f172a" stroke-width="1.8" marker-end="url(#h-ar)"/>
+
+  <!-- 중앙: getPlatformIdGroupList -->
+  <rect x="430" y="110" width="280" height="190" rx="12" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="570" y="138" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">그룹 격리</text>
+  <text x="570" y="158" font-size="11" fill="#64748b" text-anchor="middle">getPlatformIdGroupList()</text>
+  <line x1="450" y1="170" x2="690" y2="170" stroke="#e2e8f0" stroke-width="1"/>
+  <text x="450" y="194" font-size="11" fill="#475569">key = (platform_id, password)</text>
+  <text x="450" y="214" font-size="11" fill="#475569">value = shop_id 리스트</text>
+  <text x="450" y="240" font-size="11" font-weight="700" fill="#15803d">→ 5,719 그룹 dict</text>
+  <text x="450" y="268" font-size="10" fill="#64748b">한 그룹 = 한 사장님 · 1~7 매장</text>
+
+  <line x1="710" y1="208" x2="768" y2="208" stroke="#0f172a" stroke-width="1.8" marker-end="url(#h-ar)"/>
+
+  <!-- 우측: ThreadPoolExecutor -->
+  <rect x="770" y="110" width="680" height="190" rx="12" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="790" y="138" font-size="15" font-weight="700" fill="#0f172a">ThreadPool — 계정 사이 병렬</text>
+  <text x="790" y="158" font-size="11" fill="#64748b">max_workers = W (플랫폼별 운영 워커 수)</text>
+
+  <use href="#h-worker" x="800" y="180" width="48" height="48"/>
+  <text x="824" y="248" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Thread 1</text>
+  <text x="824" y="264" font-size="10" fill="#64748b" text-anchor="middle">→ 그룹 A</text>
+
+  <use href="#h-worker" x="900" y="180" width="48" height="48"/>
+  <text x="924" y="248" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Thread 2</text>
+  <text x="924" y="264" font-size="10" fill="#64748b" text-anchor="middle">→ 그룹 B</text>
+
+  <use href="#h-worker" x="1000" y="180" width="48" height="48"/>
+  <text x="1024" y="248" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Thread 3</text>
+  <text x="1024" y="264" font-size="10" fill="#64748b" text-anchor="middle">→ 그룹 C</text>
+
+  <text x="1100" y="208" font-size="20" fill="#94a3b8">⋯</text>
+
+  <use href="#h-worker" x="1150" y="180" width="48" height="48"/>
+  <text x="1174" y="248" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">Thread W</text>
+  <text x="1174" y="264" font-size="10" fill="#64748b" text-anchor="middle">→ 그룹 Z</text>
+
+  <rect x="1240" y="180" width="190" height="80" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="1335" y="202" font-size="11" font-weight="700" fill="#7f1d1d" text-anchor="middle">차단 사례</text>
+  <text x="1335" y="220" font-size="10" fill="#0f172a" text-anchor="middle">한 계정 동시 다중 로그인</text>
+  <text x="1335" y="236" font-size="10" fill="#0f172a" text-anchor="middle">= 봇 탐지 가속</text>
+  <text x="1335" y="252" font-size="10" font-weight="700" fill="#b91c1c" text-anchor="middle">→ 0 건 발생 (운영 검증)</text>
+
+  <!-- 그룹 내부 순차 처리 시각화 -->
+  <text x="50" y="350" font-size="16" font-weight="700" fill="#0f172a">그룹 내부 — 한 thread 가 그 그룹 매장을 순차 처리 (= 같은 계정 단일 로그인 보장)</text>
+
+  <!-- 그룹 A (Thread 1 담당) — 매장 4개를 순차 -->
+  <g transform="translate(50, 380)">
+    <rect width="1400" height="90" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <text x="20" y="26" font-size="13" font-weight="700" fill="#0f172a">Thread 1 → 그룹 A (사장님 1 · 4 매장 · 같은 platform_id)</text>
+
+    <g transform="translate(20, 36)">
+      <use href="#h-shop" x="0" y="0" width="40" height="40"/>
+      <text x="20" y="56" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">매장 1</text>
+    </g>
+
+    <line x1="76" y1="56" x2="124" y2="56" stroke="#0f172a" stroke-width="1.6" marker-end="url(#h-ar)"/>
+
+    <g transform="translate(125, 36)">
+      <use href="#h-shop" x="0" y="0" width="40" height="40"/>
+      <text x="20" y="56" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">매장 2</text>
+    </g>
+
+    <line x1="181" y1="56" x2="229" y2="56" stroke="#0f172a" stroke-width="1.6" marker-end="url(#h-ar)"/>
+
+    <g transform="translate(230, 36)">
+      <use href="#h-shop" x="0" y="0" width="40" height="40"/>
+      <text x="20" y="56" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">매장 3</text>
+    </g>
+
+    <line x1="286" y1="56" x2="334" y2="56" stroke="#0f172a" stroke-width="1.6" marker-end="url(#h-ar)"/>
+
+    <g transform="translate(335, 36)">
+      <use href="#h-shop" x="0" y="0" width="40" height="40"/>
+      <text x="20" y="56" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">매장 4</text>
+    </g>
+
+    <text x="420" y="60" font-size="12" font-weight="600" fill="#15803d">순차 →</text>
+
+    <line x1="490" y1="56" x2="540" y2="56" stroke="#0f172a" stroke-width="1.6" stroke-dasharray="4 4"/>
+
+    <text x="560" y="44" font-size="11" fill="#64748b">병렬</text>
+    <text x="560" y="60" font-size="11" fill="#64748b">(다른 그룹</text>
+    <text x="560" y="76" font-size="11" fill="#64748b">동시 진행)</text>
+
+    <line x1="640" y1="56" x2="690" y2="56" stroke="#0f172a" stroke-width="1.6" stroke-dasharray="4 4"/>
+
+    <text x="710" y="50" font-size="13" font-weight="700" fill="#0f172a">Thread 2 → 그룹 B (사장님 2 · 다른 platform_id)</text>
+    <text x="710" y="68" font-size="11" fill="#64748b">매장 A → 매장 B → 매장 C   (같은 시점에 병렬 진행)</text>
+  </g>
+
+  <!-- 인증 에러 회로 차단 (Circuit Breaker) -->
+  <rect x="50" y="500" width="1400" height="140" rx="12" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="70" y="528" font-size="15" font-weight="700" fill="#7f1d1d">회로 차단 (Circuit Breaker) — 인증 에러 그룹 도미노 차단</text>
+
+  <g transform="translate(70, 550)">
+    <text x="0" y="0" font-size="12" font-weight="700" fill="#0f172a">시나리오</text>
+    <text x="0" y="22" font-size="11" fill="#0f172a">① 그룹 A 첫 매장 인증 실패 (보호조치 / 지역차단)</text>
+    <text x="0" y="40" font-size="11" fill="#0f172a">② 옛 구현 — 나머지 6 매장 retry (총 21 회 헛 호출 · 봇 탐지 가속)</text>
+    <text x="0" y="58" font-size="11" fill="#0f172a">③ 신 구현 — 그룹 전체 즉시 차단 (`_deactivate_shops`)</text>
+    <text x="0" y="78" font-size="11" font-weight="700" fill="#15803d">→ 봇 탐지가 심한 플랫폼은 임계치 0 (첫 인증 오류 = 영구 장애 가정)</text>
+  </g>
+
+  <g transform="translate(700, 550)">
+    <rect width="730" height="76" rx="8" fill="#ffffff" stroke="#b91c1c" stroke-width="1.5"/>
+    <text x="20" y="24" font-size="13" font-weight="700" fill="#0f172a">PLATFORM_LOGIN_ERROR_COUNTS (임계치 dict)</text>
+
+    <text x="20" y="48" font-size="11" fill="#0f172a">▸ 봇 탐지 심한 플랫폼: <tspan font-weight="700" fill="#b91c1c">0</tspan> </text>
+    <text x="250" y="48" font-size="11" fill="#0f172a">▸ 배달앱 A: <tspan font-weight="700">3</tspan> </text>
+    <text x="370" y="48" font-size="11" fill="#0f172a">▸ 배달앱 B: <tspan font-weight="700">2</tspan> </text>
+    <text x="490" y="48" font-size="11" fill="#0f172a">▸ 배달앱 C: <tspan font-weight="700">3</tspan></text>
+
+    <text x="20" y="66" font-size="10" font-style="italic" fill="#64748b">플랫폼 특성에 맞춘 동적 임계치 — 인증 실패 패턴 매칭 분류기</text>
+  </g>
+
+  <!-- 운영 검증 결과 -->
+  <rect x="50" y="660" width="1400" height="240" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="70" y="690" font-size="16" font-weight="700" fill="#14532d">운영 검증 결과 (단일 플랫폼 1 회 실행 기준)</text>
+
+  <g transform="translate(70, 706)">
+    <rect width="320" height="80" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="160" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">2 시간 cron 안에 처리</text>
+    <text x="160" y="50" font-size="20" font-weight="700" fill="#15803d" text-anchor="middle">13,699 task</text>
+    <text x="160" y="70" font-size="11" fill="#64748b" text-anchor="middle">5,719 그룹 / 13,127 매장</text>
+  </g>
+
+  <g transform="translate(410, 706)">
+    <rect width="320" height="80" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="160" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">동일 platform_id 동시 호출</text>
+    <text x="160" y="50" font-size="22" font-weight="700" fill="#15803d" text-anchor="middle">0 건</text>
+    <text x="160" y="70" font-size="11" fill="#64748b" text-anchor="middle">운영 로그 검증</text>
+  </g>
+
+  <g transform="translate(750, 706)">
+    <rect width="320" height="80" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="160" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">장애 격리</text>
+    <text x="160" y="50" font-size="16" font-weight="700" fill="#15803d" text-anchor="middle">인증 에러 그룹만 비활성</text>
+    <text x="160" y="70" font-size="11" fill="#64748b" text-anchor="middle">다른 그룹 정상 진행</text>
+  </g>
+
+  <g transform="translate(1090, 706)">
+    <rect width="340" height="80" rx="8" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="170" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">로그 가독성</text>
+    <text x="170" y="50" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">5,000+ 그룹 ordered flush</text>
+    <text x="170" y="70" font-size="11" fill="#64748b" text-anchor="middle">운영자 그룹별 추적 가능</text>
+  </g>
+
+  <!-- 설계 결정 -->
+  <text x="70" y="826" font-size="14" font-weight="700" fill="#14532d">설계 결정 — 왜 외부 락 서비스가 아닌 process-local 격리인가</text>
+  <text x="70" y="850" font-size="11" fill="#0f172a">▸ 한 프로세스 안에서만 같은 platform_id 가 묶이는 게 보장됨 (분산 락 불필요)</text>
+  <text x="70" y="868" font-size="11" fill="#0f172a">▸ I/O-bound 작업 — ThreadPool 이 GIL 환경에서도 효과적</text>
+  <text x="70" y="886" font-size="11" font-weight="700" fill="#15803d">▸ Resilience4j Bulkhead.semaphore (JVM 대응) — 같은 계정 동시성 격리의 표준 패턴</text>
+</svg>

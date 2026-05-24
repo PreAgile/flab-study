@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="f-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="f-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <marker id="f-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+
+    <symbol id="f-worker" viewBox="0 0 48 48">
+      <circle cx="24" cy="24" r="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <circle cx="24" cy="24" r="3.5" fill="#0f172a"/>
+      <g stroke="#0f172a" stroke-width="2.5" stroke-linecap="round">
+        <line x1="24" y1="6" x2="24" y2="12"/><line x1="24" y1="36" x2="24" y2="42"/>
+        <line x1="6" y1="24" x2="12" y2="24"/><line x1="36" y1="24" x2="42" y2="24"/>
+        <line x1="11" y1="11" x2="15.5" y2="15.5"/><line x1="32.5" y1="32.5" x2="37" y2="37"/>
+        <line x1="11" y1="37" x2="15.5" y2="32.5"/><line x1="32.5" y1="15.5" x2="37" y2="11"/>
+      </g>
+    </symbol>
+    <symbol id="f-cloud" viewBox="0 0 80 48">
+      <path d="M20 36 Q 4 36 4 24 Q 4 14 16 14 Q 18 4 30 4 Q 44 4 46 18 Q 60 16 64 28 Q 76 28 76 38 Q 76 44 68 44 L 22 44 Q 14 44 14 38 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+    <symbol id="f-cloud-x" viewBox="0 0 80 60">
+      <path d="M20 36 Q 4 36 4 24 Q 4 14 16 14 Q 18 4 30 4 Q 44 4 46 18 Q 60 16 64 28 Q 76 28 76 38 Q 76 44 68 44 L 22 44 Q 14 44 14 38 Z" fill="#ffffff" stroke="#b91c1c" stroke-width="2"/>
+      <line x1="22" y1="14" x2="58" y2="44" stroke="#b91c1c" stroke-width="2"/>
+      <line x1="58" y1="14" x2="22" y2="44" stroke="#b91c1c" stroke-width="2"/>
+    </symbol>
+    <symbol id="f-db" viewBox="0 0 48 48">
+      <ellipse cx="24" cy="9" rx="18" ry="5" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <path d="M 6 9 L 6 39 Q 6 44 24 44 Q 42 44 42 39 L 42 9" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <ellipse cx="24" cy="20" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+      <ellipse cx="24" cy="31" rx="18" ry="5" fill="none" stroke="#0f172a" stroke-width="1.4"/>
+    </symbol>
+    <symbol id="f-eye" viewBox="0 0 48 36">
+      <path d="M 4 18 Q 24 0 44 18 Q 24 36 4 18 Z" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <circle cx="24" cy="18" r="6" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <circle cx="24" cy="18" r="2.5" fill="#0f172a"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">C2. 자체 IP 평판 시스템 — 외부 의존 제거 · 비용 88.75% 절감 · 성공률 70% → 98%</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">14 phase phased rollout — port↔IP 매핑 3중 · Adaptive Cooldown · 이중 blocklist · pool exhausted fallback</text>
+
+  <!-- ===== BEFORE ===== -->
+  <text x="60" y="124" font-size="20" font-weight="700" fill="#b91c1c">BEFORE</text>
+  <rect x="170" y="104" width="180" height="32" rx="16" fill="#b91c1c"/>
+  <text x="260" y="126" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">월 800만 · SPOF</text>
+
+  <rect x="50" y="150" width="700" height="280" rx="14" fill="#ffffff" stroke="#b91c1c" stroke-width="2.5"/>
+
+  <use href="#f-worker" x="80" y="200" width="80" height="80"/>
+  <text x="120" y="304" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">스크래퍼 워커</text>
+
+  <line x1="170" y1="240" x2="278" y2="240" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#f-ar-r)"/>
+
+  <use href="#f-cloud-x" x="280" y="190" width="180" height="120"/>
+  <text x="370" y="332" font-size="13" font-weight="700" fill="#b91c1c" text-anchor="middle">외부 Residential 프록시</text>
+  <text x="370" y="348" font-size="11" fill="#64748b" text-anchor="middle">Pay-per-GB · 단일 벤더</text>
+
+  <line x1="470" y1="240" x2="578" y2="240" stroke="#b91c1c" stroke-width="2.5" marker-end="url(#f-ar-r)"/>
+
+  <use href="#f-cloud" x="580" y="200" width="140" height="80"/>
+  <text x="650" y="304" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">6 외부 플랫폼</text>
+  <text x="650" y="320" font-size="11" fill="#b91c1c" text-anchor="middle">성공률 70%</text>
+
+  <!-- BEFORE problems -->
+  <rect x="80" y="346" width="640" height="70" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="100" y="370" font-size="12" font-weight="700" fill="#b91c1c">핵심 한계</text>
+  <text x="100" y="390" font-size="11" fill="#0f172a">① 비용 800만 · Pay-per-GB</text>
+  <text x="300" y="390" font-size="11" fill="#0f172a">② SPOF — 벤더 장애 = 서비스 중단</text>
+  <text x="100" y="408" font-size="11" fill="#0f172a">③ IP 가 매번 바뀜 → 평판 측정 불가</text>
+
+  <!-- ===== Transition arrow ===== -->
+  <g transform="translate(770, 280)">
+    <rect x="0" y="0" width="36" height="50" fill="#0f172a"/>
+    <polygon points="0,50 36,50 18,76" fill="#0f172a"/>
+    <text x="18" y="32" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">14</text>
+    <text x="18" y="50" font-size="10" fill="#ffffff" text-anchor="middle">phase</text>
+  </g>
+
+  <!-- ===== AFTER ===== -->
+  <text x="830" y="124" font-size="20" font-weight="700" fill="#15803d">AFTER</text>
+  <rect x="940" y="104" width="280" height="32" rx="16" fill="#15803d"/>
+  <text x="1080" y="126" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">월 90만 (−88.75%) · 성공률 98%</text>
+
+  <rect x="820" y="150" width="630" height="280" rx="14" fill="#ffffff" stroke="#15803d" stroke-width="2.5"/>
+
+  <use href="#f-worker" x="840" y="200" width="64" height="64"/>
+  <text x="872" y="282" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">스크래퍼 워커</text>
+
+  <line x1="908" y1="232" x2="956" y2="232" stroke="#0f172a" stroke-width="1.8" marker-end="url(#f-ar)"/>
+
+  <!-- Platform Resolver -->
+  <rect x="960" y="200" width="160" height="64" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="1040" y="222" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">Platform Resolver</text>
+  <text x="1040" y="240" font-size="10" fill="#475569" text-anchor="middle">플랫폼별 정책 분기</text>
+  <text x="1040" y="256" font-size="10" fill="#475569" text-anchor="middle">+ exhausted fallback</text>
+
+  <!-- 2 paths -->
+  <rect x="1140" y="170" width="200" height="60" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="1240" y="192" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">자체 IP 평판 (포털)</text>
+  <text x="1240" y="208" font-size="10" fill="#475569" text-anchor="middle">sticky pool · port↔IP 3중</text>
+  <text x="1240" y="222" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">cold start 외부 의존 X</text>
+
+  <rect x="1140" y="244" width="200" height="60" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="1240" y="266" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">Datacenter 풀 (배달앱)</text>
+  <text x="1240" y="282" font-size="10" fill="#475569" text-anchor="middle">Adaptive Cooldown</text>
+  <text x="1240" y="296" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">Shadow mode 실험</text>
+
+  <line x1="1124" y1="222" x2="1138" y2="200" stroke="#0f172a" stroke-width="1.6" marker-end="url(#f-ar)"/>
+  <line x1="1124" y1="242" x2="1138" y2="270" stroke="#0f172a" stroke-width="1.6" marker-end="url(#f-ar)"/>
+
+  <!-- 이중 blocklist -->
+  <rect x="960" y="284" width="160" height="64" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="1040" y="304" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">이중 Blocklist</text>
+  <text x="1040" y="320" font-size="10" fill="#475569" text-anchor="middle">port_set + ip_set</text>
+  <text x="1040" y="336" font-size="10" font-weight="600" fill="#15803d" text-anchor="middle">rotation hazard 차단</text>
+
+  <line x1="1040" y1="266" x2="1040" y2="282" stroke="#0f172a" stroke-width="1.6" marker-end="url(#f-ar)"/>
+
+  <!-- External plat -->
+  <use href="#f-cloud" x="1360" y="200" width="80" height="50"/>
+  <text x="1400" y="266" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">6 외부 플랫폼</text>
+  <text x="1400" y="282" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle">성공률 98%</text>
+
+  <line x1="1342" y1="200" x2="1360" y2="220" stroke="#15803d" stroke-width="2" marker-end="url(#f-ar-g)"/>
+  <line x1="1342" y1="274" x2="1360" y2="246" stroke="#15803d" stroke-width="2" marker-end="url(#f-ar-g)"/>
+
+  <!-- HA backup -->
+  <rect x="840" y="360" width="600" height="48" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="860" y="380" font-size="12" font-weight="700" fill="#64748b">HA 보조 풀 — 외부 Residential 잔존</text>
+  <text x="860" y="396" font-size="10" fill="#64748b">pool exhausted 시에만 fallback (blocklist 필터 통과 시)</text>
+
+  <!-- ===== port↔IP 매핑 3중 ===== -->
+  <text x="50" y="478" font-size="16" font-weight="700" fill="#0f172a">port ↔ IP 매핑 3중 저장 — 클러스터 cold start 외부 의존 X</text>
+
+  <g transform="translate(50, 500)">
+    <rect width="330" height="120" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <text x="20" y="30" font-size="13" font-weight="700" fill="#0f172a">① In-memory Map</text>
+    <text x="20" y="54" font-size="11" fill="#64748b">PortIpResolver — 가장 빠른 경로</text>
+    <text x="20" y="76" font-size="11" fill="#64748b">runtime hot lookup</text>
+    <text x="20" y="100" font-size="10" font-weight="600" fill="#15803d">latency 최소화</text>
+  </g>
+  <g transform="translate(400, 500)">
+    <rect width="330" height="120" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <text x="20" y="30" font-size="13" font-weight="700" fill="#0f172a">② 분산 캐시 HASH</text>
+    <text x="20" y="54" font-size="11" fill="#64748b">port_meta 키별 hash tag {pool}</text>
+    <text x="20" y="76" font-size="11" fill="#64748b">인스턴스 간 공유</text>
+    <text x="20" y="100" font-size="10" font-weight="600" fill="#15803d">CROSSSLOT 회피</text>
+  </g>
+  <g transform="translate(750, 500)">
+    <rect width="330" height="120" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.8"/>
+    <text x="20" y="30" font-size="13" font-weight="700" fill="#0f172a">③ 관계형 DB + 외부 스토리지</text>
+    <text x="20" y="54" font-size="11" fill="#64748b">영구 매핑 · 외부 manifest 부트스트랩</text>
+    <text x="20" y="76" font-size="11" fill="#64748b">클러스터 cold start</text>
+    <text x="20" y="100" font-size="10" font-weight="600" fill="#15803d">restart 후 외부 의존 0</text>
+  </g>
+  <g transform="translate(1100, 500)">
+    <rect width="350" height="120" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="1.8"/>
+    <use href="#f-eye" x="20" y="20" width="48" height="36"/>
+    <text x="80" y="46" font-size="13" font-weight="700" fill="#0f172a">관측성</text>
+    <text x="20" y="76" font-size="11" fill="#64748b">ASN 자동 분류 + KR 가드</text>
+    <text x="20" y="94" font-size="11" fill="#64748b">port·IP 평판 trace · Adaptive Cooldown</text>
+    <text x="20" y="112" font-size="10" font-weight="600" fill="#15803d">Shadow mode 실험으로 결정 측정</text>
+  </g>
+
+  <!-- ===== Hazard catalog ===== -->
+  <text x="50" y="660" font-size="16" font-weight="700" fill="#0f172a">시니어 의사결정 — 6개월간 풀어낸 4 hazard</text>
+
+  <g transform="translate(50, 680)">
+    <rect width="340" height="110" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="170" y="28" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">① Identifier IP → port 전환</text>
+    <text x="170" y="50" font-size="10" fill="#64748b" text-anchor="middle">port↔IP 영구 매핑 3중 저장</text>
+    <text x="170" y="68" font-size="10" fill="#64748b" text-anchor="middle">ASN 분류 + KR 가드</text>
+    <text x="170" y="92" font-size="11" font-weight="700" fill="#15803d" text-anchor="middle">평판 측정 자체가 다시 가능</text>
+  </g>
+
+  <g transform="translate(410, 680)">
+    <rect width="340" height="110" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="170" y="28" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">② Cluster CROSSSLOT</text>
+    <text x="170" y="50" font-size="10" fill="#64748b" text-anchor="middle">hash tag {pool} 슬롯 강제</text>
+    <text x="170" y="68" font-size="10" fill="#64748b" text-anchor="middle">(queue 모듈과 반대 정책)</text>
+    <text x="170" y="92" font-size="11" font-weight="700" fill="#15803d" text-anchor="middle">CROSSSLOT 에러 0건</text>
+  </g>
+
+  <g transform="translate(770, 680)">
+    <rect width="340" height="110" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="170" y="28" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">③ Pool exhausted fallback</text>
+    <text x="170" y="50" font-size="10" fill="#64748b" text-anchor="middle">legacy 도 blocklist 필터</text>
+    <text x="170" y="68" font-size="10" fill="#64748b" text-anchor="middle">외부 AI 코드 리뷰 3회 정밀화</text>
+    <text x="170" y="92" font-size="11" font-weight="700" fill="#15803d" text-anchor="middle">차단 IP 재할당 사고 0건</text>
+  </g>
+
+  <g transform="translate(1130, 680)">
+    <rect width="320" height="110" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+    <text x="160" y="28" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">④ port rotation 회피</text>
+    <text x="160" y="50" font-size="10" fill="#64748b" text-anchor="middle">차단 IP → 그 port 자동 SADD</text>
+    <text x="160" y="68" font-size="10" fill="#64748b" text-anchor="middle">이중 blocklist (port + IP)</text>
+    <text x="160" y="92" font-size="11" font-weight="700" fill="#15803d" text-anchor="middle">차단 누수 0건</text>
+  </g>
+
+  <!-- ===== KPI strip ===== -->
+  <rect x="50" y="810" width="1400" height="110" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="70" y="840" font-size="16" font-weight="700" fill="#0f172a">운영 검증 결과</text>
+
+  <g transform="translate(70, 854)">
+    <rect width="310" height="48" rx="6" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="155" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">월 비용</text>
+    <text x="155" y="40" font-size="14" font-weight="700" fill="#15803d" text-anchor="middle">800만 → 90만 (−88.75%)</text>
+  </g>
+  <g transform="translate(400, 854)">
+    <rect width="310" height="48" rx="6" fill="#ffffff" stroke="#15803d" stroke-width="1.4"/>
+    <text x="155" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">요청 성공률</text>
+    <text x="155" y="40" font-size="14" font-weight="700" fill="#15803d" text-anchor="middle">70% → 98%</text>
+  </g>
+  <g transform="translate(730, 854)">
+    <rect width="310" height="48" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="155" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">SPOF 제거</text>
+    <text x="155" y="40" font-size="14" font-weight="700" fill="#0f172a" text-anchor="middle">단일 벤더 의존 → HA 분산</text>
+  </g>
+  <g transform="translate(1060, 854)">
+    <rect width="380" height="48" rx="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+    <text x="190" y="22" font-size="11" font-weight="700" fill="#64748b" text-anchor="middle">운영 절차 명문화</text>
+    <text x="190" y="40" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">env value · default 정책 AGENTS.md</text>
+  </g>
+</svg>

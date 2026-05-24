@@ -1,0 +1,238 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 950" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="aa-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="aa-ar-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+    <marker id="aa-ar-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+
+    <symbol id="aa-server" viewBox="0 0 64 80">
+      <rect x="6" y="4" width="52" height="72" rx="4" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>
+      <line x1="6" y1="18" x2="58" y2="18" stroke="#0f172a" stroke-width="1.5"/>
+      <line x1="6" y1="32" x2="58" y2="32" stroke="#0f172a" stroke-width="1.5"/>
+      <line x1="6" y1="46" x2="58" y2="46" stroke="#0f172a" stroke-width="1.5"/>
+      <line x1="6" y1="60" x2="58" y2="60" stroke="#0f172a" stroke-width="1.5"/>
+      <circle cx="14" cy="11" r="2" fill="#0f172a"/>
+      <circle cx="14" cy="25" r="2" fill="#0f172a"/>
+      <circle cx="14" cy="39" r="2" fill="#0f172a"/>
+      <circle cx="14" cy="53" r="2" fill="#0f172a"/>
+      <circle cx="14" cy="67" r="2" fill="#0f172a"/>
+    </symbol>
+    <symbol id="aa-docker" viewBox="0 0 48 48">
+      <rect x="6" y="14" width="36" height="28" rx="3" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <rect x="10" y="18" width="6" height="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.2"/>
+      <rect x="18" y="18" width="6" height="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.2"/>
+      <rect x="26" y="18" width="6" height="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.2"/>
+      <rect x="18" y="26" width="6" height="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.2"/>
+      <rect x="26" y="26" width="6" height="6" fill="#ffffff" stroke="#0f172a" stroke-width="1.2"/>
+      <path d="M 4 32 Q 8 28 14 32 L 14 36 L 4 36 Z" fill="#94a3b8" stroke="#0f172a" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="aa-browser" viewBox="0 0 48 48">
+      <rect x="4" y="8" width="40" height="32" rx="2" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <line x1="4" y1="18" x2="44" y2="18" stroke="#0f172a" stroke-width="1.5"/>
+      <circle cx="10" cy="13" r="1.6" fill="#0f172a"/>
+      <circle cx="15" cy="13" r="1.6" fill="#0f172a"/>
+      <circle cx="20" cy="13" r="1.6" fill="#0f172a"/>
+    </symbol>
+    <symbol id="aa-cpu" viewBox="0 0 48 48">
+      <rect x="14" y="14" width="20" height="20" rx="2" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+      <line x1="20" y1="6" x2="20" y2="14"/><line x1="28" y1="6" x2="28" y2="14"/>
+      <line x1="20" y1="34" x2="20" y2="42"/><line x1="28" y1="34" x2="28" y2="42"/>
+      <line x1="6" y1="20" x2="14" y2="20"/><line x1="6" y1="28" x2="14" y2="28"/>
+      <line x1="34" y1="20" x2="42" y2="20"/><line x1="34" y1="28" x2="42" y2="28"/>
+      <g stroke="#0f172a" stroke-width="2"/>
+    </symbol>
+  </defs>
+
+  <rect width="1500" height="950" fill="#ffffff"/>
+
+  <text x="50" y="48" font-size="24" font-weight="700" fill="#0f172a">고사양 헤드리스 브라우저 워크로드 — 물리서버 분할 운영 + 무중단 배포</text>
+  <text x="50" y="76" font-size="14" fill="#64748b">stealth fork 브라우저 30+ 워커 = CPU/메모리 폭증 → 클라우드 일반 인스턴스로는 수지 안 맞음 · 물리서버 도커 8 분할 + 동적 라우팅 무중단</text>
+
+  <!-- ===== Why heavy workload ===== -->
+  <text x="50" y="116" font-size="16" font-weight="700" fill="#0f172a">왜 일반 클라우드 인스턴스가 아닌 물리서버인가</text>
+
+  <rect x="50" y="134" width="700" height="180" rx="12" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="70" y="160" font-size="14" font-weight="700" fill="#7f1d1d">한 워커가 먹는 자원 — 일반 워크로드와 차원이 다름</text>
+
+  <line x1="70" y1="172" x2="730" y2="172" stroke="#fecaca" stroke-width="1"/>
+
+  <text x="70" y="194" font-size="12" fill="#0f172a">▸ 1 워커 = stealth fork 브라우저 1 인스턴스 ≈ <tspan font-weight="700">1 GB+ RAM</tspan></text>
+  <text x="70" y="214" font-size="12" fill="#0f172a">▸ launch 5~10 초 · 정상 상태에서도 CPU 1~2 코어 점유</text>
+  <text x="70" y="234" font-size="12" fill="#0f172a">▸ 플랫폼당 worker 30+ · 6 플랫폼 = 동시 200+ 워커</text>
+  <text x="70" y="254" font-size="12" fill="#0f172a">▸ 봇 탐지 회피 위해 fingerprint 다양화 = 워커별 격리 필수</text>
+
+  <text x="70" y="284" font-size="12" font-weight="700" fill="#b91c1c">⇒ 일반 클라우드 인스턴스로 200+ 워커 운영 시 비용 폭증 · OOM 빈발</text>
+  <text x="70" y="302" font-size="11" font-style="italic" fill="#64748b">— 추가로 클라우드 IP 가 봇 탐지에 「데이터센터 ASN」 으로 분류되어 차단률 상승</text>
+
+  <!-- ===== Solution: 물리서버 ===== -->
+  <rect x="770" y="134" width="680" height="180" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="790" y="160" font-size="14" font-weight="700" fill="#14532d">해결 — 물리서버 도커 분할 운영</text>
+
+  <line x1="790" y1="172" x2="1430" y2="172" stroke="#a7f3d0" stroke-width="1"/>
+
+  <use href="#aa-server" x="800" y="186" width="56" height="80"/>
+  <text x="828" y="282" font-size="12" font-weight="700" fill="#0f172a" text-anchor="middle">물리서버</text>
+
+  <text x="880" y="198" font-size="12" font-weight="700" fill="#0f172a">사양</text>
+  <text x="880" y="218" font-size="11" fill="#0f172a">▸ CPU <tspan font-weight="700">32 코어</tspan></text>
+  <text x="880" y="234" font-size="11" fill="#0f172a">▸ RAM <tspan font-weight="700">512 GB</tspan></text>
+
+  <text x="1050" y="198" font-size="12" font-weight="700" fill="#0f172a">분할</text>
+  <text x="1050" y="218" font-size="11" fill="#0f172a">▸ <tspan font-weight="700">도커 8 인스턴스</tspan></text>
+  <text x="1050" y="234" font-size="11" fill="#0f172a">▸ 각 4 코어 · 64 GB RAM</text>
+  <text x="1050" y="250" font-size="11" fill="#0f172a">▸ blue/green/.../black 색명</text>
+  <text x="1050" y="266" font-size="10" fill="#64748b">(부하 분산 식별용)</text>
+
+  <text x="1240" y="198" font-size="12" font-weight="700" fill="#0f172a">격리 가치</text>
+  <text x="1240" y="218" font-size="11" fill="#0f172a">▸ 도커별 fingerprint</text>
+  <text x="1240" y="234" font-size="11" fill="#0f172a">▸ 한 인스턴스 죽어도</text>
+  <text x="1240" y="248" font-size="11" fill="#0f172a">  나머지 7 정상 동작</text>
+  <text x="1240" y="264" font-size="11" fill="#0f172a">▸ 자원 폭주 격리</text>
+
+  <text x="790" y="302" font-size="11" font-weight="700" fill="#15803d">⇒ 클라우드 대비 비용 절감 + 봇 탐지 회피 (주거형 IP 라우팅과 결합) + 자원 격리 동시 확보</text>
+
+  <!-- ===== Operation pipeline ===== -->
+  <text x="50" y="354" font-size="16" font-weight="700" fill="#0f172a">운영 파이프라인 — 배치 서버 → 동적 라우팅 → 도커 인스턴스 분배</text>
+
+  <rect x="50" y="372" width="240" height="100" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+  <text x="170" y="398" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">배치 서버 (cron · 2h)</text>
+  <text x="170" y="418" font-size="11" fill="#64748b" text-anchor="middle">5,700+ 계정 · 13,000+ 매장</text>
+  <text x="170" y="436" font-size="11" fill="#475569" text-anchor="middle">매장별 작업 HTTP call</text>
+  <text x="170" y="456" font-size="10" font-weight="700" fill="#15803d" text-anchor="middle">→ 매장 단위 fan-out</text>
+
+  <line x1="290" y1="422" x2="348" y2="422" stroke="#0f172a" stroke-width="1.8" marker-end="url(#aa-ar)"/>
+
+  <rect x="350" y="372" width="280" height="100" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="490" y="398" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">동적 라우팅 (Reverse Proxy)</text>
+  <text x="490" y="416" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#475569" text-anchor="middle">traefik/dynamic/scraper.yml</text>
+  <text x="490" y="434" font-size="11" fill="#475569" text-anchor="middle">건강한 도커 인스턴스로 라운드 로빈</text>
+  <text x="490" y="452" font-size="10" font-style="italic" fill="#64748b" text-anchor="middle">설정 파일 변경 = 즉시 라우팅 반영</text>
+
+  <line x1="630" y1="422" x2="688" y2="422" stroke="#0f172a" stroke-width="1.8" marker-end="url(#aa-ar)"/>
+
+  <rect x="690" y="372" width="760" height="100" rx="10" fill="#f8fafc" stroke="#0f172a" stroke-width="2"/>
+  <text x="1070" y="398" font-size="13" font-weight="700" fill="#0f172a" text-anchor="middle">물리서버 도커 8 분할 — 각각 stealth fork 브라우저 30+ 워커</text>
+
+  <g transform="translate(700, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">blue</text>
+  </g>
+  <g transform="translate(790, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">green</text>
+  </g>
+  <g transform="translate(880, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">yellow</text>
+  </g>
+  <g transform="translate(970, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">purple</text>
+  </g>
+  <g transform="translate(1060, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">orange</text>
+  </g>
+  <g transform="translate(1150, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">cyan</text>
+  </g>
+  <g transform="translate(1240, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">white</text>
+  </g>
+  <g transform="translate(1330, 412)">
+    <use href="#aa-docker" x="0" y="0" width="36" height="36"/>
+    <text x="18" y="56" font-size="10" fill="#0f172a" text-anchor="middle">black</text>
+  </g>
+
+  <!-- ===== 무중단 재시작 ===== -->
+  <text x="50" y="510" font-size="16" font-weight="700" fill="#0f172a">무중단 재시작 5-step — 배치 서버 트래픽 끊기지 않게 도커 갱신</text>
+
+  <g transform="translate(50, 530)">
+    <rect width="280" height="160" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="32" r="18" fill="#0f172a"/>
+    <text x="32" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">0</text>
+    <text x="60" y="38" font-size="13" font-weight="700" fill="#0f172a">동적 라우팅 폴더 정리</text>
+    <text x="20" y="74" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">find dynamic/ ! -name scraper.yml</text>
+    <text x="20" y="90" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">-delete</text>
+    <text x="20" y="116" font-size="11" font-weight="700" fill="#b91c1c">예방하는 사고</text>
+    <text x="20" y="134" font-size="11" fill="#475569">.bak 잔여물 → 죽은 컨테이너로 라우팅</text>
+  </g>
+
+  <g transform="translate(345, 530)">
+    <rect width="280" height="160" rx="10" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+    <circle cx="32" cy="32" r="18" fill="#b91c1c"/>
+    <text x="32" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+    <text x="60" y="38" font-size="13" font-weight="700" fill="#7f1d1d">트래픽 차단</text>
+    <text x="20" y="74" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">echo "" &gt; scraper.yml</text>
+    <text x="20" y="92" font-size="11" fill="#475569">컨테이너 살아있음 + 라우팅만 끊김</text>
+    <text x="20" y="120" font-size="11" font-weight="700" fill="#15803d">503 명시</text>
+    <text x="20" y="138" font-size="11" fill="#475569">connection refused 대신 503 응답</text>
+  </g>
+
+  <g transform="translate(640, 530)">
+    <rect width="280" height="160" rx="10" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+    <circle cx="32" cy="32" r="18" fill="#b45309"/>
+    <text x="32" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+    <text x="60" y="38" font-size="13" font-weight="700" fill="#78350f">8 도커 down + ECR pull + up</text>
+    <text x="20" y="74" font-size="11" fill="#475569">동시 down → ECR pull → 순차 up</text>
+    <text x="20" y="92" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">for color in blue green ...:</text>
+    <text x="20" y="108" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">  docker compose up -d</text>
+    <text x="20" y="134" font-size="11" font-style="italic" fill="#64748b">변경분 ECR pull · 순차 기동</text>
+  </g>
+
+  <g transform="translate(935, 530)">
+    <rect width="270" height="160" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="2"/>
+    <circle cx="32" cy="32" r="18" fill="#0f172a"/>
+    <text x="32" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+    <text x="60" y="38" font-size="13" font-weight="700" fill="#0f172a">Health check</text>
+    <text x="20" y="74" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">curl /health (120 × 5s)</text>
+    <text x="20" y="92" font-size="11" fill="#475569">최대 10 분 budget</text>
+    <text x="20" y="118" font-size="11" font-weight="700" fill="#0f172a">확인 항목</text>
+    <text x="20" y="136" font-size="11" fill="#475569">8 도커 응답 · 이미지 md5 일치</text>
+  </g>
+
+  <g transform="translate(1220, 530)">
+    <rect width="230" height="160" rx="10" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+    <circle cx="32" cy="32" r="18" fill="#15803d"/>
+    <text x="32" y="38" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+    <text x="60" y="38" font-size="13" font-weight="700" fill="#14532d">라우팅 복원</text>
+    <text x="20" y="74" font-size="11" fill="#475569">restore-traefik.sh</text>
+    <text x="20" y="92" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">HTTP 200 polling (30s)</text>
+    <text x="20" y="118" font-size="11" font-weight="700" fill="#15803d">완료 조건</text>
+    <text x="20" y="136" font-size="11" fill="#475569">8 도커 트래픽 전부 복원</text>
+  </g>
+
+  <!-- ===== 인증 에러 그룹 도미노 차단 ===== -->
+  <text x="50" y="724" font-size="16" font-weight="700" fill="#0f172a">인증 에러 그룹 도미노 차단 — 플랫폼별 임계치 기반 회로 차단</text>
+
+  <rect x="50" y="744" width="700" height="180" rx="12" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="70" y="770" font-size="14" font-weight="700" fill="#7f1d1d">옛 구현 — 도미노 효과</text>
+
+  <text x="70" y="800" font-size="11" fill="#0f172a">① 그룹 첫 매장 인증 실패 (보호조치 / 지역차단)</text>
+  <text x="70" y="818" font-size="11" fill="#0f172a">② 나머지 6 매장 retry → 21 회 헛 호출</text>
+  <text x="70" y="836" font-size="11" fill="#0f172a">③ 같은 계정 다중 호출 → 봇 탐지 가속</text>
+  <text x="70" y="854" font-size="11" font-weight="700" fill="#b91c1c">④ 1~24 시간 그 계정 전체 차단</text>
+
+  <line x1="70" y1="870" x2="730" y2="870" stroke="#fecaca" stroke-width="1"/>
+
+  <text x="70" y="894" font-size="11" font-style="italic" fill="#7f1d1d">한 매장 실패가 사장님 전체 매장 차단으로 확산</text>
+
+  <rect x="770" y="744" width="680" height="180" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="790" y="770" font-size="14" font-weight="700" fill="#14532d">신 구현 — 그룹 전체 즉시 차단 (회로 차단)</text>
+
+  <text x="790" y="800" font-size="11" font-family="D2Coding, Consolas, monospace" fill="#0f172a">_deactivate_shops(shops_to_process, ...)</text>
+  <text x="790" y="818" font-size="11" fill="#475569">→ 그룹 전체 is_active=4 즉시 처리</text>
+
+  <text x="790" y="846" font-size="11" font-weight="700" fill="#0f172a">PLATFORM_LOGIN_ERROR_COUNTS 임계치</text>
+  <text x="790" y="864" font-size="11" fill="#475569">▸ 봇 탐지 심한 플랫폼: <tspan font-weight="700" fill="#b91c1c">0</tspan> (첫 인증 오류 = 영구 장애 가정)</text>
+  <text x="790" y="882" font-size="11" fill="#475569">▸ 배달앱 A: 3 · 배달앱 B: 2 · 배달앱 C: 3 — 플랫폼별 특성</text>
+
+  <text x="790" y="906" font-size="11" font-weight="700" fill="#15803d">→ 같은 계정 추가 호출 0 건 · 봇 탐지 가속 차단</text>
+</svg>

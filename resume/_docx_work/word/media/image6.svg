@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1040" font-family="Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif">
+  <defs>
+    <marker id="c3-arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#0f172a"/>
+    </marker>
+    <marker id="c3-arr-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <marker id="c3-arr-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1040" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="40" y="46" font-size="24" font-weight="700" fill="#0f172a">C3. Akamai Bot Manager 우회 — 4-state 머신 · Referrer Warming · Click Loop  (77.8% → 100%)</text>
+  <text x="40" y="74" font-size="14" fill="#64748b">단일 트릭이 아닌 4 기술의 합성 — 옛 구현의 4 silent 결함을 모두 차단, PR 측정 18/18 iter</text>
+
+  <!-- ====== Left: Bypass Sequence ====== -->
+  <rect x="40" y="110" width="780" height="690" rx="12" fill="#eff6ff" stroke="#1d4ed8" stroke-width="2"/>
+  <text x="60" y="140" font-size="18" font-weight="700" fill="#1e3a8a">우회 시퀀스 — 로그인 한 트랜잭션 안에서 일어나는 일</text>
+  <line x1="60" y1="150" x2="800" y2="150" stroke="#bfdbfe" stroke-width="1"/>
+
+  <!-- Step 1: Page Entry -->
+  <rect x="80" y="170" width="700" height="64" rx="8" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <circle cx="106" cy="200" r="16" fill="#1d4ed8"/>
+  <text x="106" y="206" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+  <text x="138" y="195" font-size="13" font-weight="700" fill="#1e3a8a">메인 페이지 진입 (mainUrl)</text>
+  <text x="138" y="216" font-size="11" fill="#475569">referrer chain 형성 — 직접 로그인 페이지로 진입 시 sensor 가 차단</text>
+
+  <!-- Arrow -->
+  <line x1="430" y1="234" x2="430" y2="248" stroke="#0f172a" stroke-width="1.5" marker-end="url(#c3-arr)"/>
+
+  <!-- Step 2: Referrer Warming -->
+  <rect x="80" y="252" width="700" height="100" rx="8" fill="#fffbeb" stroke="#b45309" stroke-width="2"/>
+  <circle cx="106" cy="282" r="16" fill="#b45309"/>
+  <text x="106" y="288" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">2</text>
+  <text x="138" y="277" font-size="13" font-weight="700" fill="#78350f">Referrer Warming — 15s human-like telemetry 누적</text>
+  <text x="138" y="296" font-size="11" fill="#475569">▸ mouse jitter 200~600px × 100~400px · steps 3~5 · 800~1,200ms 대기</text>
+  <text x="138" y="312" font-size="11" fill="#475569">▸ bm_sv cookie 발급 polling — 발급 즉시 break</text>
+  <text x="138" y="332" font-size="10" font-weight="700" fill="#15803d">→ Akamai sensor 가 human telemetry 누적 → _abck verified 진입</text>
+
+  <line x1="430" y1="352" x2="430" y2="366" stroke="#0f172a" stroke-width="1.5" marker-end="url(#c3-arr)"/>
+
+  <!-- Step 3: Login Submit -->
+  <rect x="80" y="370" width="700" height="64" rx="8" fill="#ffffff" stroke="#1d4ed8" stroke-width="1.5"/>
+  <circle cx="106" cy="400" r="16" fill="#1d4ed8"/>
+  <text x="106" y="406" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">3</text>
+  <text x="138" y="395" font-size="13" font-weight="700" fill="#1e3a8a">로그인 제출 + _abck cookie 변화 추적</text>
+  <text x="138" y="416" font-size="11" fill="#475569">classifyAbckState() — 우선순위 BLOCKED &gt; CHALLENGED &gt; VERIFIED_ONLY &gt; INITIAL</text>
+
+  <line x1="430" y1="434" x2="430" y2="448" stroke="#0f172a" stroke-width="1.5" marker-end="url(#c3-arr)"/>
+
+  <!-- Step 4: Policy Decision -->
+  <rect x="80" y="452" width="700" height="110" rx="8" fill="#eef2ff" stroke="#4338ca" stroke-width="2"/>
+  <circle cx="106" cy="482" r="16" fill="#4338ca"/>
+  <text x="106" y="488" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">4</text>
+  <text x="138" y="477" font-size="13" font-weight="700" fill="#312e81">정책 분기 — service 와 spec 의 SSOT 순수 함수</text>
+  <text x="138" y="497" font-size="11" fill="#475569">discriminated union 반환 — BREAK_BM_SV / OBSERVE_CHALLENGED /</text>
+  <text x="138" y="513" font-size="11" fill="#475569">                                          OBSERVE_BLOCKED / ENTER_RACE_WINDOW / CONTINUE</text>
+  <text x="138" y="536" font-size="10" font-weight="700" fill="#15803d">→ service / spec 양쪽이 같은 함수 호출 → 정책 변경 시 spec 이 자동 회귀 검증</text>
+
+  <line x1="430" y1="562" x2="430" y2="576" stroke="#0f172a" stroke-width="1.5" marker-end="url(#c3-arr)"/>
+
+  <!-- Step 5: Click Loop -->
+  <rect x="80" y="580" width="700" height="84" rx="8" fill="#fdf2f8" stroke="#9d174d" stroke-width="2"/>
+  <circle cx="106" cy="610" r="16" fill="#9d174d"/>
+  <text x="106" y="616" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">5</text>
+  <text x="138" y="605" font-size="13" font-weight="700" fill="#831843">Click Loop — submit Enter 1회 + page.click 25회 (1~2s jitter)</text>
+  <text x="138" y="625" font-size="11" fill="#475569">사람 행동 (제출 안 됐다 다시 누름) 시뮬레이션</text>
+  <text x="138" y="648" font-size="10" font-weight="700" fill="#15803d">→ Akamai 가 정확한 제출 timing 으로 차단하던 패턴 회피</text>
+
+  <line x1="280" y1="664" x2="280" y2="688" stroke="#15803d" stroke-width="2" marker-end="url(#c3-arr-g)"/>
+  <line x1="580" y1="664" x2="580" y2="688" stroke="#b91c1c" stroke-width="2" marker-end="url(#c3-arr-r)"/>
+
+  <!-- Step 6a: Success -->
+  <rect x="80" y="692" width="380" height="84" rx="8" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+  <text x="100" y="716" font-size="13" font-weight="700" fill="#14532d">로그인 성공</text>
+  <text x="100" y="736" font-size="11" fill="#0f172a">▸ session 확보 → 다른 핸들러로 release</text>
+  <text x="100" y="754" font-size="11" fill="#0f172a">▸ session lock registry handoff 시작</text>
+
+  <!-- Step 6b: Block detected -->
+  <rect x="480" y="692" width="300" height="84" rx="8" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="500" y="716" font-size="13" font-weight="700" fill="#7f1d1d">AkamaiBlockDetector</text>
+  <text x="500" y="736" font-size="11" fill="#0f172a">isAkamaiBlockDetected() 3 경로</text>
+  <text x="500" y="754" font-size="11" fill="#0f172a">일관 호출 — silent 회귀 차단</text>
+
+  <!-- ====== Right: _abck 4-state Machine ====== -->
+  <rect x="840" y="110" width="720" height="490" rx="12" fill="#fef2f2" stroke="#b91c1c" stroke-width="2"/>
+  <text x="860" y="140" font-size="18" font-weight="700" fill="#7f1d1d">_abck cookie — 4-state 머신 + 우선순위 분류기</text>
+  <line x1="860" y1="150" x2="1540" y2="150" stroke="#fecaca" stroke-width="1"/>
+
+  <text x="860" y="174" font-size="12" fill="#475569">옛 구현의 4 silent 결함 — &quot;_abck=~0~,~-1~,~timestamp~&quot; 같은 혼재 상태에서</text>
+  <text x="860" y="190" font-size="12" fill="#475569">VERIFIED_ONLY 로 오분류하거나 너무 일찍 break 하던 hazard 를 4-state 머신으로 명문화</text>
+
+  <!-- States -->
+  <g>
+    <!-- INITIAL -->
+    <rect x="900" y="220" width="200" height="80" rx="10" fill="#ffffff" stroke="#64748b" stroke-width="1.5"/>
+    <text x="1000" y="246" font-size="14" font-weight="700" fill="#334155" text-anchor="middle">INITIAL</text>
+    <text x="1000" y="266" font-size="11" fill="#475569" text-anchor="middle">cookie 없음</text>
+    <text x="1000" y="282" font-size="10" fill="#475569" text-anchor="middle">아직 sensor 미실행</text>
+    <text x="1000" y="298" font-size="10" font-style="italic" fill="#64748b" text-anchor="middle">priority: lowest</text>
+
+    <!-- VERIFIED_ONLY -->
+    <rect x="1200" y="220" width="200" height="80" rx="10" fill="#dcfce7" stroke="#15803d" stroke-width="2"/>
+    <text x="1300" y="246" font-size="14" font-weight="700" fill="#14532d" text-anchor="middle">VERIFIED_ONLY</text>
+    <text x="1300" y="266" font-size="11" fill="#475569" text-anchor="middle">~0~ 만 있음</text>
+    <text x="1300" y="282" font-size="10" fill="#475569" text-anchor="middle">검증 성공</text>
+    <text x="1300" y="298" font-size="10" font-style="italic" fill="#15803d" text-anchor="middle">→ ENTER_RACE_WINDOW</text>
+
+    <!-- CHALLENGED -->
+    <rect x="900" y="340" width="200" height="80" rx="10" fill="#fef3c7" stroke="#b45309" stroke-width="2"/>
+    <text x="1000" y="366" font-size="14" font-weight="700" fill="#78350f" text-anchor="middle">CHALLENGED</text>
+    <text x="1000" y="386" font-size="11" fill="#475569" text-anchor="middle">~-1~ 포함</text>
+    <text x="1000" y="402" font-size="10" fill="#475569" text-anchor="middle">sensor 추가 검증 대기</text>
+    <text x="1000" y="418" font-size="10" font-style="italic" fill="#b45309" text-anchor="middle">→ OBSERVE (polling 계속)</text>
+
+    <!-- BLOCKED -->
+    <rect x="1200" y="340" width="200" height="80" rx="10" fill="#fee2e2" stroke="#b91c1c" stroke-width="2"/>
+    <text x="1300" y="366" font-size="14" font-weight="700" fill="#7f1d1d" text-anchor="middle">BLOCKED</text>
+    <text x="1300" y="386" font-size="11" fill="#475569" text-anchor="middle">~1~ 포함 (어떤 토큰과도)</text>
+    <text x="1300" y="402" font-size="10" fill="#475569" text-anchor="middle">강한 차단 시그널</text>
+    <text x="1300" y="418" font-size="10" font-style="italic" fill="#b91c1c" text-anchor="middle">priority: highest</text>
+  </g>
+
+  <!-- Arrows between states -->
+  <line x1="1100" y1="260" x2="1198" y2="260" stroke="#15803d" stroke-width="2" marker-end="url(#c3-arr-g)"/>
+  <text x="1150" y="252" font-size="10" fill="#15803d" text-anchor="middle">verified</text>
+
+  <line x1="1000" y1="300" x2="1000" y2="338" stroke="#b45309" stroke-width="2" marker-end="url(#c3-arr)"/>
+  <text x="1010" y="322" font-size="10" fill="#b45309">challenge</text>
+
+  <line x1="1200" y1="300" x2="1200" y2="338" stroke="#b91c1c" stroke-width="2" marker-end="url(#c3-arr-r)"/>
+  <text x="1230" y="322" font-size="10" fill="#b91c1c">blocked</text>
+
+  <line x1="1100" y1="380" x2="1198" y2="380" stroke="#b91c1c" stroke-width="2" marker-end="url(#c3-arr-r)"/>
+  <text x="1150" y="372" font-size="10" fill="#b91c1c" text-anchor="middle">~1~ 추가</text>
+
+  <!-- Priority box -->
+  <rect x="860" y="450" width="680" height="130" rx="10" fill="#ffffff" stroke="#b91c1c" stroke-width="1.5"/>
+  <text x="880" y="478" font-size="14" font-weight="700" fill="#7f1d1d">분류기 우선순위 — 옛 구현의 4 silent 결함 차단</text>
+
+  <text x="880" y="504" font-size="11" fill="#0f172a">▸ ~0~,~1~ 혼재 → 옛: VERIFIED_ONLY 오분류 / 신: BLOCKED (가장 강한 시그널)</text>
+  <text x="880" y="520" font-size="11" fill="#0f172a">▸ ~0~ 첫 등장 즉시 break → 옛: race window 안 ~-1~ 추가 놓침 / 신: ENTER_RACE_WINDOW 후 안정 확인</text>
+  <text x="880" y="536" font-size="11" fill="#0f172a">▸ Akamai 차단 응답 → 옛: PASSWORD_ERROR 오분류 / 신: 3 경로 일관 호출로 즉시 BLOCKED</text>
+  <text x="880" y="552" font-size="11" fill="#0f172a">▸ regex /~1~/ vs /~-1~/ — `-` 가 사이에 있어 매치 안 됨, 코드 주석에 명문화</text>
+  <text x="880" y="568" font-size="11" font-weight="700" fill="#15803d">⇒ 4-state classifier 우선순위가 모든 silent 오분류 path 를 닫음</text>
+
+  <!-- ====== Bottom: Result ====== -->
+  <rect x="840" y="620" width="720" height="180" rx="12" fill="#ecfdf5" stroke="#15803d" stroke-width="2"/>
+  <text x="860" y="650" font-size="16" font-weight="700" fill="#14532d">측정 결과 (PR 본문에 박은 정량)</text>
+  <line x1="860" y1="660" x2="1540" y2="660" stroke="#a7f3d0" stroke-width="1"/>
+
+  <g>
+    <!-- baseline bar -->
+    <text x="880" y="690" font-size="12" fill="#475569">baseline (옛 구현)</text>
+    <rect x="1080" y="678" width="280" height="20" rx="3" fill="#fef2f2" stroke="#b91c1c" stroke-width="1"/>
+    <rect x="1080" y="678" width="218" height="20" rx="3" fill="#b91c1c"/>
+    <text x="1370" y="694" font-size="12" font-weight="700" fill="#b91c1c">7 / 9  (77.8%)</text>
+
+    <!-- patch bar -->
+    <text x="880" y="730" font-size="12" fill="#475569">patch (Referrer Warming + Click Loop)</text>
+    <rect x="1080" y="718" width="280" height="20" rx="3" fill="#ecfdf5" stroke="#15803d" stroke-width="1"/>
+    <rect x="1080" y="718" width="280" height="20" rx="3" fill="#15803d"/>
+    <text x="1370" y="734" font-size="12" font-weight="700" fill="#15803d">18 / 18  (100%)</text>
+  </g>
+
+  <text x="880" y="770" font-size="11" fill="#475569">6 iter × 3 worker — 모두 성공. measurement 효과 입증되어 default ON 채택.</text>
+  <text x="880" y="788" font-size="11" font-style="italic" fill="#15803d">&quot;PR 본문에 iter × worker 측정을 박는&quot; 운영 문화 정착</text>
+
+  <!-- ====== Bottom: Hazard catalog ====== -->
+  <rect x="40" y="820" width="1520" height="200" rx="12" fill="#fff7ed" stroke="#9a3412" stroke-width="1.5"/>
+  <text x="60" y="850" font-size="16" font-weight="700" fill="#7c2d12">옛 구현의 4 silent 결함 — 각각이 어떻게 차단되었는가</text>
+
+  <g>
+    <rect x="60" y="868" width="360" height="130" rx="8" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="80" y="892" font-size="12" font-weight="700" fill="#7c2d12">결함 1 — ~0~ 첫 등장 즉시 break</text>
+    <text x="80" y="912" font-size="10" fill="#475569">race window 안에 추가된 ~-1~ 놓침</text>
+    <text x="80" y="934" font-size="11" font-weight="700" fill="#15803d">↑ fix: VERIFIED_ONLY 첫 등장 시</text>
+    <text x="80" y="948" font-size="11" font-weight="700" fill="#15803d">  ENTER_RACE_WINDOW → 안정 확인 후 break</text>
+    <text x="80" y="976" font-size="9" fill="#64748b">classifier 우선순위 명문화 효과</text>
+
+    <rect x="440" y="868" width="360" height="130" rx="8" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="460" y="892" font-size="12" font-weight="700" fill="#7c2d12">결함 2 — ~0~,~1~ 혼재 VERIFIED 오분류</text>
+    <text x="460" y="912" font-size="10" fill="#475569">~1~ 은 BLOCKED 시그널인데 has1Only 누락</text>
+    <text x="460" y="934" font-size="11" font-weight="700" fill="#15803d">↑ fix: ~1~ 포함 시 다른 토큰 무관하게</text>
+    <text x="460" y="948" font-size="11" font-weight="700" fill="#15803d">  BLOCKED (가장 강한 시그널)</text>
+    <text x="460" y="976" font-size="9" fill="#64748b">codex AI 리뷰 follow-up</text>
+
+    <rect x="820" y="868" width="360" height="130" rx="8" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="840" y="892" font-size="12" font-weight="700" fill="#7c2d12">결함 3 — Akamai → PASSWORD_ERROR</text>
+    <text x="840" y="912" font-size="10" fill="#475569">application-level 401/403 으로 보여 retry</text>
+    <text x="840" y="934" font-size="11" font-weight="700" fill="#15803d">↑ fix: isAkamaiBlockDetected() helper 를</text>
+    <text x="840" y="948" font-size="11" font-weight="700" fill="#15803d">  3 경로 (main / quick retry / prewarm) 일관 호출</text>
+    <text x="840" y="976" font-size="9" fill="#64748b">silent 회귀 방지 명문화</text>
+
+    <rect x="1200" y="868" width="340" height="130" rx="8" fill="#ffffff" stroke="#9a3412" stroke-width="1"/>
+    <text x="1220" y="892" font-size="12" font-weight="700" fill="#7c2d12">결함 4 — sensor 준비 전 제출</text>
+    <text x="1220" y="912" font-size="10" fill="#475569">제출 후 즉시 break → sensor 1~2초 검증 못 받음</text>
+    <text x="1220" y="934" font-size="11" font-weight="700" fill="#15803d">↑ fix: Referrer Warming + Click Loop</text>
+    <text x="1220" y="948" font-size="11" font-weight="700" fill="#15803d">  human-like telemetry 누적</text>
+    <text x="1220" y="976" font-size="9" fill="#64748b">측정으로 default ON 정당화</text>
+  </g>
+</svg>
