@@ -12,7 +12,7 @@
 면접에선 이 한 문장 → 해당 가지 → 키워드 3개 순으로 펼친다.
 
 **짧은 목차**:
-1. 위치 — Reverse Proxy 본질 + 4단계 진화
+1. 위치 — Reverse Proxy 본질 + 4단계 진화 + **LB는 layer마다 존재 (DNS/CDN/Cloud/Cluster/Mesh/Client)** ⭐ 신설
 2. L4 vs L7 + NLB/ALB 매핑
 3. 분산 알고리즘 6종 + P2C / Consistent Hash 디테일
 4. 부가 책임 8가지 (SSL/Health/Rate/Sticky/Routing/WAF/DDoS/Observability)
@@ -20,7 +20,7 @@
 6. 운영 시나리오 3개 (shallow health 함정 / sticky 불균형 / draining 부족 503)
 7. 제품 비교 (HAProxy/Nginx/Envoy/ALB/NLB/Cloudflare)
 8. Multi-AZ / Failover / GSLB
-9. 꼬리질문 6개
+9. 꼬리질문 7개 (layered LB 분류 축 포함)
 
 ---
 
@@ -64,6 +64,106 @@ LB는 "분산" 하나가 아니라 **"서버 군집 앞단의 통합 entrypoint"
 | DDoS | 백엔드 직격 | LB가 흡수 |
 
 "SPoF 위험"이라는 오해는 multi-AZ active-active로 해소. 실제론 **여러 위험을 한곳에 모아 관리 가능한 형태로 격리**시키는 장치다.
+
+### 1.4 LB는 layer마다 존재한다 — "어떤 LB냐"의 분류 축
+
+면접에서 "LB는 어떻게 동작하나요?"에 답할 때 가장 흔한 함정: **"LB"를 단일 제품인 것처럼 답하는 것**. 실제로 한 요청은 **4~5개의 LB layer**를 거친다. 각 layer가 다른 책임을 갖는다.
+
+#### 한 요청이 거치는 LB layer
+
+```
+[브라우저]
+   │
+   │ DNS lookup
+   ▼
+┌─────────────────────────────────────────────┐
+│ ① DNS LB                                      │  Route 53, Cloudflare DNS, NS1
+│   - GeoDNS / Latency-based / Weighted        │  layer: DNS protocol (UDP 53)
+│   - multi-region failover                    │  TTL 기반, 즉시 failover 어려움
+└─────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────┐
+│ ② Edge / CDN                                  │  Cloudflare, Akamai, Fastly, CloudFront
+│   - 정적 캐시, WAF, DDoS, edge TLS           │  layer: L7 (anycast)
+│   - 전 세계 PoP에 분산                       │  본업은 캐싱, LB 역할 겸함
+└─────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────┐
+│ ③ Cloud LB (Regional)                         │  AWS ALB/NLB, GCP LB, Azure LB
+│   - SSL term, path/host routing              │  layer: L4 또는 L7
+│   - target group health check                │  한 region 내 multi-AZ 분산
+│   - WAF 통합                                  │
+└─────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────┐
+│ ④ Cluster-internal LB                         │  K8s Service (kube-proxy/IPVS)
+│   - Service ClusterIP NAT                    │  Ingress Controller (Nginx/Traefik)
+│   - Pod 간 routing                           │  layer: L4 (kube-proxy), L7 (Ingress)
+└─────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────┐
+│ ⑤ Service Mesh sidecar                        │  Istio (Envoy), Linkerd, Consul
+│   - per-pod L7 control                       │  layer: L7
+│   - mTLS, retry, circuit breaker             │  pod마다 sidecar
+│   - trace span 생성                           │
+└─────────────────────────────────────────────┘
+   │
+   ▼
+┌─────────────────────────────────────────────┐
+│ ⑥ Application-level (client-side) LB          │  Spring Cloud LoadBalancer, gRPC client
+│   - downstream service 호출 시               │  layer: 코드 안
+│   - retry, circuit breaker (Resilience4j)    │
+└─────────────────────────────────────────────┘
+   │
+   ▼
+[Backend pod]
+```
+
+→ **한 요청이 6개의 LB 역할을 거친다.** 각 layer가 다른 책임을 진다.
+
+#### 분류 축 3가지 — 시니어 답변의 핵심
+
+**축 ①: OSI Layer** (L4 vs L7)
+- L4: TCP/UDP 헤더만, per-connection (NLB, HAProxy L4, IPVS, kube-proxy)
+- L7: HTTP payload까지, per-request (ALB, Nginx, Envoy, Ingress)
+
+**축 ②: 배치 위치** (어디서 동작하나)
+- DNS layer / Edge(CDN) / Regional cloud LB / Cluster-internal / Pod sidecar / Application 안
+
+**축 ③: 운영 주체** (누가 운영하나)
+| 주체 | 예 | 특징 |
+|---|---|---|
+| Managed (cloud) | ALB, NLB, GCP LB | 운영 부담 ↓, vendor lock-in |
+| Self-hosted OSS | Nginx, HAProxy, Envoy | 유연 ↑, 운영 부담 |
+| CDN provider | Cloudflare, Akamai, Fastly | LB + cache + WAF + DDoS 통합 |
+| Hardware | F5 BIG-IP, Citrix ADC | 고성능, 비쌈, 옛 엔터프라이즈 |
+| Service Mesh | Istio, Linkerd | pod 단위 sidecar |
+| App library | Spring Cloud, gRPC client-side | 코드 안 내장 |
+
+#### CDN이 LB인가 — 헷갈리는 경계
+
+CDN(Cloudflare/CloudFront/Fastly)은 **본업이 정적 캐싱**이지만 캐시 miss 시 origin으로 forward하면서 **L7 LB 역할도 한다**:
+- ✅ Health check (origin이 살았는지)
+- ✅ Failover (다른 origin으로)
+- ✅ SSL termination
+- ✅ Rate limit, WAF
+- ✅ Path-based routing (일부)
+- ❌ Sticky session (캐시 일관성과 충돌)
+- ❌ Internal cluster routing
+
+→ "CDN은 edge layer에서 LB 역할도 하는 통합 제품" — 본업과 별도로 LB 카테고리에 들어감.
+
+#### 시니어 답변 톤
+
+❌ 모호: "LB는 트래픽을 분산하고 SSL termination 합니다"
+
+✅ 시니어: "LB는 단일 제품이 아니라 layer마다 분산 배치된 추상 역할입니다. 우리 환경은 Cloudflare(edge) → ALB(region) → Nginx Ingress(cluster) → Istio sidecar(pod) 4 layer가 쌓여 있고, 각 layer가 다른 책임을 갖습니다. 어떤 layer 얘기인지에 따라 답이 달라집니다."
+
+→ **분류 축을 먼저 명확히 하고 들어가는 게 시니어 톤**.
 
 ---
 
@@ -477,7 +577,10 @@ AWS ALB는 기본 multi-AZ(ENI를 여러 AZ에). **Cross-Zone**: ON이면 AZ-A L
 **Q5. Rolling deploy 503 폭증, 어디부터 손보나?**
 > Connection draining 설정부터. `deregistration_delay = p99 × 2~3`(기본 300s), 백엔드 SIGTERM 핸들러로 새 요청 거절 + 진행 중 완료, k8s `preStop` hook으로 readiness false + sleep, idempotent GET은 retry 정책으로 다른 백엔드 시도(POST/PUT은 중복 위험). WebSocket은 close frame + 클라이언트 reconnect 패턴.
 
-**Q6 (패턴 통찰). LB의 사상이 다른 어디서 반복되나?**
+**Q6. "LB가 뭐냐"고 물으면 ALB? Cloudflare? Nginx? Istio? 어떤 기준으로 답하나?**
+> "LB"는 단일 제품이 아니라 layer마다 분산 배치된 추상 역할이라 먼저 분류 축을 명확히 합니다. 한 요청이 보통 ① DNS LB(Route 53) → ② CDN/Edge(Cloudflare) → ③ Cloud LB(ALB) → ④ Cluster Ingress(Nginx) → ⑤ Service Mesh sidecar(Istio) → ⑥ Client-side(Spring Cloud) 6 layer를 거치고, 각 layer가 다른 책임(WAF/DDoS, SSL termination/path routing, mTLS/retry, downstream selection)을 갖습니다. 분류 축은 (1) OSI layer L4/L7, (2) 배치 위치 edge/regional/cluster/pod/app, (3) 운영 주체 managed/OSS/CDN. CDN은 본업이 캐싱이지만 edge에서 LB 역할을 겸하는 통합 제품. 면접 질문이 어느 layer를 가리키는지 되묻거나 우리 환경의 layered LB 구조를 먼저 그리는 게 시니어 답변입니다.
+
+**Q7 (패턴 통찰). LB의 사상이 다른 어디서 반복되나?**
 > "공유 자원 앞에 mediator를 두어 정책을 일원화" — Database의 connection pool(HikariCP가 DB 앞 LB), JVM의 TLAB(Eden 앞 per-thread buffer로 lock 회피), Kubernetes Ingress(cluster 외부 LB), Service Mesh sidecar(서비스 간 LB), CDN(origin 앞 edge), API Gateway(마이크로서비스 앞 통합 entrypoint). 모두 "여러 클라이언트 ↔ 여러 서버" 사이 mediator로 분산·격리·관측을 한곳에 모으는 패턴. 시니어가 "왜 LB가 필요한가"를 답할 때 이 추상 패턴까지 짚으면 한 수 위.
 
 ---
