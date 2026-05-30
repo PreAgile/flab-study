@@ -51,6 +51,39 @@
 
 브라우저가 즉시 캐시부터 보는 이유는 단순하다 — **네트워크는 비싸고 메모리/디스크는 거의 공짜**다. 같은 정적 자원을 100번 요청하면 99번은 캐시로 끝낸다. HSTS가 별도 캐시인 이유는 1차 요청이 `http://`로 시작하면 그 1번이 가로채기당할 수 있어서 — 브라우저가 한 번 HTTPS 받으면 그 도메인을 영원히(또는 max-age) HTTPS로만 가게 강제한다.
 
+<details>
+<summary>📌 <b>HSTS란? — 클릭해서 펼치기</b></summary>
+
+**HSTS = HTTP Strict Transport Security** (RFC 6797). 서버가 응답 헤더(`Strict-Transport-Security: max-age=...`) 하나로 **"이 도메인은 앞으로 HTTPS로만 와. 평문 HTTP 금지"**라고 선언하고, 브라우저가 그걸 캐시에 기억하는 **보안 정책**. 암호화 자체는 TLS(④번)가 하고, HSTS는 **TLS를 반드시 쓰게 강제하는 약속**이다 — 둘은 별개.
+
+**막으려는 공격 — SSL stripping (평문 다운그레이드 MITM)**:
+```
+[HSTS 없을 때]
+"example.com" 입력 (scheme 생략 → 기본 http://)
+        │  http://example.com   ◀── 이 평문 1번이 약점
+        ▼
+   공격자(MITM, 카페 WiFi)가 가로챔
+   피해자 ⟷ 공격자 : HTTP(평문, 자물쇠 없음)
+   공격자 ⟷ 서버  : HTTPS(정상)
+        ▼
+   피해자가 평문 페이지에 비번 입력 → 공격자가 읽음
+
+[HSTS 있을 때]
+"example.com" 입력
+        ▼
+   ① URL 파싱 단계에서 HSTS 캐시 hit → http:// → https:// 강제 재작성
+        ▼   (패킷이 NIC를 나가기 전에 끝남)
+   처음부터 https:// 요청 → 평문 구간 자체가 없음 → strip할 게 없음
+```
+
+HSTS가 **"1차 방어선"**인 이유: DNS·TCP·TLS보다도 먼저, **URL 파싱 시점(①번)에 패킷이 나가기 전에** scheme을 https로 바꿔 평문 요청을 아예 만들지 않는다.
+
+**두 가지 함정 (시니어 관점)**:
+- **첫 방문 구멍** — 헤더를 한 번은 받아야 캐시에 생기므로 생애 첫 요청은 여전히 평문. → 브라우저 내장 **HSTS preload 목록**(`hstspreload.org`)으로 메운다.
+- **양날의 검** — `max-age`를 길게 박으면 인증서 만료·HTTPS 장애 시 브라우저가 우회 불가능한 에러로 사용자를 잠근다(핫픽스 통로도 없음). → 운영 정석: **짧게(예: 300초) 깔고 검증 후 점진적으로 1년으로** 올린다.
+
+</details>
+
 ### 다이어그램
 
 ```
@@ -101,6 +134,103 @@ HTTP는 본질적으로 ASCII protocol이다. RFC 9112가 정의하는 request-l
 5. **byte stream → wire**: **application(브라우저)**이 `write()` syscall로 ASCII byte를 **kernel에 복사**, **kernel TCP/IP 스택**이 그 byte를 segment로 조립하고 NIC가 wire에 송신. 이미 ASCII이므로 추가 변환 없음.
 
 서버는 정확히 역순으로 분해한다. **Tomcat Coyote HTTP parser**가 byte stream을 request-line/header 객체로 **파싱(parse)** → **URLDecoder**(`java.net.URLDecoder`)가 `%HH`를 byte로 **언이스케이프(unescape)** → **CharsetDecoder**(`new String(bytes, UTF_8)`)가 UTF-8 byte를 codepoint로 **디코딩(decode)** → **JVM**이 codepoint를 char[](UTF-16)으로 보관해 Java String 생성 → **Spring이 reflection으로 `@PathVariable`에 주입**. 어느 한 단계라도 charset 합의가 어긋나면 그 지점에서 글자 깨짐.
+
+> 아래 5개 토글은 **5번 단계(`byte stream → wire`)에 숨은 OS·네트워크 기초**를 펼친 것 — byte stream/wire가 뭔지부터, syscall·socket buffer·캡슐화·fd까지 한 줄기로 이어진다.
+
+<details>
+<summary>📌 <b>byte stream & wire란? — 클릭해서 펼치기</b></summary>
+
+**byte stream = 경계 없이 줄줄이 늘어선 byte(8비트)들의 연속 흐름.** 메모리 안에서 HTTP 요청은 구조화된 객체(method·path·header 따로)지만, 네트워크는 구조를 모르고 "byte 하나 다음 byte 하나"만 옮긴다. 그래서 serialize 단계가 그 객체를 **하나의 평탄한 byte 나열**로 펴낸다.
+
+핵심 — **TCP는 byte stream 프로토콜이라 "메시지 경계" 개념이 없다.** `write()`로 요청 한 통을 보내도 TCP는 그걸 "한 메시지"로 기억하지 않고 그냥 byte를 흘린다. 그래서 받는 쪽은 byte가 어디서 끊기는지 TCP에 못 물어보고, **HTTP 스스로** `\r\n\r\n`(헤더 끝)·`Content-Length`(body 길이)로 경계를 표시해야 한다. (HTTP가 이런 구분자를 쓰는 근본 이유)
+
+**wire = byte가 실제로 흘러가는 물리 전송 매체** — 문자 그대로 "전선"이지만 구리(이더넷)·광섬유·전파(WiFi) 통칭. "on the wire"는 메모리·디스크가 아니라 **네트워크 위에서 실제로 흐르는 상태**, "wire format"은 그 흐르는 byte 표현. 그래서 `byte stream → wire`는 **메모리 속 byte 나열을 NIC가 물리 신호로 바꿔 네트워크로 내보내는** 마지막 단계.
+
+**운영 관점**: `tcpdump`/Wireshark는 말 그대로 "wire 위 byte stream"을 떠서 보여준다. "코드에선 분명 보냈는데 서버가 못 받았다" → wire를 떠보면 실제 나간 byte가 보여 직렬화 버그가 잡힌다. "한 번에 다 올 줄 알았는데 잘려 왔다(partial read)"가 byte stream에 경계가 없어서 생기는 단골 버그.
+
+</details>
+
+<details>
+<summary>📌 <b>user space & write() syscall이란? — 클릭해서 펼치기</b></summary>
+
+메모리·CPU 권한은 **두 영역**으로 갈린다:
+
+| | user space | kernel space |
+|---|---|---|
+| 누가 | 브라우저·curl·JVM 등 **앱** | OS 커널 |
+| 권한 | 제한(CPU ring 3) | 전권(ring 0), 하드웨어 직접 제어 |
+
+**왜 나누나** — 보안·안정성. 앱이 NIC를 직접 만지거나 남의 메모리를 읽으면 OS가 무너지니까. 그래서 앱은 하드웨어를 직접 못 건드리고 커널에 **부탁**해야 하며, 그 유일한 정문이 **syscall(시스템 콜)**. 호출하면 CPU가 ring 3 → ring 0으로 모드 전환(trap)하고 커널 코드를 돌린 뒤 돌아온다. 이 전환 비용 때문에 syscall은 "비싼 호출".
+
+**`write(socket_fd, buffer, len)`**의 의미 = **"user space의 내 buffer에 있는 byte를 커널의 socket send buffer로 복사해줘."** 두 가지가 핵심:
+- **복사(copy)다** — user 메모리 → kernel 메모리. (이 복사를 없애는 게 `sendfile()` 같은 zero-copy)
+- **write()가 리턴해도 아직 안 나갔다** — byte는 커널 buffer에 쌓이고, 실제 송신은 커널이 자기 타이밍에. 앱은 그새 다음 일을 한다(decouple).
+
+</details>
+
+<details>
+<summary>📌 <b>socket & buffer란? — 클릭해서 펼치기</b></summary>
+
+**socket = 네트워크 연결의 한쪽 끝점을 나타내는 커널 객체.** `(프로토콜, 내 IP:port, 상대 IP:port)` 4튜플로 식별되고, 앱은 그 객체를 직접 못 만지고 **fd(번호표)**로 가리킨다. Unix "everything is a file" 철학 덕에 소켓도 파일처럼 `read()`/`write()`로 다룬다.
+
+**buffer = 소켓에 붙은 커널 메모리 2개**:
+```
+[app] write() ──▶ ┌──────────────────────┐
+                  │ send buffer (SO_SNDBUF) │ 썼지만 아직 ACK 안 된 byte
+       소켓 ─────│                          │
+                  │ recv buffer (SO_RCVBUF) │ 도착했지만 아직 read() 안 한 byte
+[app] read()  ◀── └──────────────────────┘
+```
+
+**왜 buffer가 있나** — 앱 속도와 네트워크 속도를 **분리**하려고. 앱은 빠르게 write하고 가던 길 가고(커널이 send buffer를 네트워크 속도로 비움), 네트워크가 몰아서 던져도 recv buffer가 받아둔다(앱이 read할 때까지). 그리고 이 **recv buffer 남은 공간이 곧 TCP receive window** — "내 버퍼 이만큼 비었으니 그만큼만 보내"라고 알리는 흐름 제어(flow control)의 실체.
+
+</details>
+
+<details>
+<summary>📌 <b>TCP/IP 스택 "가공" = 계층별 캡슐화 (L1~L7) — 클릭해서 펼치기</b></summary>
+
+"TCP/IP 스택"은 한 층이 아니라 **두 층 이상**이다. byte가 wire에 닿기 전 **L7부터 L2까지 겹겹이 포장**되는데, 각 계층이 위 계층 결과물에 자기 헤더를 덧씌우는 이걸 **캡슐화(encapsulation)**라 한다.
+
+```
+L7  HTTP    │ [ HTTP 메시지 = byte stream ]                          │ → "data"
+L4  TCP     │ [ TCP헤더 | HTTP ]              port·seq·ack          │ → "segment"
+L3  IP      │ [ IP헤더 | TCP헤더 | HTTP ]     src/dst IP·TTL         │ → "packet"
+L2  Ethernet│ [ Eth헤더 | IP헤더 | TCP헤더 | HTTP | FCS ]  src/dst MAC│ → "frame"
+L1  물리     │  위 frame의 모든 bit을 전압·빛·전파 신호로 변환          │ → "bits"
+═══════════════════════ wire ═══════════════════════
+```
+
+PDU 이름이 층마다 바뀌는 게 단서: **data → segment → packet → frame → bits**. 받는 쪽은 역순으로 한 겹씩 벗긴다(decapsulation).
+
+- **TCP는 L4, IP는 L3** — "TCP/IP"라 붙여 부르니 한 층 같지만 별개의 두 단계(TCP가 만든 segment를 IP가 한 번 더 감쌈).
+- **L2(MAC 헤더 붙이기)는 커널/드라이버**가, **L1(byte→물리 신호 변환)은 NIC 하드웨어**가 담당. ("NIC가 한다"는 통념은 L1+L2를 합쳐 부른 것)
+- **실제 wire엔 L5·L6 PDU가 없다** — 실제 인터넷은 TCP/IP 4층 모델이라 OSI의 L5/L6/L7이 "Application" 한 덩어리. **TLS도 HTTP도 TCP 입장에선 그냥 payload**: `[ Eth | IP | TCP | [TLS | HTTP] ]`.
+
+**MAC vs IP 분리 (⑤번과 직결)**: **IP(L3)는 끝-to-끝 주소라 출발~최종 목적지까지 불변**, **MAC(L2)은 hop-to-hop 주소라 바로 다음 장비 하나만** 가리킨다. 라우터를 지날 때마다 L2 프레임은 통째로 벗겨져 **새 MAC으로 재포장**되지만(다음 hop용), 안의 L3 IP 패킷은 그대로 간다(TTL만 1 감소). IP는 "어디로", MAC은 "다음 한 걸음 누구한테".
+
+</details>
+
+<details>
+<summary>📌 <b>fd(file descriptor)란? — 클릭해서 펼치기</b></summary>
+
+**fd = 프로세스가 "열어둔 자원"을 가리키는 작은 정수 번호표(0,1,2,3...).** "everything is a file" 철학으로 fd가 가리키는 건 파일만이 아니라 **소켓·파이프·터미널·epoll** 전부 — 그래서 `read()`/`write()`/`close()` 같은 동일 syscall이 파일이든 소켓이든 똑같이 동작한다. 관례상 `0=stdin, 1=stdout, 2=stderr`라 새로 열면 보통 `3`부터.
+
+**fd 뒤의 3단 간접 참조** — 정수 하나는 입구일 뿐:
+```
+① per-process fd 테이블   ② open file description     ③ 실제 객체
+   (프로세스마다 독립)        (offset·flags 보관)         (inode / 소켓+buffer)
+   fd 4 ───────────────▶  ────────────────────────▶  socket 객체 + send/recv buffer
+```
+①은 프로세스마다 독립(같은 fd 번호가 프로세스마다 다른 걸 가리킴), ②는 `dup()`/`fork()`로 공유되면 offset도 공유, ③이 진짜 자원. 그래서 **`write(socketfd,...)`의 fd는 "어느 소켓 send buffer에 복사할지" 커널에 지목**하는 역할 — fd가 socket buffer로 가는 입구다.
+
+**왜 포인터 아니고 정수인가** — 정수는 **불투명한 손잡이(opaque handle)**라 커널이 매 syscall마다 "이 프로세스가 정말 이 fd를 가졌나" 검증한다(보안). 또 파일·소켓을 동일하게 다루는 추상화. 커널은 **항상 비어 있는 가장 작은 번호**를 배정(`close(1)` 후 `open()`하면 fd 1 재사용 → 쉘 리다이렉션 `>`의 원리).
+
+**운영 관점 — fd가 production을 무너뜨리는 방식**:
+- **연결 1개 = fd 1개.** `accept()`가 연결마다 새 fd 발급 → 동시접속 1만이면 fd 1만+개 필요(`ulimit -n` 상향).
+- **fd leak** — `close()` 누락 시 fd가 안 반환돼 테이블이 차고, 며칠 뒤 `EMFILE`(**Too many open files**)로 서버 사망. (`lsof -p PID`, `ls /proc/PID/fd`로 진단 — fd 수 우상향이면 leak 신호)
+- **epoll** — `epoll_wait()` 하나로 수만 개 소켓 fd 중 "준비된 것"만 받아 처리. 문서 ⑧번 "Nginx worker 1개가 수만 conn"의 정체가 곧 **fd 수만 개를 epoll로 감시**하는 것.
+
+</details>
 
 ### 동사 사전 — "변환"을 쓰면 잃는 정확성
 
